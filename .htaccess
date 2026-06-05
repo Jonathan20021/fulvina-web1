@@ -1,0 +1,33 @@
+DirectoryIndex index.php
+ErrorDocument 404 /fulvina-web/404.php
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # index.php (any level) -> clean directory root
+  RewriteCond %{THE_REQUEST} \s/+(.*?)index\.php[\s?] [NC]
+  RewriteRule ^ /%1 [R=301,L,NE]
+
+  # any other "*.php" -> extensionless clean URL
+  RewriteCond %{THE_REQUEST} \s/+([^.\s?]+)\.php[\s?] [NC]
+  RewriteRule ^ /%1 [R=301,L,NE]
+
+  # serve "/route" from "/route.php" when the file exists
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteCond %{REQUEST_FILENAME}.php -f
+  RewriteRule ^(.+?)/?$ $1.php [L]
+</IfModule>
+
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+  Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+<FilesMatch "^(PRODUCT|DESIGN)\.md$">
+  Require all denied
+</FilesMatch>
+
+<Files "schema.sql">
+  Require all denied
+</Files>

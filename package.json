@@ -1,0 +1,17 @@
+{
+  "name": "fulvina-web",
+  "version": "1.0.0",
+  "description": "Proyecto PHP puro para XAMPP local con sitio publico, SEO tecnico y CRM operativo para SCH MEDICOS.",
+  "main": "tailwind.config.js",
+  "scripts": {
+    "build:css": "tailwindcss -i ./assets/css/tailwind.input.css -o ./assets/css/tailwind.css --minify",
+    "watch:css": "tailwindcss -i ./assets/css/tailwind.input.css -o ./assets/css/tailwind.css --watch"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "tailwindcss": "^3.4.19"
+  }
+}
