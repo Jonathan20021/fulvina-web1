@@ -8654,7 +8654,7 @@ html { scroll-padding-top: 74px; }
 .site-public .public-nav__quote,
 .helpdesk-public .crm-primary-btn {
   border: 1px solid var(--public-blue-strong);
-  background: linear-gradient(180deg, #0c84e0 0%, #075eb0 72%);
+  background: linear-gradient(180deg, #0d6fb4 0%, #075eb0 72%);
   color: #fff;
   box-shadow:
     0 10px 22px -12px rgba(7, 94, 176, .62),
@@ -8664,7 +8664,7 @@ html { scroll-padding-top: 74px; }
 .site-public .sch-btn-primary:hover,
 .site-public .public-nav__quote:hover,
 .helpdesk-public .crm-primary-btn:hover {
-  background: linear-gradient(180deg, #0e90ef 0%, #0666b3 72%);
+  background: linear-gradient(180deg, #0f78c2 0%, #0666b3 72%);
   transform: translateY(-2px);
   box-shadow:
     0 16px 30px -14px rgba(7, 94, 176, .78),

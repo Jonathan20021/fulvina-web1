@@ -52,97 +52,80 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $pageTitle = 'Soporte tecnico SCH MEDICOS | Reportar fallas en equipos medicos';
 $pageDescription = 'Formulario de soporte para reportar problemas en equipos medicos, sistemas de gases medicinales o instalaciones hospitalarias atendidas por SCH MEDICOS.';
 $pageImage = asset('assets/media/Gases-2.png');
+$bodyClass = 'sx';
+$pageStyles = ['assets/css/site-v2.css'];
+$pageFontsGeist = true;
+
+$steps = [
+    ['Paso 01', 'Empresa y contacto', 'Ubica responsable, telefono y correo para dar seguimiento.'],
+    ['Paso 02', 'Serie o ubicacion', 'Relaciona historial, garantia y mantenimientos previos.'],
+    ['Paso 03', 'Prioridad', 'El caso entra al panel con estado, tecnico y vencimiento.'],
+    ['Paso 04', 'Seguimiento', 'Ventas, soporte e ingenieria comparten el mismo registro.'],
+];
+
 require_once __DIR__ . '/includes/public_header.php';
 ?>
 
-<section class="sch-page-hero">
-    <div class="container-sch sch-page-hero__inner">
+<!-- COVER (graphite sign-off band) -->
+<section class="sx-cover sx-cover--graphite sx-sec sx-sec--tight" aria-label="Soporte tecnico">
+    <div class="sx-container">
+        <span class="sx-kicker sx-kicker--light">Soporte tecnico 24/7</span>
+        <h1 class="sx-cover__title">Reporta fallas en equipos, gases o infraestructura medica.</h1>
+        <p class="sx-cover__lead">El formulario crea un ticket, relaciona la empresa, registra el equipo y deja el caso listo para seguimiento tecnico dentro del CRM.</p>
+        <div class="sx-cover__actions">
+            <a href="#reporte" class="sx-btn sx-btn--ondark"><i data-lucide="ticket-plus"></i>Crear ticket</a>
+            <a href="https://wa.me/<?= APP_WHATSAPP ?>" class="sx-link sx-link--light">WhatsApp soporte<i data-lucide="message-circle"></i></a>
+        </div>
+    </div>
+</section>
+
+<!-- FLOW LEDGER -->
+<section class="sx-sec sx-sec--tight sx-sec--paper" aria-label="Flujo de soporte">
+    <div class="sx-container">
+        <div class="sx-steps" data-reveal>
+            <?php foreach ($steps as $s): ?>
+                <div class="sx-step">
+                    <div class="sx-step__code"><?= e($s[0]) ?></div>
+                    <div class="sx-step__title"><?= e($s[1]) ?></div>
+                    <p class="sx-step__desc"><?= e($s[2]) ?></p>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+</section>
+
+<!-- FORM -->
+<section id="reporte" class="sx-sec" aria-label="Reporte de soporte">
+    <div class="sx-container sx-work">
         <div data-reveal="left">
-            <span class="sch-eyebrow">Soporte tecnico 24/7</span>
-            <h1>Reporta fallas en equipos, gases o infraestructura medica</h1>
-            <p>El formulario crea un ticket, relaciona la empresa, registra el equipo y deja el caso listo para seguimiento tecnico dentro del CRM.</p>
-            <div class="sch-page-hero__actions">
-                <a href="#reporte" class="sch-btn-primary"><i data-lucide="ticket-plus" class="h-5 w-5"></i>Crear ticket</a>
-                <a href="https://wa.me/<?= APP_WHATSAPP ?>" class="sch-btn-outline-green"><i data-lucide="message-circle" class="h-5 w-5"></i>WhatsApp soporte</a>
-            </div>
-        </div>
-        <div class="sch-page-hero__media" data-reveal="right" data-reveal-delay="120">
-            <img src="<?= asset('assets/media/Gases-2.png') ?>" alt="Sistema de gases medicinales atendido por SCH MEDICOS">
-        </div>
-    </div>
-</section>
-
-<section class="sch-section sch-section--white" style="padding-top:0">
-    <div class="container-sch" style="margin-top:-2.2rem;position:relative;z-index:5">
-        <div class="sch-proof-band" aria-label="Flujo de soporte" data-reveal>
-            <article>
-                <span>Paso 1</span>
-                <strong>Empresa y contacto</strong>
-                <p>Ubica responsable, telefono y correo para dar seguimiento.</p>
-            </article>
-            <article>
-                <span>Paso 2</span>
-                <strong>Serie o ubicacion</strong>
-                <p>Relaciona historial, garantia y mantenimientos previos.</p>
-            </article>
-            <article>
-                <span>Paso 3</span>
-                <strong>Prioridad</strong>
-                <p>El caso entra al panel con estado, tecnico y vencimiento.</p>
-            </article>
-            <article>
-                <span>Paso 4</span>
-                <strong>Seguimiento CRM</strong>
-                <p>Ventas, soporte e ingenieria comparten el mismo registro.</p>
-            </article>
-        </div>
-    </div>
-</section>
-
-<section id="reporte" class="sch-section sch-section--white" style="padding-top:1rem">
-    <div class="container-sch sch-contact-layout">
-        <div class="sch-contact-stack" data-reveal="left">
-            <div class="sch-contact-card">
-                <i data-lucide="timer" class="h-6 w-6"></i>
-                <div>
-                    <h2>Clasificacion rapida</h2>
-                    <p>Selecciona prioridad segun impacto operativo: baja, media, alta o critica.</p>
+            <h2 class="sx-h2" style="font-size:var(--t-h3)">Como preparar un buen reporte</h2>
+            <div class="sx-channels" style="margin-top:1.4rem">
+                <div class="sx-channel">
+                    <i data-lucide="timer"></i>
+                    <div><h3>Clasificacion rapida</h3><p>Selecciona prioridad segun impacto operativo: baja, media, alta o critica.</p></div>
                 </div>
-            </div>
-            <div class="sch-contact-card">
-                <i data-lucide="scan-line" class="h-6 w-6"></i>
-                <div>
-                    <h2>Identificacion del activo</h2>
-                    <p>Incluye equipo, sistema, serie, area clinica o ubicacion exacta.</p>
+                <div class="sx-channel">
+                    <i data-lucide="scan-line"></i>
+                    <div><h3>Identificacion del activo</h3><p>Incluye equipo, sistema, serie, area clinica o ubicacion exacta.</p></div>
                 </div>
-            </div>
-            <div class="sch-contact-card">
-                <i data-lucide="activity" class="h-6 w-6"></i>
-                <div>
-                    <h2>Descripcion util</h2>
-                    <p>Describe sintomas, alarmas, codigos de error y si la falla es intermitente.</p>
+                <div class="sx-channel">
+                    <i data-lucide="activity"></i>
+                    <div><h3>Descripcion util</h3><p>Describe sintomas, alarmas, codigos de error y si la falla es intermitente.</p></div>
                 </div>
-            </div>
-            <div class="sch-support-cta">
-                <span class="sch-support-cta__icon"><i data-lucide="headset" class="h-6 w-6"></i></span>
-                <span class="sch-eyebrow sch-eyebrow--light">Soporte inmediato 24/7</span>
-                <h3>Falla critica que detiene un area clinica?</h3>
-                <p>No esperes. Nuestro equipo tecnico atiende emergencias hospitalarias de inmediato.</p>
-                <div class="sch-support-cta__actions">
-                    <a href="tel:+18095675559" class="sch-support-cta__call"><i data-lucide="phone" class="h-4 w-4"></i><?= e(APP_PHONE) ?></a>
-                    <a href="https://wa.me/<?= APP_WHATSAPP ?>" class="sch-support-cta__wa"><i data-lucide="message-circle" class="h-4 w-4"></i>WhatsApp</a>
+                <div class="sx-channel">
+                    <i data-lucide="headset"></i>
+                    <div>
+                        <h3>Emergencia critica 24/7</h3>
+                        <p>Si una falla detiene un area clinica, llama directo.</p>
+                        <a href="tel:+18095675559"><?= e(APP_PHONE) ?></a>
+                    </div>
                 </div>
             </div>
         </div>
 
         <form method="post" class="sch-public-form" data-reveal="right" data-reveal-delay="100">
             <?= csrf_field() ?>
-            <div class="sch-section-head sch-section-head--compact">
-                <div>
-                    <span class="sch-eyebrow">Nuevo ticket</span>
-                    <h2 style="font-size:1.5rem">Reporte de soporte</h2>
-                </div>
-            </div>
+            <h2 class="sx-h2" style="font-size:1.4rem;margin-bottom:1.2rem">Reporte de soporte</h2>
             <div class="sch-form-grid">
                 <label class="sch-field">
                     <span class="required">Empresa</span>
@@ -182,8 +165,8 @@ require_once __DIR__ . '/includes/public_header.php';
                     <textarea name="description" required rows="6" placeholder="Describe sintomas, hora aproximada, alarmas, codigos y acciones realizadas."></textarea>
                 </label>
             </div>
-            <div class="sch-form-actions mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p class="text-sm leading-6 text-sch-muted">Los campos marcados con * son obligatorios para abrir el ticket.</p>
+            <div class="sch-form-actions">
+                <p>Los campos marcados con * son obligatorios para abrir el ticket.</p>
                 <button class="sch-btn-primary" type="submit"><i data-lucide="send" class="h-4 w-4"></i>Registrar ticket</button>
             </div>
         </form>

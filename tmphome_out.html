@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SCH MEDICOS | Ingenieria hospitalaria, gases medicinales y equipos medicos</title>
+    <meta name="description" content="SCH MEDICOS: diseno, instalacion, certificacion y soporte tecnico de gases medicinales, equipos medicos e ingenieria hospitalaria para clinicas y hospitales desde 1995.">
+    <meta name="robots" content="index, follow, max-image-preview:large">
+    <link rel="canonical" href="http://127.0.0.1:8899/index.php">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="SCH MEDICOS | Ingenieria hospitalaria, gases medicinales y equipos medicos">
+    <meta property="og:description" content="SCH MEDICOS: diseno, instalacion, certificacion y soporte tecnico de gases medicinales, equipos medicos e ingenieria hospitalaria para clinicas y hospitales desde 1995.">
+    <meta property="og:image" content="/assets/media/2-1.png">
+    <meta property="og:locale" content="es_DO">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="theme-color" content="#0666b3">
+    <link rel="icon" href="/assets/media/cropped-logo_SCH_-removebg-preview-32x32.png" sizes="32x32">
+    <link rel="apple-touch-icon" href="/assets/media/cropped-logo_SCH_-removebg-preview-180x180.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@500;600&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="/assets/css/tailwind.css">
+    <link rel="stylesheet" href="/assets/css/app.css">
+        <link rel="stylesheet" href="/assets/css/home.css">
+        <script defer src="/assets/js/app.js"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script defer src="https://unpkg.com/lucide@latest"></script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"MedicalBusiness","name":"SCH MEDICOS","description":"SCH MEDICOS: diseno, instalacion, certificacion y soporte tecnico de gases medicinales, equipos medicos e ingenieria hospitalaria para clinicas y hospitales desde 1995.","url":"http://127.0.0.1:8899/index.php","logo":"/assets/media/logo_SCH_-removebg-preview.png","email":"sch@sch.com.do","telephone":"(809) 567-5559","foundingDate":"1995-01","address":{"@type":"PostalAddress","streetAddress":"Calle Ortega y Gasset #24, Ensanche La Fe","addressLocality":"Santo Domingo","addressCountry":"DO"}}</script>
+</head>
+<body class="site-public home-v2" x-data="{ mobile: false }">
+<div class="scroll-progress" aria-hidden="true"></div>
+<a href="#contenido" class="skip-link">Saltar al contenido</a>
+
+<header class="public-nav">
+    <div class="public-topbar">
+        <div class="public-topbar__inner">
+            <div class="public-topbar__meta">
+                <span><i data-lucide="map-pin" class="h-4 w-4"></i>Santo Domingo, Republica Dominicana</span>
+                <span class="public-topbar__sep">/</span>
+                <span><i data-lucide="map-pin" class="h-4 w-4"></i>Miami, Florida, USA</span>
+                <span class="public-topbar__sep">/</span>
+                <span><i data-lucide="phone" class="h-4 w-4"></i>(809) 567-5559</span>
+                <span class="public-topbar__sep">/</span>
+                <span><i data-lucide="mail" class="h-4 w-4"></i>sch@sch.com.do</span>
+            </div>
+            <a href="/soporte" class="public-topbar__cta">
+                <i data-lucide="headphones" class="h-4 w-4"></i>Reportar soporte 24/7
+            </a>
+        </div>
+    </div>
+
+    <div class="public-nav__bar">
+        <a href="/" class="sch-brand" aria-label="SCH MEDICOS inicio"><img class="sch-brand__mark" src="/assets/media/logo_SCH_-removebg-preview.png" alt="SCH MEDICOS" width="200" height="182"><span class="sch-brand__text"><strong>SCH MEDICOS</strong><small>Servicios para Clinicas y Hospitales</small></span><span class="sch-brand__since"><b>DESDE</b>1995</span></a>
+        <nav class="public-nav__links" aria-label="Navegacion principal">
+                            <a class="public-nav-link is-active" href="/">Inicio</a>
+                            <a class="public-nav-link " href="/servicios">Productos</a>
+                            <a class="public-nav-link " href="/proyectos">Proyectos</a>
+                            <a class="public-nav-link " href="/#marca">Nosotros</a>
+                            <a class="public-nav-link " href="/soporte">Soporte</a>
+                    </nav>
+
+        <div class="public-nav__actions">
+            <a href="/contacto#cotizar" class="sch-btn-primary public-nav__quote">
+                <i data-lucide="clipboard-pen-line" class="h-4 w-4"></i>Cotizar
+            </a>
+            <a href="/crm/login" class="public-nav__crm">
+                <i data-lucide="lock-keyhole" class="h-4 w-4"></i>Acceso CRM
+            </a>
+        </div>
+
+        <button class="nav-toggle" type="button" @click="mobile = !mobile" :aria-expanded="mobile" aria-label="Abrir menu">
+            <i x-show="!mobile" data-lucide="menu" class="h-6 w-6"></i>
+            <i x-show="mobile" data-lucide="x" class="h-6 w-6" x-cloak></i>
+        </button>
+    </div>
+
+    <div class="mobile-menu" x-show="mobile" x-transition x-cloak>
+        <nav class="mobile-menu__inner" aria-label="Navegacion movil">
+                            <a class="is-active" href="/">
+                    Inicio<i data-lucide="chevron-right" class="h-4 w-4"></i>
+                </a>
+                            <a class="" href="/servicios">
+                    Productos<i data-lucide="chevron-right" class="h-4 w-4"></i>
+                </a>
+                            <a class="" href="/proyectos">
+                    Proyectos<i data-lucide="chevron-right" class="h-4 w-4"></i>
+                </a>
+                            <a class="" href="/#marca">
+                    Nosotros<i data-lucide="chevron-right" class="h-4 w-4"></i>
+                </a>
+                            <a class="" href="/soporte">
+                    Soporte<i data-lucide="chevron-right" class="h-4 w-4"></i>
+                </a>
+                        <a href="/crm/login">Acceso CRM<i data-lucide="lock-keyhole" class="h-4 w-4"></i></a>
+            <a href="/contacto#cotizar" class="is-primary">Solicitar cotizacion</a>
+        </nav>
+    </div>
+</header>
+
+
+<main id="contenido">
+
+<!-- 1) HERO -->
+<section class="schx-hero" aria-label="Presentacion">
+    <div class="schx-hero__bg" aria-hidden="true"></div>
+    <div class="schx-container schx-hero__inner">
+        <div class="schx-hero__copy" data-reveal="left">
+            <span class="schx-eyebrow"><i data-lucide="badge-check"></i>Ingenieria hospitalaria certificada &middot; Desde 1995</span>
+            <h1 class="schx-hero__title">Ingenieria hospitalaria, gases medicinales y <em>equipos medicos</em> para instituciones de salud</h1>
+            <p class="schx-hero__lead">Diseno, instalacion, certificacion y soporte tecnico para clinicas y hospitales del sector publico y privado en el Caribe.</p>
+            <div class="schx-hero__actions">
+                <a href="/contacto#cotizar" class="sch-btn-primary">
+                    <i data-lucide="clipboard-pen-line" class="h-5 w-5"></i>Solicitar cotizacion
+                </a>
+                <a href="/soporte" class="sch-btn-outline-green">
+                    <i data-lucide="headphones" class="h-5 w-5"></i>Reportar soporte
+                </a>
+            </div>
+        </div>
+        <div class="schx-hero__media" data-reveal="right" data-reveal-delay="120">
+            <figure class="schx-hero__frame">
+                <img class="schx-hero__img" src="/assets/media/2-1.png" alt="Area hospitalaria equipada y certificada por SCH MEDICOS" width="900" height="760" fetchpriority="high" decoding="async">
+            </figure>
+            <div class="schx-hero__card schx-hero__card--brands">
+                <i data-lucide="shield-check"></i>
+                <div>
+                    <strong>Marcas autorizadas</strong>
+                    <span>Representacion y certificacion</span>
+                </div>
+            </div>
+            <div class="schx-hero__card schx-hero__card--stat">
+                <span class="schx-hero__statnum">+<span data-count="500">0</span></span>
+                <span>Proyectos ejecutados</span>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- 2) AUTHORITY BAND -->
+<section class="schx-authority schx-section--tight" aria-label="Trayectoria y cobertura">
+    <div class="schx-authority__grid" aria-hidden="true"></div>
+    <div class="schx-authority__glow" aria-hidden="true"></div>
+    <div class="schx-container">
+        <div class="schx-metrics" data-reveal="fade">
+            <div class="schx-metric">
+                <span class="schx-metric__num"><span data-count="30">0</span>+</span>
+                <p class="schx-metric__label">Anos equipando el sector salud</p>
+            </div>
+            <div class="schx-metric">
+                <span class="schx-metric__num">+<span data-count="500">0</span></span>
+                <p class="schx-metric__label">Proyectos ejecutados</p>
+            </div>
+            <div class="schx-metric">
+                <span class="schx-metric__num"><span data-count="2">0</span></span>
+                <p class="schx-metric__label">Sedes: Santo Domingo y Miami</p>
+            </div>
+            <div class="schx-metric">
+                <span class="schx-metric__num">24<em>/</em>7</span>
+                <p class="schx-metric__label">Soporte tecnico institucional</p>
+            </div>
+        </div>
+        <div class="schx-authority__foot" data-reveal="fade" data-reveal-delay="120">
+            <div class="schx-locs">
+                <div class="schx-loc">
+                    <i data-lucide="map-pin"></i>
+                    <div><strong>Santo Domingo</strong><span>Calle Ortega y Gasset #24, Ens. La Fe.</span></div>
+                </div>
+                <div class="schx-loc">
+                    <i data-lucide="map-pin"></i>
+                    <div><strong>Miami, Florida</strong><span>11119 NW 122 ST, Medley, FL 33178.</span></div>
+                </div>
+            </div>
+            <span class="schx-compliance"><i data-lucide="shield-check"></i>NFPA 99 &middot; ISO 7396-1</span>
+        </div>
+    </div>
+</section>
+
+<!-- 3) SOLUTIONS -->
+<section class="schx-section" aria-label="Soluciones">
+    <div class="schx-container">
+        <div class="schx-head" data-reveal="left">
+            <span class="schx-eyebrow"><i data-lucide="layers"></i>Que hacemos</span>
+            <h2 class="schx-h2">Soluciones integrales para el sector salud</h2>
+            <p class="schx-lead">Integramos ingenieria, tecnologia y servicio para garantizar infraestructura hospitalaria segura, eficiente y certificada de extremo a extremo.</p>
+            <a href="/servicios" class="schx-headlink">Ver todos los productos <i data-lucide="arrow-right"></i></a>
+        </div>
+
+        <div class="schx-bento">
+                            <a href="/servicios#gases" class="schx-cell schx-cell--media schx-cell--lead" data-reveal="scale" data-reveal-delay="0">
+                    <img class="schx-cell__img" src="/assets/media/Gases-5.png" alt="Sistema central de gases medicinales instalado por SCH MEDICOS" loading="lazy" decoding="async">
+                    <span class="schx-cell__inner">
+                        <span class="schx-cell__icon"><i data-lucide="gauge"></i></span>
+                        <span class="schx-cell__title">Sistemas centrales de gases medicinales</span>
+                        <span class="schx-cell__desc">Diseno, instalacion, puesta en marcha y certificacion de redes de oxigeno, vacio y aire medicinal conforme a NFPA 99 e ISO 7396-1.</span>
+                        <span class="schx-cell__more">Conocer mas <i data-lucide="arrow-right"></i></span>
+                    </span>
+                </a>
+                            <a href="/servicios#equipos" class="schx-cell schx-cell--media schx-cell--a" data-reveal="scale" data-reveal-delay="90">
+                    <img class="schx-cell__img" src="/assets/media/Equipo-medico-6.png" alt="Equipamiento medico hospitalario suministrado por SCH MEDICOS" loading="lazy" decoding="async">
+                    <span class="schx-cell__inner">
+                        <span class="schx-cell__icon"><i data-lucide="monitor-check"></i></span>
+                        <span class="schx-cell__title">Equipamiento medico hospitalario</span>
+                        <span class="schx-cell__desc">Camas, mesas quirurgicas, ventilacion y diagnostico de marcas representadas.</span>
+                        <span class="schx-cell__more">Conocer mas <i data-lucide="arrow-right"></i></span>
+                    </span>
+                </a>
+                            <a href="/servicios#paredes" class="schx-cell schx-cell--media schx-cell--b" data-reveal="scale" data-reveal-delay="180">
+                    <img class="schx-cell__img" src="/assets/media/Paredes-1.png" alt="Paredes modulares y proteccion hospitalaria instaladas por SCH MEDICOS" loading="lazy" decoding="async">
+                    <span class="schx-cell__inner">
+                        <span class="schx-cell__icon"><i data-lucide="layout-panel-top"></i></span>
+                        <span class="schx-cell__title">Paredes modulares y proteccion</span>
+                        <span class="schx-cell__desc">Brazos, columnas de servicio y revestimientos asepticos para areas criticas.</span>
+                        <span class="schx-cell__more">Conocer mas <i data-lucide="arrow-right"></i></span>
+                    </span>
+                </a>
+            
+            <a href="/soporte" class="schx-cell schx-cell--wide" data-reveal="scale" data-reveal-delay="270">
+                <span class="schx-cell__inner">
+                    <span class="schx-cell__body">
+                        <span class="schx-cell__icon"><i data-lucide="wrench"></i></span>
+                        <span>
+                            <span class="schx-cell__title">Soporte tecnico 24/7</span>
+                            <span class="schx-cell__desc">Mantenimiento preventivo y correctivo con tecnicos certificados y repuestos originales.</span>
+                            <span class="schx-cell__more">Reportar soporte <i data-lucide="arrow-right"></i></span>
+                        </span>
+                    </span>
+                    <span class="schx-cell__247">24/7<small>Disponibilidad</small></span>
+                </span>
+            </a>
+        </div>
+    </div>
+</section>
+
+<!-- 4) PROJECTS -->
+<section class="schx-section schx-section--paper" aria-label="Proyectos">
+    <div class="schx-container">
+        <div class="schx-head" data-reveal="left">
+            <h2 class="schx-h2">Proyectos que respaldan tres decadas de trabajo</h2>
+            <p class="schx-lead">Instalaciones, suministros y sistemas centrales ejecutados para instituciones de salud publicas y privadas en toda la Republica Dominicana.</p>
+            <a href="/proyectos" class="schx-headlink">Ver todos los proyectos <i data-lucide="arrow-right"></i></a>
+        </div>
+
+        <div class="schx-projects__grid">
+                            <a href="/proyectos" class="schx-project" data-reveal="scale" data-reveal-delay="0">
+                    <span class="schx-project__media">
+                        <img src="/assets/media/hospital-de-santiago.png" alt="Hospital Metropolitano de Santiago" loading="lazy" decoding="async">
+                        <span class="schx-project__year">2005-2007</span>
+                    </span>
+                    <span class="schx-project__body">
+                        <span class="schx-project__name">Hospital Metropolitano de Santiago</span>
+                        <span class="schx-project__loc"><i data-lucide="map-pin"></i>Santiago de los Caballeros, R.D.</span>
+                    </span>
+                </a>
+                            <a href="/proyectos" class="schx-project" data-reveal="scale" data-reveal-delay="90">
+                    <span class="schx-project__media">
+                        <img src="/assets/media/MINISTERIO-DE-SALUD-PUBLICA-Y-ASISTENCIA-SOCIAL-HOSPITAL-JAIME-MOTA-ER.png" alt="Hospital Jaime Mota" loading="lazy" decoding="async">
+                        <span class="schx-project__year">2009-2010</span>
+                    </span>
+                    <span class="schx-project__body">
+                        <span class="schx-project__name">Hospital Jaime Mota</span>
+                        <span class="schx-project__loc"><i data-lucide="map-pin"></i>Barahona, R.D.</span>
+                    </span>
+                </a>
+                            <a href="/proyectos" class="schx-project" data-reveal="scale" data-reveal-delay="180">
+                    <span class="schx-project__media">
+                        <img src="/assets/media/6-1.png" alt="Hospital Moscoso Puello, Emergencia" loading="lazy" decoding="async">
+                        <span class="schx-project__year">2009-2010</span>
+                    </span>
+                    <span class="schx-project__body">
+                        <span class="schx-project__name">Hospital Moscoso Puello, Emergencia</span>
+                        <span class="schx-project__loc"><i data-lucide="map-pin"></i>Santo Domingo, R.D.</span>
+                    </span>
+                </a>
+                            <a href="/proyectos" class="schx-project" data-reveal="scale" data-reveal-delay="0">
+                    <span class="schx-project__media">
+                        <img src="/assets/media/16.png" alt="Hospital Morillo King, Emergencia" loading="lazy" decoding="async">
+                        <span class="schx-project__year">2008-2010</span>
+                    </span>
+                    <span class="schx-project__body">
+                        <span class="schx-project__name">Hospital Morillo King, Emergencia</span>
+                        <span class="schx-project__loc"><i data-lucide="map-pin"></i>La Vega, R.D.</span>
+                    </span>
+                </a>
+                            <a href="/proyectos" class="schx-project" data-reveal="scale" data-reveal-delay="90">
+                    <span class="schx-project__media">
+                        <img src="/assets/media/5-1.png" alt="Centro Odontologico Dr. Marcos Diaz" loading="lazy" decoding="async">
+                        <span class="schx-project__year">2010</span>
+                    </span>
+                    <span class="schx-project__body">
+                        <span class="schx-project__name">Centro Odontologico Dr. Marcos Diaz</span>
+                        <span class="schx-project__loc"><i data-lucide="map-pin"></i>Santo Domingo, R.D.</span>
+                    </span>
+                </a>
+                            <a href="/proyectos" class="schx-project" data-reveal="scale" data-reveal-delay="180">
+                    <span class="schx-project__media">
+                        <img src="/assets/media/12.png" alt="Hospital Central Fuerzas Armadas" loading="lazy" decoding="async">
+                        <span class="schx-project__year">2008-2009</span>
+                    </span>
+                    <span class="schx-project__body">
+                        <span class="schx-project__name">Hospital Central Fuerzas Armadas</span>
+                        <span class="schx-project__loc"><i data-lucide="map-pin"></i>Santo Domingo, R.D.</span>
+                    </span>
+                </a>
+                    </div>
+    </div>
+</section>
+
+<!-- 5) ABOUT -->
+<section id="marca" class="schx-section" aria-label="Sobre SCH">
+    <div class="schx-container schx-about__grid">
+        <div data-reveal="left">
+            <span class="schx-eyebrow"><i data-lucide="building-2"></i>Sobre SCH</span>
+            <h2 class="schx-h2">Servicios para clinicas y hospitales desde 1995</h2>
+            <p class="schx-lead">SCH fue fundada en enero de 1995 por Fulvio Montisano para ofrecer soluciones integrales en el equipamiento del area hospitalaria, mediante la conceptualizacion, diseno e implementacion de sistemas centrales de gases medicinales y equipos hospitalarios.</p>
+            <ul class="schx-points">
+                <li><i data-lucide="check-circle-2"></i>Mas de 30 anos equipando el sector salud publico y privado.</li>
+                <li><i data-lucide="check-circle-2"></i>Representacion oficial de marcas internacionales certificadas.</li>
+                <li><i data-lucide="check-circle-2"></i>Equipo tecnico propio para instalacion, certificacion y soporte.</li>
+            </ul>
+        </div>
+        <div class="schx-about__gallery" data-reveal="right" data-reveal-delay="120">
+            <img src="/assets/media/Gases-5.png" alt="Sistema de gases medicinales certificado por SCH MEDICOS" loading="lazy" decoding="async">
+            <img src="/assets/media/Paredes-1.png" alt="Paredes hospitalarias y proteccion instaladas por SCH MEDICOS" loading="lazy" decoding="async">
+            <img src="/assets/media/Equipo-medico-3.png" alt="Equipo medico suministrado por SCH MEDICOS" loading="lazy" decoding="async">
+        </div>
+    </div>
+</section>
+
+<!-- 6) BRANDS -->
+<section class="schx-section schx-section--paper schx-brands" aria-label="Marcas representadas">
+    <div class="schx-container">
+        <div data-reveal="fade">
+            <h2 class="schx-brands__title">Marcas autorizadas y entrenamientos</h2>
+            <p class="schx-brands__hint">Representamos y damos soporte a fabricantes lideres en equipamiento medico y hospitalario, con personal certificado y repuestos originales.</p>
+        </div>
+    </div>
+    <div class="schx-marquee" data-reveal="fade" data-reveal-delay="100" aria-label="Fabricantes representados por SCH MEDICOS">
+        <div class="schx-marquee__track">
+                                                <span class="schx-marquee__item">
+                        <img src="/assets/media/Logo-de-marca.png" alt="Precision Medical" loading="lazy" decoding="async">
+                    </span>
+                                    <span class="schx-marquee__item">
+                        <img src="/assets/media/Logo-de-marca-2.png" alt="Erwin Guth" loading="lazy" decoding="async">
+                    </span>
+                                    <span class="schx-marquee__item">
+                        <img src="/assets/media/Logo-de-marca-3.png" alt="Motya" loading="lazy" decoding="async">
+                    </span>
+                                    <span class="schx-marquee__item">
+                        <img src="/assets/media/Logo-de-marca-4.png" alt="Drive DeVilbiss" loading="lazy" decoding="async">
+                    </span>
+                                    <span class="schx-marquee__item">
+                        <img src="/assets/media/Logo-de-marca-5.png" alt="Seca" loading="lazy" decoding="async">
+                    </span>
+                                    <span class="schx-marquee__item">
+                        <img src="/assets/media/ADC.png" alt="ADC" loading="lazy" decoding="async">
+                    </span>
+                                    <span class="schx-marquee__item">
+                        <img src="/assets/media/ecomed.png" alt="EcoMed" loading="lazy" decoding="async">
+                    </span>
+                                    <span class="schx-marquee__item">
+                        <img src="/assets/media/Logo-g-1.png" alt="Hill-Rom MEDAES" loading="lazy" decoding="async">
+                    </span>
+                                                                <span class="schx-marquee__item" aria-hidden="true">
+                        <img src="/assets/media/Logo-de-marca.png" alt="Precision Medical" loading="lazy" decoding="async">
+                    </span>
+                                    <span class="schx-marquee__item" aria-hidden="true">
+                        <img src="/assets/media/Logo-de-marca-2.png" alt="Erwin Guth" loading="lazy" decoding="async">
+                    </span>
+                                    <span class="schx-marquee__item" aria-hidden="true">
+                        <img src="/assets/media/Logo-de-marca-3.png" alt="Motya" loading="lazy" decoding="async">
+                    </span>
+                                    <span class="schx-marquee__item" aria-hidden="true">
+                        <img src="/assets/media/Logo-de-marca-4.png" alt="Drive DeVilbiss" loading="lazy" decoding="async">
+                    </span>
+                                    <span class="schx-marquee__item" aria-hidden="true">
+                        <img src="/assets/media/Logo-de-marca-5.png" alt="Seca" loading="lazy" decoding="async">
+                    </span>
+                                    <span class="schx-marquee__item" aria-hidden="true">
+                        <img src="/assets/media/ADC.png" alt="ADC" loading="lazy" decoding="async">
+                    </span>
+                                    <span class="schx-marquee__item" aria-hidden="true">
+                        <img src="/assets/media/ecomed.png" alt="EcoMed" loading="lazy" decoding="async">
+                    </span>
+                                    <span class="schx-marquee__item" aria-hidden="true">
+                        <img src="/assets/media/Logo-g-1.png" alt="Hill-Rom MEDAES" loading="lazy" decoding="async">
+                    </span>
+                                    </div>
+    </div>
+</section>
+
+<!-- 7) FINAL CTA -->
+<section class="schx-cta" aria-label="Contacto">
+    <div class="schx-container">
+        <div class="schx-cta__card" data-reveal="scale">
+            <div class="schx-cta__copy">
+                <h2>Listo para dimensionar tu proximo proyecto hospitalario?</h2>
+                <p>Ventas y soporte trabajan sobre el mismo sistema para que la informacion no se pierda entre cotizacion, instalacion y mantenimiento.</p>
+            </div>
+            <div class="schx-cta__actions">
+                <a href="/contacto#cotizar" class="sch-btn-primary">
+                    <i data-lucide="send" class="h-5 w-5"></i>Solicitar cotizacion
+                </a>
+                <a href="tel:+18095675559" class="schx-cta__phone">
+                    <i data-lucide="phone"></i>(809) 567-5559                </a>
+            </div>
+        </div>
+    </div>
+</section>
+
+</main>
+
+<footer class="sch-footer">
+    <div class="sch-footer__grid">
+        <div class="sch-footer__brand">
+            <a href="/" class="sch-brand sch-brand--light" aria-label="SCH MEDICOS inicio"><span class="sch-brand__plaque"><img src="/assets/media/logo_SCH_-removebg-preview.png" alt="" width="200" height="182"></span><span class="sch-brand__text"><strong>SCH MEDICOS</strong><small>Servicios para Clinicas y Hospitales</small></span></a>            <p>Equipos medicos, gases medicinales, diseno, instalacion y soporte tecnico para instituciones de salud publicas y privadas desde 1995.</p>
+            <div class="sch-footer__social">
+                <a href="mailto:sch@sch.com.do" class="is-mail"><i data-lucide="mail" class="h-4 w-4"></i>Enviar correo</a>
+                <a href="https://wa.me/18095675559" class="is-wa"><i data-lucide="message-circle" class="h-4 w-4"></i>WhatsApp</a>
+            </div>
+        </div>
+        <div>
+            <h2>Soluciones</h2>
+            <ul>
+                <li><a href="/servicios#gases">Gases medicinales</a></li>
+                <li><a href="/servicios#equipos">Equipos medicos</a></li>
+                <li><a href="/servicios#paredes">Paredes y cabeceros</a></li>
+                <li><a href="/soporte">Soporte tecnico</a></li>
+            </ul>
+        </div>
+        <div>
+            <h2>Empresa</h2>
+            <ul>
+                <li><a href="/#marca">Sobre SCH</a></li>
+                <li><a href="/proyectos">Proyectos</a></li>
+                <li><a href="/contacto">Contacto</a></li>
+                <li><a href="/crm/login">Acceso CRM</a></li>
+            </ul>
+        </div>
+        <div>
+            <h2>Contacto</h2>
+            <address>
+                <p><i data-lucide="map-pin" class="inline h-4 w-4 text-sch-cyan"></i> Santo Domingo, Republica Dominicana</p>
+                <p><i data-lucide="warehouse" class="inline h-4 w-4 text-sch-cyan"></i> Miami, Florida, USA</p>
+                <p><a href="tel:+18095675559">(809) 567-5559</a> &middot; <a href="tel:+13055974090">+1 (305) 597-4090</a></p>
+                <p><a href="mailto:sch@sch.com.do">sch@sch.com.do</a></p>
+            </address>
+        </div>
+    </div>
+    <div class="sch-footer__bottom">
+        <div class="sch-footer__bottom-inner">
+            <p>&copy; 2026 SCH MEDICOS, SRL. Todos los derechos reservados.</p>
+            <p>Ingenieria hospitalaria, equipos medicos y soporte institucional.</p>
+        </div>
+    </div>
+</footer>
+</body>
+</html>

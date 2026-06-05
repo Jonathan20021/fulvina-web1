@@ -50,8 +50,14 @@ $schema = $schema ?? [
     <link rel="apple-touch-icon" href="<?= asset('assets/media/cropped-logo_SCH_-removebg-preview-180x180.png') ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <?php if (!empty($pageFontsGeist)): ?>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..800&family=Geist+Mono:wght@500..600&display=swap" rel="stylesheet">
+    <?php endif; ?>
     <link rel="stylesheet" href="<?= asset('assets/css/tailwind.css') ?>">
     <link rel="stylesheet" href="<?= asset('assets/css/app.css') ?>">
+    <?php foreach (($pageStyles ?? []) as $pageStyle): ?>
+    <link rel="stylesheet" href="<?= asset($pageStyle) ?>">
+    <?php endforeach; ?>
     <script defer src="<?= asset('assets/js/app.js') ?>"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script defer src="https://unpkg.com/lucide@latest"></script>
@@ -97,13 +103,13 @@ $schema = $schema ?? [
             </a>
         </div>
 
-        <button class="nav-toggle" type="button" @click="mobile = !mobile" :aria-expanded="mobile" aria-label="Abrir menu">
+        <button class="nav-toggle" type="button" @click="mobile = !mobile" :aria-expanded="mobile" aria-controls="mobile-menu" :aria-label="mobile ? 'Cerrar menu' : 'Abrir menu'">
             <i x-show="!mobile" data-lucide="menu" class="h-6 w-6"></i>
             <i x-show="mobile" data-lucide="x" class="h-6 w-6" x-cloak></i>
         </button>
     </div>
 
-    <div class="mobile-menu" x-show="mobile" x-transition x-cloak>
+    <div class="mobile-menu" id="mobile-menu" x-show="mobile" x-transition x-cloak>
         <nav class="mobile-menu__inner" aria-label="Navegacion movil">
             <?php foreach ($navItems as $href => $label): ?>
                 <a class="<?= e(is_active($href)) ?>" href="<?= url($href) ?>">

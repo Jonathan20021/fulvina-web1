@@ -139,6 +139,62 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  /* Animated counters (home redesign) */
+  if (isPublicSite) {
+    const counters = document.querySelectorAll('[data-count]');
+    if (counters.length) {
+      const fill = (el) => {
+        const target = parseFloat(el.dataset.count) || 0;
+        if (reduceMotion || !('requestAnimationFrame' in window)) {
+          el.textContent = String(Math.round(target));
+          return;
+        }
+        el.textContent = '0';
+        const duration = 1400;
+        const start = performance.now();
+        const step = (now) => {
+          const p = Math.min(1, (now - start) / duration);
+          const eased = 1 - Math.pow(1 - p, 3);
+          el.textContent = String(Math.round(target * eased));
+          if (p < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      };
+      if (!('IntersectionObserver' in window)) {
+        counters.forEach(fill);
+      } else {
+        const cio = new IntersectionObserver((entries, obs) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) { fill(entry.target); obs.unobserve(entry.target); }
+          });
+        }, { threshold: 0.4 });
+        counters.forEach((el) => cio.observe(el));
+      }
+    }
+  }
+
+  /* Hero parallax (home redesign) */
+  if (isPublicSite && !reduceMotion) {
+    const xMedia = document.querySelector('.schx-hero__media');
+    const xImg = document.querySelector('.schx-hero__img');
+    if (xMedia && xImg && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+      let tX = 0, tY = 0, cX = 0, cY = 0, raf = null;
+      const tick = () => {
+        cX += (tX - cX) * 0.08;
+        cY += (tY - cY) * 0.08;
+        xImg.style.transform = `scale(1.04) translate3d(${cX}px, ${cY}px, 0)`;
+        raf = (Math.abs(tX - cX) > 0.05 || Math.abs(tY - cY) > 0.05) ? requestAnimationFrame(tick) : null;
+      };
+      xMedia.addEventListener('pointermove', (event) => {
+        const rect = xMedia.getBoundingClientRect();
+        tX = ((event.clientX - rect.left) / rect.width - 0.5) * 14;
+        tY = ((event.clientY - rect.top) / rect.height - 0.5) * 12;
+        if (!raf) raf = requestAnimationFrame(tick);
+      }, { passive: true });
+      xMedia.addEventListener('pointerleave', () => { tX = 0; tY = 0; if (!raf) raf = requestAnimationFrame(tick); }, { passive: true });
+    }
+  }
+
   if (isPublicSite) {
     document.querySelectorAll('.sch-public-form, .helpdesk-wizard').forEach((form) => {
       form.addEventListener('submit', (event) => {

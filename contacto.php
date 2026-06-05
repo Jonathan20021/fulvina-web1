@@ -25,78 +25,91 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $pageTitle = 'Contacto SCH MEDICOS | Solicitar cotizacion de equipos medicos';
 $pageDescription = 'Contacta a SCH MEDICOS en Santo Domingo o Miami para cotizar equipos medicos, gases medicinales, instalaciones hospitalarias y soporte tecnico.';
 $pageImage = asset('assets/media/2-1.png');
+$bodyClass = 'sx';
+$pageStyles = ['assets/css/site-v2.css'];
+$pageFontsGeist = true;
+
+$steps = [
+    ['Paso 01', 'Recibimos la solicitud', 'Tu mensaje entra al CRM como lead comercial con datos de contacto.'],
+    ['Paso 02', 'Clasificacion', 'Ventas la convierte en cotizacion, ticket o proyecto segun el tipo.'],
+    ['Paso 03', 'Respuesta tecnica', 'Asignamos responsable y preparamos alcance, equipos y tiempos.'],
+    ['Paso 04', 'Seguimiento', 'El caso queda trazable en reportes y seguimiento comercial.'],
+];
+
 require_once __DIR__ . '/includes/public_header.php';
 ?>
 
-<section class="sch-page-hero">
-    <div class="container-sch sch-page-hero__inner">
-        <div data-reveal="left">
-            <span class="sch-eyebrow">Contacto comercial</span>
-            <h1>Solicita cotizacion, soporte o alcance tecnico para tu institucion</h1>
-            <p>El equipo de SCH recibe la solicitud como lead comercial y puede convertirla en cotizacion, ticket o seguimiento interno desde el CRM.</p>
-            <div class="sch-page-hero__actions">
-                <a href="#cotizar" class="sch-btn-primary"><i data-lucide="file-plus-2" class="h-5 w-5"></i>Solicitar cotizacion</a>
-                <a href="<?= url('soporte.php') ?>" class="sch-btn-outline-green"><i data-lucide="headphones" class="h-5 w-5"></i>Soporte tecnico</a>
-            </div>
-        </div>
-        <div class="sch-page-hero__media" data-reveal="right" data-reveal-delay="120">
-            <img src="<?= asset('assets/media/2-1.png') ?>" alt="Area hospitalaria equipada por SCH MEDICOS">
+<!-- COVER (graphite sign-off band) -->
+<section class="sx-cover sx-cover--graphite sx-sec sx-sec--tight" aria-label="Contacto">
+    <div class="sx-container">
+        <span class="sx-kicker sx-kicker--light">Contacto comercial</span>
+        <h1 class="sx-cover__title">Solicita cotizacion, soporte o alcance tecnico.</h1>
+        <p class="sx-cover__lead">El equipo de SCH recibe la solicitud como lead comercial y puede convertirla en cotizacion, ticket o seguimiento interno desde el CRM.</p>
+        <div class="sx-cover__actions">
+            <a href="#cotizar" class="sx-btn sx-btn--ondark"><i data-lucide="file-plus-2"></i>Solicitar cotizacion</a>
+            <a href="<?= url('soporte.php') ?>" class="sx-link sx-link--light">Soporte tecnico<i data-lucide="arrow-right"></i></a>
         </div>
     </div>
 </section>
 
-<section class="sch-section sch-section--white">
-    <div class="container-sch sch-contact-layout">
-        <div data-reveal="left">
-            <div class="sch-section-head sch-section-head--compact">
-                <div>
-                    <span class="sch-eyebrow">Canales</span>
-                    <h2 style="font-size:1.7rem">Donde encontrarnos</h2>
+<!-- PROCESS LEDGER -->
+<section class="sx-sec sx-sec--tight sx-sec--paper" aria-label="Como avanzamos tu solicitud">
+    <div class="sx-container">
+        <div class="sx-steps" data-reveal>
+            <?php foreach ($steps as $s): ?>
+                <div class="sx-step">
+                    <div class="sx-step__code"><?= e($s[0]) ?></div>
+                    <div class="sx-step__title"><?= e($s[1]) ?></div>
+                    <p class="sx-step__desc"><?= e($s[2]) ?></p>
                 </div>
-            </div>
-            <div class="sch-contact-stack">
-                <article class="sch-contact-card">
-                    <i data-lucide="map-pin" class="h-6 w-6"></i>
+            <?php endforeach; ?>
+        </div>
+    </div>
+</section>
+
+<!-- CHANNELS + FORM -->
+<section class="sx-sec" aria-label="Canales y solicitud">
+    <div class="sx-container sx-work">
+        <div data-reveal="left">
+            <h2 class="sx-h2" style="font-size:var(--t-h3)">Donde encontrarnos</h2>
+            <div class="sx-channels" style="margin-top:1.4rem">
+                <div class="sx-channel">
+                    <i data-lucide="map-pin"></i>
                     <div>
-                        <h2>Santo Domingo</h2>
+                        <h3>Santo Domingo</h3>
                         <p>Calle Ortega y Gasset #24, Ensanche La Fe</p>
                         <a href="tel:+18095675559"><?= e(APP_PHONE) ?></a>
                     </div>
-                </article>
-                <article class="sch-contact-card">
-                    <i data-lucide="warehouse" class="h-6 w-6"></i>
+                </div>
+                <div class="sx-channel">
+                    <i data-lucide="warehouse"></i>
                     <div>
-                        <h2>Miami Warehouse</h2>
+                        <h3>Miami Warehouse</h3>
                         <p>11119 NW 122 ST, Medley, Florida 33178 USA</p>
-                        <a href="tel:+13055974090">+1 (305) 597-4090</a>
+                        <a href="tel:+13055974090"><?= e(APP_PHONE_US) ?></a>
                     </div>
-                </article>
-                <article class="sch-contact-card">
-                    <i data-lucide="mail" class="h-6 w-6"></i>
+                </div>
+                <div class="sx-channel">
+                    <i data-lucide="mail"></i>
                     <div>
-                        <h2>Correo comercial</h2>
+                        <h3>Correo comercial</h3>
                         <p>Solicitudes de cotizacion, soporte y proyectos.</p>
                         <a href="mailto:<?= e(APP_EMAIL) ?>"><?= e(APP_EMAIL) ?></a>
                     </div>
-                </article>
-                <article class="sch-contact-card">
-                    <i data-lucide="clock-3" class="h-6 w-6"></i>
+                </div>
+                <div class="sx-channel">
+                    <i data-lucide="clock-3"></i>
                     <div>
-                        <h2>Horario</h2>
-                        <p>Lunes a viernes, 8:00 am - 6:00 pm. Soporte critico por canal directo.</p>
+                        <h3>Horario</h3>
+                        <p>Lunes a viernes, 8:00 am a 6:00 pm. Soporte critico por canal directo.</p>
                     </div>
-                </article>
+                </div>
             </div>
         </div>
 
         <form id="cotizar" method="post" class="sch-public-form" data-reveal="right" data-reveal-delay="100">
             <?= csrf_field() ?>
-            <div class="sch-section-head sch-section-head--compact">
-                <div>
-                    <span class="sch-eyebrow">Solicitud</span>
-                    <h2 style="font-size:1.5rem">Cuentanos que necesitas</h2>
-                </div>
-            </div>
+            <h2 class="sx-h2" style="font-size:1.4rem;margin-bottom:1.2rem">Cuentanos que necesitas</h2>
             <div class="sch-form-grid">
                 <label class="sch-field">
                     <span class="required">Nombre</span>
@@ -128,8 +141,8 @@ require_once __DIR__ . '/includes/public_header.php';
                     <textarea name="message" required rows="6" placeholder="Describe equipos, cantidades, area clinica, ubicacion, urgencia o alcance tecnico."></textarea>
                 </label>
             </div>
-            <div class="sch-form-actions mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p class="text-sm leading-6 text-sch-muted">La solicitud queda disponible en reportes y seguimiento comercial.</p>
+            <div class="sch-form-actions">
+                <p>La solicitud queda disponible en reportes y seguimiento comercial.</p>
                 <button type="submit" class="sch-btn-primary"><i data-lucide="send" class="h-4 w-4"></i>Enviar solicitud</button>
             </div>
         </form>

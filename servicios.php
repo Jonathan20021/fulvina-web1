@@ -5,72 +5,77 @@ require_once __DIR__ . '/data/sch.php';
 $pageTitle = 'Productos y servicios SCH MEDICOS | Gases medicinales, equipos e ingenieria hospitalaria';
 $pageDescription = 'Servicios de SCH MEDICOS para hospitales y clinicas: gases medicinales, equipos medicos, paredes modulares, proteccion hospitalaria, mantenimiento y certificacion.';
 $pageImage = asset('assets/media/Gases-5.png');
+$bodyClass = 'sx';
+$pageStyles = ['assets/css/site-v2.css'];
+$pageFontsGeist = true;
+
+$sheetCodes = ['G-01', 'E-02', 'P-03'];
+$steps = [
+    ['Fase 01', 'Diseno y calculo', 'Levantamiento tecnico, planos, dimensionamiento y seleccion de componentes.'],
+    ['Fase 02', 'Instalacion', 'Montaje de sistemas, equipos, redes, cabeceros, manifolds y areas criticas.'],
+    ['Fase 03', 'Certificacion', 'Pruebas, puesta en marcha y documentacion para entrega institucional.'],
+    ['Fase 04', 'Soporte continuo', 'Mantenimiento preventivo, correctivo y seguimiento por ticket.'],
+];
+
 require_once __DIR__ . '/includes/public_header.php';
 ?>
 
-<section class="sch-page-hero">
-    <div class="container-sch sch-page-hero__inner">
-        <div data-reveal="left">
-            <span class="sch-eyebrow">Productos y servicios</span>
-            <h1>Soluciones tecnicas para areas clinicas, gases y equipamiento hospitalario</h1>
-            <p>SCH integra diseno, suministro, instalacion, certificacion y soporte para que la infraestructura hospitalaria opere con trazabilidad y respuesta tecnica.</p>
-            <div class="sch-page-hero__actions">
-                <a href="<?= url('contacto.php#cotizar') ?>" class="sch-btn-primary"><i data-lucide="clipboard-pen-line" class="h-5 w-5"></i>Solicitar cotizacion</a>
-                <a href="<?= url('soporte.php') ?>" class="sch-btn-outline-green"><i data-lucide="headphones" class="h-5 w-5"></i>Reportar soporte</a>
+<!-- COVER -->
+<section class="sx-cover" aria-label="Productos y servicios">
+    <div class="sx-container sx-cover__grid">
+        <div data-reveal>
+            <span class="sx-label">Productos y servicios</span>
+            <h1 class="sx-cover__title">Sistemas tecnicos para areas clinicas y gases medicinales.</h1>
+            <p class="sx-cover__lead">SCH integra diseno, suministro, instalacion, certificacion y soporte para que la infraestructura hospitalaria opere con trazabilidad y respuesta tecnica.</p>
+            <div class="sx-cover__actions">
+                <a href="<?= url('contacto.php#cotizar') ?>" class="sx-btn"><i data-lucide="clipboard-pen-line"></i>Solicitar cotizacion</a>
+                <a href="<?= url('soporte.php') ?>" class="sx-link">Reportar soporte<i data-lucide="arrow-right"></i></a>
             </div>
         </div>
-        <div class="sch-page-hero__media" data-reveal="right" data-reveal-delay="120">
-            <img src="<?= asset('assets/media/Gases-5.png') ?>" alt="Instalacion hospitalaria y sistemas de gases medicinales SCH MEDICOS">
+        <div class="sx-cover__media" data-reveal>
+            <img src="<?= asset('assets/media/Gases-5.png') ?>" alt="Sistema de gases medicinales certificado por SCH MEDICOS" loading="lazy" decoding="async">
         </div>
     </div>
 </section>
 
-<section class="sch-section sch-section--white" style="padding-top:0">
-    <div class="container-sch" style="margin-top:-2.2rem;position:relative;z-index:5">
-        <div class="sch-proof-band" aria-label="Capacidades de servicio" data-reveal>
-            <article>
-                <span>Fase 01</span>
-                <strong>Diseno y calculo</strong>
-                <p>Levantamiento tecnico, planos, dimensionamiento y seleccion de componentes.</p>
-            </article>
-            <article>
-                <span>Fase 02</span>
-                <strong>Instalacion</strong>
-                <p>Montaje de sistemas, equipos, redes, cabeceros, manifolds y areas criticas.</p>
-            </article>
-            <article>
-                <span>Fase 03</span>
-                <strong>Certificacion</strong>
-                <p>Pruebas, puesta en marcha y documentacion para entrega institucional.</p>
-            </article>
-            <article>
-                <span>Fase 04</span>
-                <strong>Soporte continuo</strong>
-                <p>Mantenimiento preventivo, correctivo y seguimiento por ticket en el CRM.</p>
-            </article>
+<!-- PROCESS LEDGER -->
+<section class="sx-sec sx-sec--tight sx-sec--paper" aria-label="Proceso de trabajo">
+    <div class="sx-container">
+        <div class="sx-steps" data-reveal>
+            <?php foreach ($steps as $s): ?>
+                <div class="sx-step">
+                    <div class="sx-step__code"><?= e($s[0]) ?></div>
+                    <div class="sx-step__title"><?= e($s[1]) ?></div>
+                    <p class="sx-step__desc"><?= e($s[2]) ?></p>
+                </div>
+            <?php endforeach; ?>
         </div>
     </div>
 </section>
 
-<section class="sch-section sch-section--white" style="padding-top:1rem">
-    <div class="container-sch">
-        <?php foreach ($services as $index => $service): ?>
-            <article id="<?= e($service['id']) ?>" class="sch-service-block <?= $index % 2 === 1 ? 'is-reversed' : '' ?>" data-reveal>
-                <div class="sch-service-block__media">
-                    <img src="<?= asset('assets/media/' . $service['image']) ?>" alt="<?= e(image_alt($service['image'], $service['title'])) ?>" loading="lazy">
-                    <span class="sch-service-block__tag">0<?= $index + 1 ?> / <?= count($services) ?></span>
+<!-- SERVICE SHEETS -->
+<section class="sx-sec sx-sec--air" aria-label="Soluciones">
+    <div class="sx-container">
+        <div class="sx-sechead" data-reveal>
+            <span class="sx-kicker">Capacidades</span>
+            <h2 class="sx-h2">Tres lineas de servicio, ejecutadas de extremo a extremo.</h2>
+        </div>
+        <?php foreach ($services as $i => $service): ?>
+            <article id="<?= e($service['id']) ?>" class="sx-sheet <?= $i % 2 === 1 ? 'is-rev' : '' ?>" data-reveal>
+                <div class="sx-sheet__media">
+                    <img src="<?= asset('assets/media/' . $service['image']) ?>" alt="<?= e(image_alt($service['image'], $service['title'])) ?>" loading="lazy" decoding="async">
                 </div>
                 <div>
-                    <span class="sch-eyebrow">Solucion</span>
-                    <h2><?= e($service['title']) ?></h2>
-                    <p><?= e($service['summary']) ?></p>
-                    <div class="sch-check-grid">
+                    <div class="sx-sheet__code"><?= e($sheetCodes[$i] ?? 'S-0' . ($i + 1)) ?></div>
+                    <h3 class="sx-sheet__title"><?= e($service['title']) ?></h3>
+                    <p class="sx-sheet__sum"><?= e($service['summary']) ?></p>
+                    <ul class="sx-sheet__spec">
                         <?php foreach ($service['items'] as $item): ?>
-                            <span><i data-lucide="check" class="h-4 w-4"></i><?= e($item) ?></span>
+                            <li><?= e($item) ?></li>
                         <?php endforeach; ?>
-                    </div>
-                    <div class="mt-6">
-                        <a href="<?= url('contacto.php#cotizar') ?>" class="sch-btn-primary"><i data-lucide="arrow-right" class="h-4 w-4"></i>Cotizar este servicio</a>
+                    </ul>
+                    <div class="sx-sheet__cta">
+                        <a href="<?= url('contacto.php#cotizar') ?>" class="sx-link">Cotizar este servicio<i data-lucide="arrow-right"></i></a>
                     </div>
                 </div>
             </article>
@@ -78,32 +83,26 @@ require_once __DIR__ . '/includes/public_header.php';
     </div>
 </section>
 
-<section class="sch-section sch-section--page">
-    <div class="container-sch">
-        <div class="sch-section-head" data-reveal>
-            <div>
-                <span class="sch-eyebrow">Evidencia visual</span>
-                <h2>Equipos, areas y sistemas con registro fotografico</h2>
-            </div>
-            <p>Seleccion visual de equipamiento, sistemas de gases, paredes y areas clinicas intervenidas por SCH.</p>
-        </div>
-        <div class="sch-gallery-grid" data-reveal>
+<!-- EVIDENCE STRIP -->
+<section class="sx-sec sx-sec--tight sx-sec--paper" aria-label="Registro fotografico">
+    <div class="sx-container">
+        <div class="sx-strip" data-reveal>
             <?php foreach (['Equipo-medico-1.png','Equipo-medico-3.png','Gases-2.png','Paredes-1.png','5.png','6.png','9.png','15.png'] as $image): ?>
-                <img src="<?= asset('assets/media/' . $image) ?>" alt="<?= e(image_alt($image, 'Servicio SCH MEDICOS')) ?>" loading="lazy">
+                <img src="<?= asset('assets/media/' . $image) ?>" alt="" aria-hidden="true" loading="lazy" decoding="async">
             <?php endforeach; ?>
         </div>
     </div>
 </section>
 
-<section class="sch-section sch-section--white">
-    <div class="container-sch">
-        <div class="sch-cta-band" data-reveal>
-            <div>
-                <span class="sch-eyebrow sch-eyebrow--light">Un solo flujo de trabajo</span>
-                <h2>Necesitas dimensionar un proyecto o resolver una falla?</h2>
-                <p>Ventas y soporte trabajan sobre el mismo CRM para que la informacion no se pierda entre cotizacion, instalacion y mantenimiento.</p>
+<!-- SIGN-OFF -->
+<section class="sx-signoff sx-sec sx-sec--tight" aria-label="Contacto">
+    <div class="sx-container">
+        <div class="sx-signoff__inner">
+            <h2 class="sx-signoff__h">Dimensionemos tu proximo proyecto hospitalario.</h2>
+            <div class="sx-signoff__actions">
+                <a href="<?= url('contacto.php#cotizar') ?>" class="sx-btn sx-btn--ondark"><i data-lucide="clipboard-pen-line"></i>Solicitar cotizacion</a>
+                <a href="tel:+18095675559" class="sx-tel"><i data-lucide="phone"></i><?= e(APP_PHONE) ?></a>
             </div>
-            <a href="<?= url('contacto.php#cotizar') ?>" class="sch-btn-primary"><i data-lucide="send" class="h-4 w-4"></i>Enviar solicitud</a>
         </div>
     </div>
 </section>

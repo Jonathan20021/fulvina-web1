@@ -29,82 +29,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link rel="icon" href="<?= asset('assets/media/cropped-logo_SCH_-removebg-preview-32x32.png') ?>" sizes="32x32">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..800&family=Geist+Mono:wght@500..600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="<?= asset('assets/css/tailwind.css') ?>">
-    <script defer src="https://unpkg.com/lucide@latest"></script>
     <link rel="stylesheet" href="<?= asset('assets/css/app.css') ?>">
+    <link rel="stylesheet" href="<?= asset('assets/css/site-v2.css') ?>">
+    <script defer src="https://unpkg.com/lucide@latest"></script>
     <script defer src="<?= asset('assets/js/app.js') ?>"></script>
 </head>
-<body class="bg-sch-graphite text-white login-page">
-    <main class="login-shell">
-        <section class="login-media">
-            <img src="<?= asset('assets/media/5.png') ?>" alt="Pasillo hospitalario intervenido por SCH MEDICOS">
-            <div class="login-media__content">
-                <a href="<?= url('index.php') ?>" class="sch-brand sch-brand--light">
-                    <span class="sch-brand__plaque"><img src="<?= asset(APP_LOGO) ?>" alt="SCH MEDICOS"></span>
-                    <span class="sch-brand__text"><strong>SCH MEDICOS</strong><small><?= e(APP_TAGLINE) ?></small></span>
-                </a>
-                <div>
-                    <h1>Operacion comercial, soporte tecnico y equipos bajo control.</h1>
-                    <p>Clientes, cotizaciones, tickets, garantias y agenda de mantenimiento conectados para el equipo SCH.</p>
-                    <ul class="login-media__points">
-                        <li><i data-lucide="check-circle-2" class="h-5 w-5"></i>Pipeline comercial y cotizaciones en un solo lugar.</li>
-                        <li><i data-lucide="check-circle-2" class="h-5 w-5"></i>Tickets de soporte con prioridad y vencimiento.</li>
-                        <li><i data-lucide="check-circle-2" class="h-5 w-5"></i>Inventario de equipos, garantias y mantenimiento.</li>
-                    </ul>
+<body class="sx sxl">
+    <main class="sxl-shell">
+        <aside class="sxl-aside">
+            <img class="sxl-aside__img" src="<?= asset('assets/media/5.png') ?>" alt="" aria-hidden="true">
+            <a href="<?= url('index.php') ?>" class="sxl-brand">
+                <img src="<?= asset(APP_LOGO) ?>" alt="SCH MEDICOS">
+                <span><strong>SCH MEDICOS</strong><small><?= e(APP_TAGLINE) ?></small></span>
+            </a>
+            <div>
+                <h2 class="sxl-aside__h">Operacion comercial, soporte y equipos bajo control.</h2>
+                <p class="sxl-aside__p">Clientes, cotizaciones, tickets, garantias y agenda de mantenimiento conectados para el equipo SCH.</p>
+                <div class="sxl-points">
+                    <div class="sxl-point"><i data-lucide="line-chart"></i>Pipeline comercial y cotizaciones en un solo lugar.</div>
+                    <div class="sxl-point"><i data-lucide="ticket"></i>Tickets de soporte con prioridad y vencimiento.</div>
+                    <div class="sxl-point"><i data-lucide="package"></i>Inventario de equipos, garantias y mantenimiento.</div>
                 </div>
             </div>
-        </section>
+        </aside>
 
-        <section class="login-panel">
-            <div class="login-card">
-                <a href="<?= url('index.php') ?>" class="login-back"><i data-lucide="arrow-left" class="h-4 w-4"></i>Volver al sitio</a>
-
-                <div class="login-brand">
-                    <span class="login-brand__logo"><img src="<?= asset(APP_LOGO) ?>" alt="SCH MEDICOS"></span>
-                    <div class="login-brand__text">
-                        <strong>SCH MEDICOS</strong>
-                        <small><?= e(APP_TAGLINE) ?></small>
-                    </div>
+        <section class="sxl-main">
+            <div class="sxl-card">
+                <div class="sxl-cardbrand">
+                    <img src="<?= asset(APP_LOGO) ?>" alt="SCH MEDICOS">
+                    <strong>SCH MEDICOS</strong>
                 </div>
 
-                <div class="login-head">
-                    <span class="login-eyebrow"><i data-lucide="lock-keyhole" class="h-3.5 w-3.5"></i> Panel interno</span>
-                    <h2>Entrar al CRM</h2>
-                    <p>Acceso para ventas, soporte e ingenieria de SCH MEDICOS.</p>
-                </div>
+                <a href="<?= url('index.php') ?>" class="sxl-back"><i data-lucide="arrow-left"></i>Volver al sitio</a>
 
-                <?php foreach (flashes() as $i => $item): ?>
-                    <div class="login-alert <?= $item['type'] === 'success' ? 'is-ok' : 'is-warn' ?>">
-                        <i data-lucide="<?= $item['type'] === 'success' ? 'check-circle-2' : 'alert-triangle' ?>" class="h-4 w-4"></i><?= e($item['message']) ?>
+                <span class="sx-kicker" style="margin-top:1.4rem">Panel interno</span>
+                <h1>Entrar al CRM</h1>
+                <p class="sxl-sub">Acceso para ventas, soporte e ingenieria de SCH MEDICOS.</p>
+
+                <?php foreach (flashes() as $item): ?>
+                    <div class="sxl-alert <?= $item['type'] === 'success' ? 'is-ok' : 'is-warn' ?>">
+                        <i data-lucide="<?= $item['type'] === 'success' ? 'check-circle-2' : 'alert-triangle' ?>"></i><?= e($item['message']) ?>
                     </div>
                 <?php endforeach; ?>
 
-                <form method="post" class="login-form">
+                <form method="post" class="sxl-form">
                     <?= csrf_field() ?>
-                    <label class="login-field">
+                    <label class="sxl-field">
                         <span>Correo</span>
-                        <div class="login-input">
+                        <div class="sxl-input">
                             <i data-lucide="mail"></i>
                             <input type="email" name="email" required autofocus autocomplete="username" value="admin@sch.local" placeholder="correo@sch.com.do">
                         </div>
                     </label>
-                    <label class="login-field">
+                    <label class="sxl-field">
                         <span>Contrasena</span>
-                        <div class="login-input">
+                        <div class="sxl-input">
                             <i data-lucide="lock"></i>
                             <input type="password" name="password" id="login-pwd" required autocomplete="current-password" value="admin123">
-                            <button type="button" class="login-toggle" aria-label="Mostrar u ocultar contrasena" onclick="schTogglePwd(this)"><i data-lucide="eye"></i></button>
+                            <button type="button" class="sxl-toggle" aria-label="Mostrar u ocultar contrasena" onclick="schTogglePwd(this)"><i data-lucide="eye"></i></button>
                         </div>
                     </label>
-                    <button class="login-submit" type="submit">Iniciar sesion <i data-lucide="arrow-right"></i></button>
+                    <button class="sxl-submit" type="submit">Iniciar sesion <i data-lucide="arrow-right"></i></button>
                 </form>
 
-                <div class="login-demo">
-                    <i data-lucide="info" class="h-4 w-4"></i>
+                <div class="sxl-demo">
+                    <i data-lucide="info"></i>
                     <span>Demo local: <code>admin@sch.local</code> / <code>admin123</code></span>
                 </div>
 
-                <p class="login-secure"><i data-lucide="shield-check"></i> Conexion segura &middot; SCH MEDICOS, SRL</p>
+                <p class="sxl-secure"><i data-lucide="shield-check"></i>Conexion segura &middot; SCH MEDICOS, SRL</p>
             </div>
         </section>
     </main>
