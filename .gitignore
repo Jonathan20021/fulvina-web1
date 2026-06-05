@@ -6,6 +6,10 @@ tmp/
 .env.*
 !.env.example
 
+# Environment-specific DB credentials: keep per-server, never in git.
+# Copy config/database.example.php to config/database.php on each environment.
+config/database.php
+
 *.log
 *.tmp
 .DS_Store

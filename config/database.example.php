@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+/**
+ * Plantilla de configuracion de base de datos.
+ * Copia este archivo a config/database.php en CADA entorno y ajusta las
+ * credenciales. config/database.php esta en .gitignore (no se versiona) para
+ * que cada servidor conserve las suyas y los deploy (git pull) no fallen.
+ *
+ *   XAMPP local:  host 127.0.0.1, user root, sin password, base sch_crm
+ *   Produccion:   host del servidor MySQL, usuario y base del hosting
+ */
+
 const DB_HOST = '127.0.0.1';
 const DB_PORT = '3306';
 const DB_NAME = 'sch_crm';
@@ -20,7 +30,7 @@ function db(bool $require = true): ?PDO
 
     if ($failed) {
         if ($require) {
-            throw new RuntimeException('No se pudo conectar a MySQL. Ejecuta install.php y verifica config/database.php.');
+            throw new RuntimeException('No se pudo conectar a MySQL. Verifica config/database.php.');
         }
         return null;
     }
