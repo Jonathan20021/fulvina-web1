@@ -8584,3 +8584,123 @@ html { scroll-padding-top: 74px; }
     transform: none;
   }
 }
+
+/* =========================================================================
+   Public UI v3: refined CTA system + topbar fix (Jun 2026)
+   Fixes the green "Reportar soporte 24/7" pill overflowing the 36px topbar
+   and gives the whole button family a cleaner, less glossy, more premium look.
+   ========================================================================= */
+
+/* --- Topbar support CTA: fit the bar, add live "24/7" pulse --- */
+.site-public .public-topbar__cta {
+  align-self: center;
+  min-height: 0;
+  height: 28px;
+  gap: .5rem;
+  padding: 0 .95rem 0 .85rem;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #0aa64c 0%, #06732f 100%);
+  color: #fff;
+  font-size: .74rem;
+  font-weight: 700;
+  letter-spacing: .005em;
+  white-space: nowrap;
+  box-shadow:
+    0 6px 14px -8px rgba(7, 130, 59, .72),
+    inset 0 1px 0 rgba(255, 255, 255, .24);
+  transition:
+    transform .18s var(--public-ease),
+    box-shadow .18s var(--public-ease),
+    background .18s var(--public-ease);
+}
+
+.site-public .public-topbar__cta::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #e6fff0;
+  box-shadow: 0 0 0 0 rgba(230, 255, 240, .65);
+  animation: sch-live-pulse 2s var(--public-ease) infinite;
+}
+
+.site-public .public-topbar__cta svg {
+  width: 15px;
+  height: 15px;
+}
+
+.site-public .public-topbar__cta:hover {
+  background: linear-gradient(180deg, #0cb957 0%, #088038 100%);
+  transform: translateY(-1px);
+  box-shadow:
+    0 10px 20px -8px rgba(7, 130, 59, .82),
+    inset 0 1px 0 rgba(255, 255, 255, .3);
+}
+
+@keyframes sch-live-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(230, 255, 240, .6); }
+  70%  { box-shadow: 0 0 0 6px rgba(230, 255, 240, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(230, 255, 240, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-public .public-topbar__cta::before { animation: none; }
+}
+
+/* --- Primary (blue): Cotizar / Solicitar cotizacion / Enviar solicitud --- */
+.site-public .sch-btn-primary,
+.site-public .public-nav__quote,
+.helpdesk-public .crm-primary-btn {
+  border: 1px solid var(--public-blue-strong);
+  background: linear-gradient(180deg, #0c84e0 0%, #075eb0 72%);
+  color: #fff;
+  box-shadow:
+    0 10px 22px -12px rgba(7, 94, 176, .62),
+    inset 0 1px 0 rgba(255, 255, 255, .26);
+}
+
+.site-public .sch-btn-primary:hover,
+.site-public .public-nav__quote:hover,
+.helpdesk-public .crm-primary-btn:hover {
+  background: linear-gradient(180deg, #0e90ef 0%, #0666b3 72%);
+  transform: translateY(-2px);
+  box-shadow:
+    0 16px 30px -14px rgba(7, 94, 176, .78),
+    inset 0 1px 0 rgba(255, 255, 255, .32);
+}
+
+/* --- Outline green: Reportar soporte (hero) --- */
+.site-public .sch-btn-outline-green {
+  border: 1.5px solid rgba(7, 130, 59, .5);
+  background: #fff;
+  color: var(--public-green-strong);
+  box-shadow: 0 8px 20px -16px rgba(6, 74, 32, .5);
+}
+
+.site-public .sch-btn-outline-green:hover {
+  border-color: transparent;
+  background: linear-gradient(180deg, #0aa64c 0%, #06732f 100%);
+  color: #fff;
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px -16px rgba(10, 125, 54, .68);
+}
+
+/* --- Neutral: Acceso CRM / ghost --- */
+.site-public .public-nav__crm,
+.site-public .sch-btn-ghost {
+  border: 1px solid #d3e0ee;
+  background: #fff;
+  color: var(--public-blue-strong);
+  box-shadow: 0 8px 18px -16px rgba(7, 19, 33, .4);
+}
+
+.site-public .public-nav__crm:hover,
+.site-public .sch-btn-ghost:hover {
+  border-color: #0b1521;
+  background: #0b1521;
+  color: #fff;
+  transform: translateY(-2px);
+  box-shadow: 0 14px 26px -18px rgba(7, 19, 33, .55);
+}
