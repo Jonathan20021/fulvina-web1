@@ -2,8 +2,11 @@
 
 $pageTitle = $pageTitle ?? APP_NAME . ' | Equipos medicos, gases medicinales y soporte hospitalario';
 $pageDescription = $pageDescription ?? SEO_DEFAULT_DESCRIPTION;
-$pageImage = $pageImage ?? asset('assets/media/5.png');
+$pageImage = $pageImage ?? asset('assets/media/og-cover.png');
 $canonical = $canonical ?? current_url();
+$ogScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$ogHost = $_SERVER['HTTP_HOST'] ?? '';
+$pageImageAbs = (preg_match('~^https?://~', $pageImage) || $ogHost === '') ? $pageImage : ($ogScheme . '://' . $ogHost . $pageImage);
 $bodyClass = trim('site-public ' . ($bodyClass ?? ''));
 $navItems = [
     'index.php' => 'Inicio',
@@ -42,9 +45,15 @@ $schema = $schema ?? [
     <meta property="og:type" content="website">
     <meta property="og:title" content="<?= e($pageTitle) ?>">
     <meta property="og:description" content="<?= e($pageDescription) ?>">
-    <meta property="og:image" content="<?= e($pageImage) ?>">
+    <meta property="og:url" content="<?= e($canonical) ?>">
+    <meta property="og:site_name" content="SCH MEDICOS">
+    <meta property="og:image" content="<?= e($pageImageAbs) ?>">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="SCH MEDICOS">
     <meta property="og:locale" content="es_DO">
     <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="<?= e($pageImageAbs) ?>">
     <meta name="theme-color" content="#0666b3">
     <link rel="icon" href="<?= asset('assets/media/cropped-logo_SCH_-removebg-preview-32x32.png') ?>" sizes="32x32">
     <link rel="apple-touch-icon" href="<?= asset('assets/media/cropped-logo_SCH_-removebg-preview-180x180.png') ?>">

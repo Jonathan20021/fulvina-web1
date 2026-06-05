@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $pageTitle = 'Contacto SCH MEDICOS | Solicitar cotizacion de equipos medicos';
 $pageDescription = 'Contacta a SCH MEDICOS en Santo Domingo o Miami para cotizar equipos medicos, gases medicinales, instalaciones hospitalarias y soporte tecnico.';
-$pageImage = asset('assets/media/2-1.png');
+$pageImage = asset('assets/media/og-cover.png');
 $bodyClass = 'sx';
 $pageStyles = ['assets/css/site-v2.css'];
 $pageFontsGeist = true;

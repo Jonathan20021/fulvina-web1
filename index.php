@@ -4,7 +4,7 @@ require_once __DIR__ . '/data/sch.php';
 
 $pageTitle = 'SCH MEDICOS | Ingenieria hospitalaria, gases medicinales y equipos medicos';
 $pageDescription = 'SCH MEDICOS: diseno, instalacion, certificacion y soporte tecnico de gases medicinales, equipos medicos e ingenieria hospitalaria para clinicas y hospitales desde 1995.';
-$pageImage = asset('assets/media/2-1.png');
+$pageImage = asset('assets/media/og-cover.png');
 $bodyClass = 'sx';
 $pageStyles = ['assets/css/site-v2.css'];
 $pageFontsGeist = true;

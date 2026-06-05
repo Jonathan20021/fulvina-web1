@@ -4,7 +4,7 @@ require_once __DIR__ . '/data/sch.php';
 
 $pageTitle = 'Proyectos SCH MEDICOS | Hospitales, emergencias y centros de salud';
 $pageDescription = 'Proyectos de SCH MEDICOS en Republica Dominicana: hospitales, emergencias, gases medicinales, equipamiento medico, paredes modulares e ingenieria hospitalaria.';
-$pageImage = asset('assets/media/hospital-de-santiago.png');
+$pageImage = asset('assets/media/og-cover.png');
 $bodyClass = 'sx';
 $pageStyles = ['assets/css/site-v2.css'];
 $pageFontsGeist = true;

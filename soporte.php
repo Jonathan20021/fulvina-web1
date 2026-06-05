@@ -51,7 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $pageTitle = 'Soporte tecnico SCH MEDICOS | Reportar fallas en equipos medicos';
 $pageDescription = 'Formulario de soporte para reportar problemas en equipos medicos, sistemas de gases medicinales o instalaciones hospitalarias atendidas por SCH MEDICOS.';
-$pageImage = asset('assets/media/Gases-2.png');
+$pageImage = asset('assets/media/og-cover.png');
 $bodyClass = 'sx';
 $pageStyles = ['assets/css/site-v2.css'];
 $pageFontsGeist = true;
