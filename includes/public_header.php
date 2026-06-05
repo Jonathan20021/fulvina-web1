@@ -12,7 +12,7 @@ $navItems = [
     'index.php' => 'Inicio',
     'servicios.php' => 'Productos',
     'proyectos.php' => 'Proyectos',
-    'index.php#marca' => 'Nosotros',
+    'sobre-nosotros.php' => 'Nosotros',
     'soporte.php' => 'Soporte',
 ];
 

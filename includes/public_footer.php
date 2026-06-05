@@ -22,7 +22,7 @@
         <div>
             <h2>Empresa</h2>
             <ul>
-                <li><a href="<?= url('index.php#marca') ?>">Sobre SCH</a></li>
+                <li><a href="<?= url('sobre-nosotros.php') ?>">Sobre SCH</a></li>
                 <li><a href="<?= url('proyectos.php') ?>">Proyectos</a></li>
                 <li><a href="<?= url('contacto.php') ?>">Contacto</a></li>
                 <li><a href="<?= url('crm/login.php') ?>">Acceso CRM</a></li>

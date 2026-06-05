@@ -20,4 +20,8 @@
     <loc>https://schmedicos.com/contacto.php</loc>
     <priority>0.8</priority>
   </url>
+  <url>
+    <loc>https://schmedicos.com/sobre-nosotros.php</loc>
+    <priority>0.7</priority>
+  </url>
 </urlset>
