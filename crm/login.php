@@ -1,22 +1,41 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
 
+if (!headers_sent()) {
+    header('X-Frame-Options: DENY'); // the login screen is never framed
+}
+
 if (is_logged_in()) {
     redirect('crm/index.php');
 }
 
 verify_csrf();
 
+$isLocal = is_local_env();
+$ipKey = login_ip_key();
+$emailRaw = strtolower(trim((string) ($_POST['email'] ?? '')));
+$emailHash = $emailRaw !== '' ? login_email_key($emailRaw) : null;
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = trim((string) ($_POST['email'] ?? ''));
-    $password = (string) ($_POST['password'] ?? '');
+    $tooMany = login_recent_failures($ipKey) >= 8
+        || ($emailHash !== null && login_recent_failures_for_email($emailHash) >= 10);
 
-    if (login_user($email, $password)) {
-        flash('success', 'Sesion iniciada.');
-        redirect('crm/index.php');
+    if ($tooMany) {
+        flash('warning', 'Demasiados intentos fallidos. Espera unos minutos antes de volver a intentar.');
+    } else {
+        usleep(300000); // constant ~0.3s cost: slows brute force and timing analysis
+        $email = trim((string) ($_POST['email'] ?? ''));
+        $password = (string) ($_POST['password'] ?? '');
+
+        if ($email !== '' && $password !== '' && login_user($email, $password)) {
+            login_clear_failures($ipKey, $emailHash);
+            flash('success', 'Sesion iniciada.');
+            redirect('crm/index.php');
+        }
+
+        login_record_failure($ipKey, $emailHash);
+        flash('warning', 'Credenciales invalidas.');
     }
-
-    flash('warning', 'Credenciales invalidas.');
 }
 ?>
 <!doctype html>
@@ -80,24 +99,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <span>Correo</span>
                         <div class="sxl-input">
                             <i data-lucide="mail"></i>
-                            <input type="email" name="email" required autofocus autocomplete="username" value="admin@sch.local" placeholder="correo@sch.com.do">
+                            <input type="email" name="email" required autofocus autocomplete="username" value="<?= $isLocal ? 'admin@sch.local' : '' ?>" placeholder="correo@sch.com.do">
                         </div>
                     </label>
                     <label class="sxl-field">
                         <span>Contrasena</span>
                         <div class="sxl-input">
                             <i data-lucide="lock"></i>
-                            <input type="password" name="password" id="login-pwd" required autocomplete="current-password" value="admin123">
+                            <input type="password" name="password" id="login-pwd" required autocomplete="current-password" value="<?= $isLocal ? 'admin123' : '' ?>">
                             <button type="button" class="sxl-toggle" aria-label="Mostrar u ocultar contrasena" onclick="schTogglePwd(this)"><i data-lucide="eye"></i></button>
                         </div>
                     </label>
                     <button class="sxl-submit" type="submit">Iniciar sesion <i data-lucide="arrow-right"></i></button>
                 </form>
 
+                <?php if ($isLocal): ?>
                 <div class="sxl-demo">
                     <i data-lucide="info"></i>
                     <span>Demo local: <code>admin@sch.local</code> / <code>admin123</code></span>
                 </div>
+                <?php endif; ?>
 
                 <p class="sxl-secure"><i data-lucide="shield-check"></i>Conexion segura &middot; SCH MEDICOS, SRL</p>
             </div>

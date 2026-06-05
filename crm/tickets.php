@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
+require_login();
 verify_csrf();
 ensure_helpdesk_schema();
 
@@ -82,9 +83,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         if ($client && $hasPortalColumns) {
             $access = client_support_access($client, false);
             $enabled = $action === 'disable' ? 0 : 1;
-            if ($action === 'regenerate') {
+            // Rotate the token on regenerate AND on disable, so a leaked/shared
+            // public link is permanently dead once the portal is paused.
+            if ($action === 'regenerate' || $action === 'disable') {
                 $access['token'] = bin2hex(random_bytes(16));
-                $enabled = 1;
             }
             db()->prepare('UPDATE clients SET support_slug=?, support_token=?, support_enabled=?, updated_at=NOW() WHERE id=?')
                 ->execute([$access['slug'], $access['token'], $enabled, $clientId]);

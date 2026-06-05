@@ -3,6 +3,13 @@ require_once __DIR__ . '/config/app.php';
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/includes/functions.php';
 
+// The installer is a powerful, unauthenticated provisioning endpoint. Restrict
+// it to a genuine local host so it can never seed/leak on a public deployment.
+if (!is_local_env()) {
+    http_response_code(404);
+    exit('No encontrado.');
+}
+
 $ran = isset($_POST['run']);
 $result = null;
 $error = null;
@@ -102,7 +109,8 @@ if ($ran) {
         install_seed($pdo);
         $result = 'Base instalada correctamente. Usuario: admin@sch.local / admin123';
     } catch (Throwable $e) {
-        $error = $e->getMessage();
+        error_log('install.php: ' . $e->getMessage());
+        $error = 'No se pudo conectar o instalar. Revisa config/database.php y que MySQL este encendido.';
     }
 }
 ?>

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
+require_role('admin'); // user management + global settings are admin-only
 verify_csrf();
 
 $hasDb = db(false) && table_exists('users');
@@ -29,6 +30,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && ($_POST['form'] ?? '') ==
     $name = trim((string) ($_POST['name'] ?? ''));
     $email = trim((string) ($_POST['email'] ?? ''));
     $role = trim((string) ($_POST['role'] ?? 'soporte'));
+    if (!in_array($role, ['admin', 'ventas', 'soporte', 'ingenieria'], true)) {
+        $role = 'soporte';
+    }
     $password = (string) ($_POST['password'] ?? '');
 
     if ($name === '' || $email === '' || strlen($password) < 8) {

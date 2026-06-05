@@ -92,6 +92,23 @@ function redirect(string $path): never
     exit;
 }
 
+/**
+ * True only on a genuine local development host. Requires BOTH a loopback peer
+ * (REMOTE_ADDR, which cannot be spoofed on a direct TCP connection) AND a
+ * loopback Host, so a public deployment can never be coaxed into "dev mode"
+ * via a forged Host header. Behind a reverse proxy REMOTE_ADDR is the proxy
+ * IP, which correctly disables dev mode in production.
+ */
+function is_local_env(): bool
+{
+    $remote = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+    if (!in_array($remote, ['127.0.0.1', '::1'], true)) {
+        return false;
+    }
+    $host = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
+    return (bool) preg_match('/^(localhost|127\.0\.0\.1|\[::1\]|::1)(:\d+)?$/', $host);
+}
+
 function table_exists(string $table): bool
 {
     $pdo = db(false);

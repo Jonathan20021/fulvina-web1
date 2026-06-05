@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
+require_login();
 verify_csrf();
 
 $hasDb = db(false) && table_exists('quotes');

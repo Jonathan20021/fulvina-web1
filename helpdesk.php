@@ -1,5 +1,9 @@
 <?php
 require_once __DIR__ . '/includes/bootstrap.php';
+// The portal access token rides in the URL; never leak it via the Referer header.
+if (!headers_sent()) {
+    header('Referrer-Policy: no-referrer');
+}
 verify_csrf();
 
 ensure_helpdesk_schema();
