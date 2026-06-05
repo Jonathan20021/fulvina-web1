@@ -391,6 +391,23 @@
 .sx .sx-mark:hover img { opacity: 1; transform: scale(1.06); }
 
 /* =========================================================================
+   RECOGNITIONS — international awards / memberships (dossier credentials)
+   ========================================================================= */
+.sx .sx-awards { margin-top: clamp(2.4rem, 4vw, 3.4rem); display: grid; grid-template-columns: 1.3fr 1fr; gap: var(--gut); align-items: start; }
+.sx .sx-award { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); background: var(--white); overflow: hidden; }
+.sx .sx-award__logo { display: flex; align-items: center; justify-content: center; min-height: 168px; padding: clamp(1.6rem, 3vw, 2.4rem); background: var(--white); border-bottom: 1px solid var(--line); }
+.sx .sx-award__logo img { height: clamp(76px, 9vw, 110px); width: auto; max-width: 80%; object-fit: contain; }
+.sx .sx-award__body { padding: clamp(1.5rem, 2.4vw, 2rem); }
+.sx .sx-award__meta { font-family: var(--mono); font-size: .72rem; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--blue); }
+.sx .sx-award__title { margin-top: .6rem; font-size: var(--t-h3); font-weight: 600; letter-spacing: -.02em; line-height: 1.15; color: var(--ink); }
+.sx .sx-award__desc { margin-top: .85rem; font-size: .98rem; line-height: 1.6; color: var(--muted); max-width: 54ch; }
+.sx .sx-award__spec { margin-top: 1.4rem; padding-top: 1.2rem; border-top: 1px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; gap: .55rem 1.4rem; }
+.sx .sx-award__spec li { display: flex; gap: .6rem; font-family: var(--mono); font-size: .8rem; color: var(--ink-soft); line-height: 1.4; }
+.sx .sx-award__spec li::before { content: ""; width: 5px; height: 5px; margin-top: .5rem; background: var(--blue); flex: 0 0 auto; }
+@media (max-width: 980px) { .sx .sx-awards { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .sx .sx-award__spec { grid-template-columns: 1fr; } }
+
+/* =========================================================================
    7) CTA — sign-off (flat full-bleed graphite, hairline above)
    ========================================================================= */
 .sx .sx-signoff { background: var(--graphite); }

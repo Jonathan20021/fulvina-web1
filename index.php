@@ -187,6 +187,43 @@ require_once __DIR__ . '/includes/public_header.php';
     </div>
 </section>
 
+<!-- 6b) RECOGNITIONS -->
+<section class="sx-sec sx-sec--air" aria-label="Reconocimientos internacionales">
+    <div class="sx-container">
+        <div class="sx-sechead" data-reveal>
+            <span class="sx-kicker">Reconocimientos</span>
+            <h2 class="sx-h2">Reconocimientos internacionales.</h2>
+            <p class="sx-lead">Trayectoria avalada por distinciones y membresias de organizaciones empresariales globales.</p>
+        </div>
+        <div class="sx-awards">
+            <article class="sx-award" data-reveal>
+                <div class="sx-award__logo"><img src="<?= asset('assets/media/the-bizz.jpg') ?>" alt="The Bizz Awards 2008" loading="lazy" decoding="async"></div>
+                <div class="sx-award__body">
+                    <span class="sx-award__meta">2008 &middot; The Bizz Awards</span>
+                    <h3 class="sx-award__title">Empresa lider del sector</h3>
+                    <p class="sx-award__desc">Galardon en la premiacion The Bizz Awards a la empresa lider del sector, avalado por atributos como:</p>
+                    <ul class="sx-award__spec">
+                        <li>Liderazgo empresarial</li>
+                        <li>Calidad en productos y servicios</li>
+                        <li>Innovacion</li>
+                        <li>Sistemas de gestion para el mercado global</li>
+                        <li>Creatividad empresarial</li>
+                        <li>Apoyo social</li>
+                    </ul>
+                </div>
+            </article>
+            <article class="sx-award" data-reveal data-reveal-delay="100">
+                <div class="sx-award__logo"><img src="<?= asset('assets/media/Member.jpg') ?>" alt="Miembro de la World Confederation of Businesses" loading="lazy" decoding="async"></div>
+                <div class="sx-award__body">
+                    <span class="sx-award__meta">Miembro &middot; WCB</span>
+                    <h3 class="sx-award__title">World Confederation of Businesses</h3>
+                    <p class="sx-award__desc">Pertenecemos a la World Confederation of Businesses, organizacion global que impulsa el crecimiento de las empresas y empresarios lideres a nivel mundial.</p>
+                </div>
+            </article>
+        </div>
+    </div>
+</section>
+
 <!-- 7) CTA -Sign-off -->
 <section class="sx-signoff sx-sec sx-sec--tight" aria-label="Contacto">
     <div class="sx-container">
