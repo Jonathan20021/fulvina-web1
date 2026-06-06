@@ -4317,6 +4317,11 @@ html { scroll-padding-top: 74px; }
 .crm-nav__top .crm-nav-collapse { margin: 0; }
 
 @media (min-width: 1024px) {
+  /* En escritorio el hamburger móvil sobra: solo abre el drawer off-canvas
+     (definido en @media max-width:1023px). Su clase base .crm-icon-btn
+     {display:grid} de app.css pisa al lg:hidden de tailwind.css por orden de
+     carga, así que lo ocultamos explícitamente aquí. */
+  .crm-icon-btn { display: none; }
   .crm-nav-collapse { display: flex; }
   .crm-nav__top { display: block; }
 
