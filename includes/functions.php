@@ -131,6 +131,17 @@ function date_long_es(?string $date): string
     return date('j', $timestamp) . ' de ' . $months[(int) date('n', $timestamp)] . ' de ' . date('Y', $timestamp);
 }
 
+/**
+ * Versioned asset URL — appends ?v=<filemtime> so browsers fetch the new file
+ * automatically after every deploy (no more stale-CSS/JS from cache).
+ */
+function asset_v(string $path): string
+{
+    $abs = dirname(__DIR__) . '/' . ltrim($path, '/');
+    $v = is_file($abs) ? (string) filemtime($abs) : '0';
+    return asset($path) . '?v=' . $v;
+}
+
 function csrf_token(): string
 {
     return $_SESSION['csrf'] ?? '';

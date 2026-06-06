@@ -62,10 +62,10 @@ $crmNavGroups = [
     <script>(function(){try{if(localStorage.getItem('crmNav')==='collapsed')document.documentElement.classList.add('crm-collapsed');}catch(e){}})();</script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet" href="<?= asset('assets/css/tailwind.css') ?>">
+    <link rel="stylesheet" href="<?= asset_v('assets/css/tailwind.css') ?>">
     <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="<?= asset('assets/css/app.css') ?>">
-    <script defer src="<?= asset('assets/js/app.js') ?>"></script>
+    <link rel="stylesheet" href="<?= asset_v('assets/css/app.css') ?>">
+    <script defer src="<?= asset_v('assets/js/app.js') ?>"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script defer src="https://unpkg.com/lucide@latest"></script>
 </head>
