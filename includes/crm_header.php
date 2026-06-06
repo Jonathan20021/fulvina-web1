@@ -30,26 +30,32 @@ $navCounts = [
     'tickets'      => $navHasTickets ? db_count('tickets', "status IN ('Abierto','En proceso')") : 6,
 ];
 
-// Grouped navigation: href => [label, icon, countKey|null, isAlert]
+// Grouped navigation: href => [label, icon, countKey|null, isAlert, capability]
 $crmNavGroups = [
     'General' => [
-        'index.php' => ['Panel', 'layout-dashboard', null, false],
+        'index.php' => ['Panel', 'layout-dashboard', null, false, 'panel.view'],
     ],
     'Comercial' => [
-        'clientes.php'     => ['Clientes', 'building-2', 'clientes', false],
-        'cotizaciones.php' => ['Cotizaciones', 'file-text', 'cotizaciones', false],
-        'leads.php'        => ['Leads', 'inbox', 'leads', false],
+        'clientes.php'     => ['Clientes', 'building-2', 'clientes', false, 'clientes.view'],
+        'cotizaciones.php' => ['Cotizaciones', 'file-text', 'cotizaciones', false, 'cotizaciones.view'],
+        'leads.php'        => ['Leads', 'inbox', 'leads', false, 'leads.view'],
     ],
     'Soporte técnico' => [
-        'equipos.php' => ['Equipos', 'monitor', 'equipos', false],
-        'tickets.php' => ['Tickets', 'life-buoy', 'tickets', true],
-        'agenda.php'  => ['Agenda', 'calendar-days', null, false],
+        'equipos.php' => ['Equipos', 'monitor', 'equipos', false, 'equipos.view'],
+        'tickets.php' => ['Tickets', 'life-buoy', 'tickets', true, 'tickets.view'],
+        'agenda.php'  => ['Agenda', 'calendar-days', null, false, 'agenda.view'],
     ],
     'Sistema' => [
-        'reportes.php'      => ['Reportes', 'bar-chart-3', null, false],
-        'configuracion.php' => ['Configuración', 'settings', null, false],
+        'reportes.php'      => ['Reportes', 'bar-chart-3', null, false, 'reportes.view'],
+        'roles.php'         => ['Roles y permisos', 'shield-check', null, false, 'config.manage'],
+        'configuracion.php' => ['Configuración', 'settings', null, false, 'config.manage'],
     ],
 ];
+// Filter by capability; drop any group left empty.
+foreach ($crmNavGroups as $g => $items) {
+    $crmNavGroups[$g] = array_filter($items, fn ($it) => empty($it[4]) || current_can($it[4]));
+    if (!$crmNavGroups[$g]) { unset($crmNavGroups[$g]); }
+}
 ?>
 <!doctype html>
 <html lang="es">

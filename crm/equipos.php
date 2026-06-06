@@ -1,12 +1,13 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
-require_login();
+require_can('equipos.view');
 verify_csrf();
 
 $hasDb = db(false) && table_exists('equipment');
 $clients = $hasDb ? fetch_all('SELECT id, name FROM clients ORDER BY name ASC') : [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && isset($_POST['delete_id'])) {
+        if (!current_can('equipos.delete')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/equipos.php'); }
     $did = (int) $_POST['delete_id'];
     if ($did > 0) {
         db()->prepare('DELETE FROM equipment WHERE id=?')->execute([$did]);
@@ -17,6 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && isset($_POST['delete_id']
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
+        if (!current_can('equipos.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/equipos.php'); }
     $id = (int) ($_POST['id'] ?? 0);
     $payload = [
         (int) ($_POST['client_id'] ?? 0),

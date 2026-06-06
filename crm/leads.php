@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
-require_login();
+require_can('leads.view');
 verify_csrf();
 
 $hasDb = db(false) && table_exists('leads');
@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
     $form = (string) ($_POST['form'] ?? '');
 
     if ($form === 'status') {
+        if (!current_can('leads.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/leads.php'); }
         $lid = (int) ($_POST['id'] ?? 0);
         $newStatus = trim((string) ($_POST['status'] ?? ''));
         if ($lid > 0 && in_array($newStatus, $leadStatuses, true)) {
@@ -21,6 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
     }
 
     if ($form === 'delete') {
+        if (!current_can('leads.delete')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/leads.php'); }
         $lid = (int) ($_POST['id'] ?? 0);
         if ($lid > 0) {
             db()->prepare('DELETE FROM leads WHERE id=?')->execute([$lid]);
@@ -31,6 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
     }
 
     if ($form === 'convert' && table_exists('clients')) {
+        if (!current_can('leads.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/leads.php'); }
         $lid = (int) ($_POST['id'] ?? 0);
         $lead = $lid > 0 ? fetch_one('SELECT * FROM leads WHERE id=?', [$lid]) : null;
         if ($lead) {

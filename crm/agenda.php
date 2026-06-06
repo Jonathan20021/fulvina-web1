@@ -1,12 +1,13 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
-require_login();
+require_can('agenda.view');
 verify_csrf();
 
 $hasDb = db(false) && table_exists('equipment');
 
 /* ---- Schedule a service (sets equipment.next_service_at) ------------------ */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && ($_POST['form'] ?? '') === 'schedule') {
+        if (!current_can('agenda.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/agenda.php'); }
     $eq = (int) ($_POST['equipment_id'] ?? 0);
     $date = $_POST['next_service_at'] ?: null;
     if ($eq > 0 && $date) {

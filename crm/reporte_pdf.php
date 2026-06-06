@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
-require_login();
+require_can('reportes.view');
 if (db(false)) { ensure_quote_schema(); }
 
 use Dompdf\Dompdf;

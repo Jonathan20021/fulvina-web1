@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
-require_login();
+require_can('cotizaciones.view');
 
 use Dompdf\Dompdf;
 use Dompdf\Options;

@@ -1,12 +1,14 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
-require_role('admin'); // user management + global settings are admin-only
+require_can('config.manage', 'usuarios.manage'); // system settings and/or user management
 verify_csrf();
 
 $hasDb = db(false) && table_exists('users');
-if ($hasDb) { ensure_settings_schema(); }
+if ($hasDb) { ensure_settings_schema(); ensure_rbac_schema(); }
+$canUsers = current_can('usuarios.manage');
+$canConfig = current_can('config.manage');
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && ($_POST['form'] ?? '') === 'settings') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && ($_POST['form'] ?? '') === 'settings' && $canConfig) {
     setting_set('quote_terms', trim((string) ($_POST['quote_terms'] ?? '')));
     $rate = (float) ($_POST['quote_exchange_rate'] ?? 0);
     setting_set('quote_exchange_rate', (string) ($rate > 0 ? $rate : 1));
@@ -16,7 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && ($_POST['form'] ?? '') ==
     redirect('crm/configuracion.php');
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && isset($_POST['delete_id'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && $canUsers && isset($_POST['delete_id'])) {
     $did = (int) $_POST['delete_id'];
     $me = (int) (current_user()['id'] ?? 0);
     if ($did > 0 && $did === $me) {
@@ -29,13 +31,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && isset($_POST['delete_id']
     redirect('crm/configuracion.php');
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && ($_POST['form'] ?? '') === 'user_edit') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && ($_POST['form'] ?? '') === 'user_edit' && $canUsers) {
     $uid = (int) ($_POST['id'] ?? 0);
     $me = (int) (current_user()['id'] ?? 0);
     $name = trim((string) ($_POST['name'] ?? ''));
     $email = trim((string) ($_POST['email'] ?? ''));
     $role = trim((string) ($_POST['role'] ?? 'soporte'));
-    if (!in_array($role, ['admin', 'ventas', 'soporte', 'ingenieria'], true)) { $role = 'soporte'; }
+    if (!in_array($role, array_keys(rbac_roles()), true)) { $role = 'soporte'; }
     $status = in_array(($_POST['status'] ?? 'activo'), ['activo', 'inactivo'], true) ? $_POST['status'] : 'activo';
     $password = (string) ($_POST['password'] ?? '');
 
@@ -63,11 +65,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && ($_POST['form'] ?? '') ==
     redirect('crm/configuracion.php');
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && ($_POST['form'] ?? '') === 'user') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && ($_POST['form'] ?? '') === 'user' && $canUsers) {
     $name = trim((string) ($_POST['name'] ?? ''));
     $email = trim((string) ($_POST['email'] ?? ''));
     $role = trim((string) ($_POST['role'] ?? 'soporte'));
-    if (!in_array($role, ['admin', 'ventas', 'soporte', 'ingenieria'], true)) {
+    if (!in_array($role, array_keys(rbac_roles()), true)) {
         $role = 'soporte';
     }
     $password = (string) ($_POST['password'] ?? '');
@@ -175,7 +177,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                         <label class="crm-field"><span class="required">Nombre</span><input name="name" required x-model="form.name" class="crm-input"></label>
                         <label class="crm-field"><span class="required">Correo</span><input type="email" name="email" required x-model="form.email" class="crm-input"></label>
                         <div class="crm-form-grid">
-                            <label class="crm-field"><span class="required">Rol</span><select name="role" x-model="form.role" class="crm-select"><?php foreach (['admin','ventas','soporte','ingenieria'] as $r): ?><option value="<?= e($r) ?>"><?= e(ucfirst($r)) ?></option><?php endforeach; ?></select></label>
+                            <label class="crm-field"><span class="required">Rol</span><select name="role" x-model="form.role" class="crm-select"><?php foreach (rbac_roles() as $rk => $rdef): ?><option value="<?= e($rk) ?>"><?= e($rdef['label']) ?></option><?php endforeach; ?></select></label>
                             <label class="crm-field" x-show="form.id" x-cloak><span>Estado</span><select name="status" x-model="form.status" class="crm-select"><option value="activo">Activo</option><option value="inactivo">Inactivo</option></select></label>
                         </div>
                         <label class="crm-field"><span :class="form.id ? '' : 'required'" x-text="form.id ? 'Nueva contraseña (opcional)' : 'Contraseña'">Contraseña</span><input type="password" name="password" minlength="8" :required="!form.id" x-model="form.password" class="crm-input" :placeholder="form.id ? 'Dejar en blanco para no cambiar' : 'Mínimo 8 caracteres'"></label>

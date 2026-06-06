@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
-require_login();
+require_can('clientes.view');
 verify_csrf();
 if (db(false)) { ensure_quote_schema(); ensure_helpdesk_schema(); }
 
@@ -18,6 +18,7 @@ if ($hasDb && !$client) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && $client && table_exists('contacts')) {
     $cform = (string) ($_POST['contact_form'] ?? '');
     if ($cform === 'delete') {
+        if (!current_can('clientes.delete')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/cliente.php?id=' . $id); }
         $cid = (int) ($_POST['contact_id'] ?? 0);
         if ($cid > 0) {
             db()->prepare('DELETE FROM contacts WHERE id=? AND client_id=?')->execute([$cid, $id]);
@@ -26,6 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && $client && table_exists('
         redirect('crm/cliente.php?id=' . $id);
     }
     if ($cform === 'add' || $cform === 'edit') {
+        if (!current_can('clientes.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/cliente.php?id=' . $id); }
         $cid = (int) ($_POST['contact_id'] ?? 0);
         $cname = trim((string) ($_POST['contact_name'] ?? ''));
         $cemail = trim((string) ($_POST['contact_email'] ?? ''));

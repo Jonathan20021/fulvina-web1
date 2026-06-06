@@ -296,6 +296,27 @@ function ensure_quote_schema(): void
     ensure_settings_schema();
 }
 
+/**
+ * RBAC schema: widen users.role from ENUM to VARCHAR so custom roles can be
+ * assigned. Idempotent — only alters when the column is still an ENUM.
+ */
+function ensure_rbac_schema(): void
+{
+    $pdo = db(false);
+    if (!$pdo || !table_exists('users')) {
+        return;
+    }
+    ensure_settings_schema();
+    try {
+        $row = fetch_one("SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'role'");
+        if ($row && strtolower((string) $row['DATA_TYPE']) === 'enum') {
+            $pdo->exec("ALTER TABLE users MODIFY role VARCHAR(40) NOT NULL DEFAULT 'soporte'");
+        }
+    } catch (Throwable) {
+        /* ignore */
+    }
+}
+
 /** Simple key/value settings store for global CRM preferences. */
 function ensure_settings_schema(): void
 {

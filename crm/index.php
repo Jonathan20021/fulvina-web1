@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
-require_login();
+require_can('panel.view');
 if (db(false)) { ensure_quote_schema(); }
 
 $hasDb = db(false) && table_exists('clients');

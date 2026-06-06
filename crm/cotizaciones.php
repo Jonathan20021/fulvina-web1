@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
-require_login();
+require_can('cotizaciones.view');
 verify_csrf();
 
 $hasDb = db(false) && table_exists('quotes');
@@ -49,6 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
 
     /* ---- Delete -------------------------------------------------------- */
     if (isset($_POST['delete_id'])) {
+        if (!current_can('cotizaciones.delete')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/cotizaciones.php'); }
         $did = (int) $_POST['delete_id'];
         if ($did > 0) {
             db()->prepare('DELETE FROM quotes WHERE id=?')->execute([$did]);
@@ -60,6 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
 
     /* ---- Change status from the list ----------------------------------- */
     if ($form === 'status') {
+        if (!current_can('cotizaciones.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/cotizaciones.php'); }
         $sid = (int) ($_POST['id'] ?? 0);
         $newStatus = trim((string) ($_POST['status'] ?? ''));
         if ($sid > 0 && in_array($newStatus, $quoteStatuses, true)) {
@@ -76,6 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
 
     /* ---- Duplicate ----------------------------------------------------- */
     if ($form === 'duplicate') {
+        if (!current_can('cotizaciones.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/cotizaciones.php'); }
         $sid = (int) ($_POST['id'] ?? 0);
         $src = $sid > 0 ? fetch_one('SELECT * FROM quotes WHERE id=?', [$sid]) : null;
         if ($src) {
@@ -108,6 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
 
     /* ---- Create / Update (save) ---------------------------------------- */
     if ($form === 'save') {
+        if (!current_can('cotizaciones.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/cotizaciones.php'); }
         $editId = (int) ($_POST['id'] ?? 0);
         $clientId = (int) ($_POST['client_id'] ?? 0);
         $title = trim((string) ($_POST['title'] ?? ''));

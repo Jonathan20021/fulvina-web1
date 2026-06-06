@@ -1,11 +1,12 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
-require_login();
+require_can('clientes.view');
 verify_csrf();
 
 $hasDb = db(false) && table_exists('clients');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && isset($_POST['delete_id'])) {
+        if (!current_can('clientes.delete')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/clientes.php'); }
     $did = (int) $_POST['delete_id'];
     if ($did > 0) {
         db()->prepare('DELETE FROM clients WHERE id=?')->execute([$did]);
@@ -16,6 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && isset($_POST['delete_id']
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
+        if (!current_can('clientes.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/clientes.php'); }
     $id = (int) ($_POST['id'] ?? 0);
     $payload = [
         trim((string) ($_POST['name'] ?? '')),

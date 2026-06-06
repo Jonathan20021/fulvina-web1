@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
-require_login();
+require_can('tickets.view');
 verify_csrf();
 ensure_helpdesk_schema();
 
@@ -23,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
     $form = $_POST['form'] ?? '';
 
     if ($form === 'create') {
+        if (!current_can('tickets.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/tickets.php'); }
         $clientId = (int) ($_POST['client_id'] ?? 0);
         $equipmentId = (int) ($_POST['equipment_id'] ?? 0) ?: null;
         $subject = trim((string) ($_POST['subject'] ?? ''));
@@ -53,6 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
     }
 
     if ($form === 'update') {
+        if (!current_can('tickets.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/tickets.php'); }
         $id = (int) ($_POST['id'] ?? 0);
         $status = trim((string) ($_POST['status'] ?? 'Abierto'));
         $priority = trim((string) ($_POST['priority'] ?? 'Media'));
@@ -81,6 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
     }
 
     if ($form === 'comment') {
+        if (!current_can('tickets.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/tickets.php'); }
         $id = (int) ($_POST['ticket_id'] ?? 0);
         $body = trim((string) ($_POST['body'] ?? ''));
         $isInternal = isset($_POST['is_internal']) ? 1 : 0;
@@ -95,6 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
     }
 
     if ($form === 'portal') {
+        if (!current_can('tickets.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/tickets.php'); }
         $clientId = (int) ($_POST['client_id'] ?? 0);
         $action = trim((string) ($_POST['portal_action'] ?? 'enable'));
         $client = $clientId > 0 ? fetch_one('SELECT * FROM clients WHERE id=?', [$clientId]) : null;
@@ -114,6 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
     }
 
     if ($form === 'delete') {
+        if (!current_can('tickets.delete')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/tickets.php'); }
         $id = (int) ($_POST['id'] ?? 0);
         if ($id > 0) {
             db()->prepare('DELETE FROM tickets WHERE id=?')->execute([$id]);
