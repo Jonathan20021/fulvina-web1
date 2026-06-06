@@ -8,3 +8,18 @@
 *.md text eol=lf
 *.xml text eol=lf
 *.txt text eol=lf
+
+# Binary assets — never normalize EOL/charset (protects dompdf fonts & images).
+*.ttf binary
+*.ttc binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.eot binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.ufm binary
