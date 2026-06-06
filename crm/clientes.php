@@ -118,7 +118,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <h2>Clientes con contexto comercial y operativo en una sola vista.</h2>
             <p>Ubica instituciones, contactos, sector y estado sin entrar a cada registro. El alta y la edicion siguen en modal para no perder el flujo.</p>
             <div class="crm-cockpit__actions">
-                <button type="button" class="crm-primary-btn" @click="openNew()"><i data-lucide="plus" class="h-4 w-4"></i>Nuevo cliente</button>
+                <?php if (current_can('clientes.edit')): ?><button type="button" class="crm-primary-btn" @click="openNew()"><i data-lucide="plus" class="h-4 w-4"></i>Nuevo cliente</button><?php endif; ?>
                 <a href="<?= url('crm/equipos.php') ?>" class="crm-secondary-btn"><i data-lucide="monitor" class="h-4 w-4"></i>Ver equipos</a>
             </div>
         </div>

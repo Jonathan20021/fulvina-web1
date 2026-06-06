@@ -257,7 +257,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <h2>Helpdesk por cliente, estado y prioridad</h2>
             <p>Tablero operativo para recibir tickets del portal publico, abrir casos internos, asignar responsables y cerrar seguimiento desde modales.</p>
             <div class="helpdesk-v2__actions">
-                <button type="button" class="crm-primary-btn" @click="openNew()"><i data-lucide="plus"></i>Nuevo ticket</button>
+                <?php if (current_can('tickets.edit')): ?><button type="button" class="crm-primary-btn" @click="openNew()"><i data-lucide="plus"></i>Nuevo ticket</button><?php endif; ?>
                 <button type="button" class="crm-secondary-btn" onclick="document.getElementById('portal-links-modal').showModal()"><i data-lucide="link-2"></i>Portales por cliente</button>
             </div>
         </div>

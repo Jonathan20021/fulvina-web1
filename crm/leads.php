@@ -140,7 +140,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                                 <span class="text-xs text-slate-600"><?= e(mb_strimwidth((string) $lead['message'], 0, 110, '…')) ?></span>
                             </td>
                             <td>
-                                <?php if ($hasDb): ?>
+                                <?php if ($hasDb && current_can('leads.edit')): ?>
                                     <form method="post" class="quote-status-form" onchange="this.submit()">
                                         <?= csrf_field() ?>
                                         <input type="hidden" name="form" value="status">

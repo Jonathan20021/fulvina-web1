@@ -149,7 +149,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <h2>Equipos instalados, garantía y próximo servicio sin abrir registros.</h2>
             <p>Controla series, ubicaciones y estados de mantenimiento por cliente. Los equipos con revisión o vencimiento quedan arriba como señales operativas.</p>
             <div class="crm-cockpit__actions">
-                <button type="button" class="crm-primary-btn" @click="openNew()"><i data-lucide="plus" class="h-4 w-4"></i>Nuevo equipo</button>
+                <?php if (current_can('equipos.edit')): ?><button type="button" class="crm-primary-btn" @click="openNew()"><i data-lucide="plus" class="h-4 w-4"></i>Nuevo equipo</button><?php endif; ?>
                 <a href="<?= url('crm/tickets.php') ?>" class="crm-secondary-btn"><i data-lucide="life-buoy" class="h-4 w-4"></i>Ver tickets</a>
             </div>
         </div>

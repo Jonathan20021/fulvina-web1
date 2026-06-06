@@ -93,8 +93,8 @@ foreach ($crmNavGroups as $g => $items) {
         </form>
 
         <div class="crm-topbar__actions" x-data="{ bell: false, user: false }">
-            <a href="<?= url('crm/cotizaciones.php?new=1') ?>" class="crm-top-btn"><i data-lucide="plus" class="h-4 w-4"></i><span>Nueva cotización</span></a>
-            <a href="<?= url('crm/tickets.php?new=1') ?>" class="crm-top-btn crm-top-btn--ghost"><i data-lucide="plus" class="h-4 w-4"></i><span>Nuevo ticket</span></a>
+            <?php if (current_can('cotizaciones.edit')): ?><a href="<?= url('crm/cotizaciones.php?new=1') ?>" class="crm-top-btn"><i data-lucide="plus" class="h-4 w-4"></i><span>Nueva cotización</span></a><?php endif; ?>
+            <?php if (current_can('tickets.edit')): ?><a href="<?= url('crm/tickets.php?new=1') ?>" class="crm-top-btn crm-top-btn--ghost"><i data-lucide="plus" class="h-4 w-4"></i><span>Nuevo ticket</span></a><?php endif; ?>
 
             <div class="dash-dd" @click.outside="bell = false">
                 <button type="button" class="crm-bell" @click="bell = !bell; user = false" :aria-expanded="bell" aria-label="Notificaciones">

@@ -409,7 +409,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <h2>Cotizaciones con monto, vigencia y acción comercial visibles.</h2>
             <p>Crea, edita o duplica propuestas, asigna su línea de negocio y cambia su estado sin abandonar el listado. El constructor de partidas vive en un modal.</p>
             <div class="crm-cockpit__actions">
-                <button type="button" class="crm-primary-btn" @click="openNew()"><i data-lucide="plus" class="h-4 w-4"></i>Nueva cotización</button>
+                <?php if (current_can('cotizaciones.edit')): ?><button type="button" class="crm-primary-btn" @click="openNew()"><i data-lucide="plus" class="h-4 w-4"></i>Nueva cotización</button><?php endif; ?>
                 <a href="<?= url('crm/clientes.php') ?>" class="crm-secondary-btn"><i data-lucide="building-2" class="h-4 w-4"></i>Clientes</a>
             </div>
         </div>
@@ -426,7 +426,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <h3>Cotizaciones</h3>
                 <p><?php if ($listQ !== '' || $statusFilter !== '' || $clientFilter > 0): ?><?= e((string) $totalMatching) ?> coincidencia<?= $totalMatching === 1 ? '' : 's' ?><?php else: ?>Pipeline, montos, validez, línea de negocio e impresión comercial.<?php endif; ?></p>
             </div>
-            <button type="button" class="crm-primary-btn" @click="openNew()"><i data-lucide="plus" class="h-4 w-4"></i>Nueva cotización</button>
+            <?php if (current_can('cotizaciones.edit')): ?><button type="button" class="crm-primary-btn" @click="openNew()"><i data-lucide="plus" class="h-4 w-4"></i>Nueva cotización</button><?php endif; ?>
         </div>
         <form method="get" class="crm-toolbar" style="flex-wrap:wrap;gap:.5rem;padding:0 0 .8rem">
             <div class="crm-search-field" style="flex:1 1 220px"><i data-lucide="search" class="h-4 w-4"></i><input name="q" value="<?= e($listQ) ?>" placeholder="Número, título o cliente" class="crm-input"></div>
@@ -458,7 +458,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                             <?php if ($qc !== ''): ?><br><span class="quote-cat"><i data-lucide="<?= e($categories[$qc][0] ?? 'layers') ?>"></i><?= e($qc) ?></span><?php endif; ?>
                         </td>
                         <td>
-                            <?php if ($hasDb): ?>
+                            <?php if ($hasDb && current_can('cotizaciones.edit')): ?>
                                 <form method="post" class="quote-status-form" onchange="this.submit()">
                                     <?= csrf_field() ?>
                                     <input type="hidden" name="form" value="status">

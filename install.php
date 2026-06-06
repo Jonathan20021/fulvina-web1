@@ -14,14 +14,19 @@ $ran = isset($_POST['run']);
 $result = null;
 $error = null;
 
-function install_seed(PDO $pdo): void
+function install_seed(PDO $pdo): array
 {
+    $createdUsers = [];
     $count = (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
     if ($count === 0) {
+        // Random one-time passwords (shown once on this local screen) — no default
+        // credentials are baked into the repo.
         $stmt = $pdo->prepare('INSERT INTO users (name, email, password_hash, role, status, created_at, updated_at) VALUES (?, ?, ?, ?, "activo", NOW(), NOW())');
-        $stmt->execute(['Administrador SCH', 'admin@sch.local', password_hash('admin123', PASSWORD_DEFAULT), 'admin']);
-        $stmt->execute(['Soporte Tecnico', 'soporte@sch.local', password_hash('soporte123', PASSWORD_DEFAULT), 'soporte']);
-        $stmt->execute(['Ventas SCH', 'ventas@sch.local', password_hash('ventas123', PASSWORD_DEFAULT), 'ventas']);
+        foreach ([['Administrador SCH', 'admin@sch.local', 'admin'], ['Soporte Tecnico', 'soporte@sch.local', 'soporte'], ['Ventas SCH', 'ventas@sch.local', 'ventas']] as [$name, $email, $role]) {
+            $pw = bin2hex(random_bytes(5)); // 10 hex chars
+            $stmt->execute([$name, $email, password_hash($pw, PASSWORD_DEFAULT), $role]);
+            $createdUsers[$email] = $pw;
+        }
     }
 
     $count = (int) $pdo->query('SELECT COUNT(*) FROM clients')->fetchColumn();
@@ -90,6 +95,8 @@ function install_seed(PDO $pdo): void
         $stmt = $pdo->prepare('INSERT INTO leads (name, email, phone, company, type, message, status, created_at) VALUES (?, ?, ?, ?, ?, ?, "nuevo", NOW())');
         $stmt->execute(['Direccion de compras', 'compras@clinica.local', '809-000-1100', 'Clinica Demo', 'Cotizacion', 'Solicitan cotizacion de camas y gases para ampliacion de emergencia.']);
     }
+
+    return $createdUsers;
 }
 
 if ($ran) {
@@ -106,8 +113,14 @@ if ($ran) {
         foreach (array_filter(array_map('trim', explode(';', $schema))) as $statement) {
             $pdo->exec($statement);
         }
-        install_seed($pdo);
-        $result = 'Base instalada correctamente. Usuario: admin@sch.local / admin123';
+        $seedCreds = install_seed($pdo);
+        if ($seedCreds) {
+            $lines = [];
+            foreach ($seedCreds as $email => $pw) { $lines[] = $email . ' / ' . $pw; }
+            $result = 'Base instalada. Credenciales generadas (guárdalas ahora, no se vuelven a mostrar): ' . implode('  ·  ', $lines);
+        } else {
+            $result = 'Base actualizada. Los usuarios ya existían; sus credenciales no se modificaron.';
+        }
     } catch (Throwable $e) {
         error_log('install.php: ' . $e->getMessage());
         $error = 'No se pudo conectar o instalar. Revisa config/database.php y que MySQL este encendido.';

@@ -8,10 +8,19 @@ $like = '%' . $q . '%';
 
 $results = ['clients' => [], 'equipment' => [], 'quotes' => [], 'tickets' => []];
 if ($hasDb && $q !== '') {
-    $results['clients'] = fetch_all('SELECT id, name, city, status FROM clients WHERE name LIKE ? OR email LIKE ? OR rnc LIKE ? OR phone LIKE ? ORDER BY name LIMIT 8', [$like, $like, $like, $like]);
-    $results['equipment'] = fetch_all('SELECT equipment.id, equipment.name, equipment.serial, equipment.status, clients.name AS client_name FROM equipment LEFT JOIN clients ON clients.id = equipment.client_id WHERE equipment.name LIKE ? OR equipment.serial LIKE ? OR equipment.brand LIKE ? OR equipment.model LIKE ? ORDER BY equipment.name LIMIT 8', [$like, $like, $like, $like]);
-    $results['quotes'] = fetch_all('SELECT quotes.id, quotes.quote_number, quotes.title, quotes.status, quotes.total, clients.name AS client_name FROM quotes LEFT JOIN clients ON clients.id = quotes.client_id WHERE quotes.quote_number LIKE ? OR quotes.title LIKE ? OR clients.name LIKE ? ORDER BY quotes.created_at DESC LIMIT 8', [$like, $like, $like]);
-    $results['tickets'] = fetch_all('SELECT tickets.id, tickets.subject, tickets.status, tickets.priority, clients.name AS client_name FROM tickets LEFT JOIN clients ON clients.id = tickets.client_id WHERE tickets.subject LIKE ? OR tickets.description LIKE ? OR clients.name LIKE ? ORDER BY tickets.created_at DESC LIMIT 8', [$like, $like, $like]);
+    // Only search the modules the current role is allowed to view (no cross-module leak).
+    if (current_can('clientes.view')) {
+        $results['clients'] = fetch_all('SELECT id, name, city, status FROM clients WHERE name LIKE ? OR email LIKE ? OR rnc LIKE ? OR phone LIKE ? ORDER BY name LIMIT 8', [$like, $like, $like, $like]);
+    }
+    if (current_can('equipos.view')) {
+        $results['equipment'] = fetch_all('SELECT equipment.id, equipment.name, equipment.serial, equipment.status, clients.name AS client_name FROM equipment LEFT JOIN clients ON clients.id = equipment.client_id WHERE equipment.name LIKE ? OR equipment.serial LIKE ? OR equipment.brand LIKE ? OR equipment.model LIKE ? ORDER BY equipment.name LIMIT 8', [$like, $like, $like, $like]);
+    }
+    if (current_can('cotizaciones.view')) {
+        $results['quotes'] = fetch_all('SELECT quotes.id, quotes.quote_number, quotes.title, quotes.status, quotes.total, clients.name AS client_name FROM quotes LEFT JOIN clients ON clients.id = quotes.client_id WHERE quotes.quote_number LIKE ? OR quotes.title LIKE ? OR clients.name LIKE ? ORDER BY quotes.created_at DESC LIMIT 8', [$like, $like, $like]);
+    }
+    if (current_can('tickets.view')) {
+        $results['tickets'] = fetch_all('SELECT tickets.id, tickets.subject, tickets.status, tickets.priority, clients.name AS client_name FROM tickets LEFT JOIN clients ON clients.id = tickets.client_id WHERE tickets.subject LIKE ? OR tickets.description LIKE ? OR clients.name LIKE ? ORDER BY tickets.created_at DESC LIMIT 8', [$like, $like, $like]);
+    }
 }
 $total = array_sum(array_map('count', $results));
 
