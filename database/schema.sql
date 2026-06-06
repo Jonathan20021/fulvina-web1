@@ -71,13 +71,18 @@ CREATE TABLE IF NOT EXISTS quotes (
   client_id INT UNSIGNED NOT NULL,
   quote_number VARCHAR(40) NOT NULL UNIQUE,
   title VARCHAR(190) NOT NULL,
+  category VARCHAR(80) NULL,
   status VARCHAR(40) NOT NULL DEFAULT 'Borrador',
+  approved_at DATETIME NULL,
   valid_until DATE NULL,
   subtotal DECIMAL(12,2) NOT NULL DEFAULT 0,
   tax_rate DECIMAL(5,2) NOT NULL DEFAULT 18,
   tax_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
   total DECIMAL(12,2) NOT NULL DEFAULT 0,
+  currency VARCHAR(3) NOT NULL DEFAULT 'DOP',
+  exchange_rate DECIMAL(12,4) NOT NULL DEFAULT 1,
   notes TEXT NULL,
+  terms TEXT NULL,
   created_by INT UNSIGNED NULL,
   created_at DATETIME NULL,
   updated_at DATETIME NULL,
@@ -158,5 +163,12 @@ CREATE TABLE IF NOT EXISTS activity_log (
   details TEXT NULL,
   created_at DATETIME NULL,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
-  INDEX idx_activity_entity (entity_type, entity_id)
+  INDEX idx_activity_entity (entity_type, entity_id),
+  INDEX idx_activity_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS settings (
+  setting_key VARCHAR(120) PRIMARY KEY,
+  setting_value TEXT NULL,
+  updated_at DATETIME NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

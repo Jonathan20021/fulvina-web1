@@ -26,6 +26,7 @@ $navCounts = [
     'clientes'     => $navHasDb ? db_count('clients', "status = 'activo'") : 28,
     'equipos'      => $navHasDb ? db_count('equipment') : 152,
     'cotizaciones' => $navHasDb ? db_count('quotes', "status IN ('Borrador','Enviado','Cotizado','Negociacion','Aprobado')") : 18,
+    'leads'        => $navHasDb && table_exists('leads') ? db_count('leads', "status = 'nuevo'") : 0,
     'tickets'      => $navHasTickets ? db_count('tickets', "status IN ('Abierto','En proceso')") : 6,
 ];
 
@@ -37,6 +38,7 @@ $crmNavGroups = [
     'Comercial' => [
         'clientes.php'     => ['Clientes', 'building-2', 'clientes', false],
         'cotizaciones.php' => ['Cotizaciones', 'file-text', 'cotizaciones', false],
+        'leads.php'        => ['Leads', 'inbox', 'leads', false],
     ],
     'Soporte técnico' => [
         'equipos.php' => ['Equipos', 'monitor', 'equipos', false],
@@ -85,7 +87,7 @@ $crmNavGroups = [
         </form>
 
         <div class="crm-topbar__actions" x-data="{ bell: false, user: false }">
-            <a href="<?= url('crm/cotizaciones.php?new=1') ?>" class="crm-top-btn"><i data-lucide="plus" class="h-4 w-4"></i><span>Nueva cotizacion</span></a>
+            <a href="<?= url('crm/cotizaciones.php?new=1') ?>" class="crm-top-btn"><i data-lucide="plus" class="h-4 w-4"></i><span>Nueva cotización</span></a>
             <a href="<?= url('crm/tickets.php?new=1') ?>" class="crm-top-btn crm-top-btn--ghost"><i data-lucide="plus" class="h-4 w-4"></i><span>Nuevo ticket</span></a>
 
             <div class="dash-dd" @click.outside="bell = false">
@@ -120,11 +122,17 @@ $crmNavGroups = [
                 </div>
                 <div class="dash-pop" x-show="user" x-transition.origin.top.right x-cloak style="min-width:220px">
                     <div class="dash-pop__label">Sesión &middot; <?= e(ucfirst($userRole)) ?></div>
-                    <a class="dash-pop__item" href="<?= url('crm/configuracion.php') ?>"><i data-lucide="settings"></i>Configuración</a>
-                    <a class="dash-pop__item" href="<?= url('crm/configuracion.php') ?>"><i data-lucide="users-round"></i>Usuarios y accesos</a>
+                    <a class="dash-pop__item" href="<?= url('crm/perfil.php') ?>"><i data-lucide="user-round"></i>Mi perfil</a>
+                    <?php if (current_role() === 'admin'): ?>
+                        <a class="dash-pop__item" href="<?= url('crm/configuracion.php') ?>"><i data-lucide="settings"></i>Configuración</a>
+                        <a class="dash-pop__item" href="<?= url('crm/configuracion.php') ?>"><i data-lucide="users-round"></i>Usuarios y accesos</a>
+                    <?php endif; ?>
                     <a class="dash-pop__item" href="<?= url('index.php') ?>"><i data-lucide="globe"></i>Ver sitio público</a>
                     <hr>
-                    <a class="dash-pop__item dash-pop__item--danger" href="<?= url('crm/logout.php') ?>"><i data-lucide="log-out"></i>Cerrar sesión</a>
+                    <form method="post" action="<?= url('crm/logout.php') ?>">
+                        <?= csrf_field() ?>
+                        <button type="submit" class="dash-pop__item dash-pop__item--danger" style="width:100%;border:0;background:none;cursor:pointer;text-align:left"><i data-lucide="log-out"></i>Cerrar sesión</button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -166,9 +174,12 @@ $crmNavGroups = [
                         <em><i data-lucide="database" class="h-3 w-3"></i> Modo demo sin MySQL</em>
                     <?php endif; ?>
                 </div>
-                <a href="<?= url('crm/logout.php') ?>" class="crm-logout" title="Cerrar sesión">
-                    <i data-lucide="log-out" class="h-4 w-4"></i><span>Cerrar sesion</span>
-                </a>
+                <form method="post" action="<?= url('crm/logout.php') ?>">
+                    <?= csrf_field() ?>
+                    <button type="submit" class="crm-logout" title="Cerrar sesión" style="width:100%;border:0;cursor:pointer;font:inherit">
+                        <i data-lucide="log-out" class="h-4 w-4"></i><span>Cerrar sesión</span>
+                    </button>
+                </form>
             </div>
         </aside>
 

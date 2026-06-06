@@ -58,16 +58,16 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <div class="crm-card__body" style="display:grid;gap:.5rem">
                     <?php foreach ($rows as $r): ?>
                         <?php if ($key === 'clients'): ?>
-                            <a class="search-hit" href="<?= url('crm/clientes.php?edit=' . (int) $r['id']) ?>">
+                            <a class="search-hit" href="<?= url('crm/cliente.php?id=' . (int) $r['id']) ?>">
                                 <span class="search-hit__icon"><i data-lucide="building-2"></i></span>
                                 <span class="search-hit__body"><b><?= e($r['name']) ?></b><span><?= e($r['city'] ?: 'Sin ciudad') ?></span></span>
-                                <span class="search-hit__meta"><span class="status-chip <?= e(status_class($r['status'])) ?>"><?= e($r['status']) ?></span></span>
+                                <span class="search-hit__meta"><span class="status-chip <?= e(status_class($r['status'])) ?>"><?= e(status_label($r['status'])) ?></span></span>
                             </a>
                         <?php elseif ($key === 'equipment'): ?>
                             <a class="search-hit" href="<?= url('crm/equipos.php?edit=' . (int) $r['id']) ?>">
                                 <span class="search-hit__icon"><i data-lucide="monitor"></i></span>
                                 <span class="search-hit__body"><b><?= e($r['name']) ?></b><span><?= e($r['client_name'] ?? 'Sin cliente') ?> &middot; <?= e($r['serial'] ?: 'Sin serie') ?></span></span>
-                                <span class="search-hit__meta"><span class="status-chip <?= e(status_class($r['status'])) ?>"><?= e($r['status']) ?></span></span>
+                                <span class="search-hit__meta"><span class="status-chip <?= e(status_class($r['status'])) ?>"><?= e(status_label($r['status'])) ?></span></span>
                             </a>
                         <?php elseif ($key === 'quotes'): ?>
                             <a class="search-hit" href="<?= url('crm/cotizaciones.php?action=view&id=' . (int) $r['id']) ?>">
@@ -79,7 +79,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                             <a class="search-hit" href="<?= url('crm/tickets.php?id=' . (int) $r['id']) ?>">
                                 <span class="search-hit__icon"><i data-lucide="life-buoy"></i></span>
                                 <span class="search-hit__body"><b>TK-<?= date('Y') ?>-<?= str_pad((string) $r['id'], 4, '0', STR_PAD_LEFT) ?> &middot; <?= e($r['subject']) ?></b><span><?= e($r['client_name'] ?? 'Cliente') ?></span></span>
-                                <span class="search-hit__meta"><span class="status-chip <?= e(status_class($r['status'])) ?>"><?= e($r['status']) ?></span></span>
+                                <span class="search-hit__meta"><span class="status-chip <?= e(status_class($r['status'])) ?>"><?= e(status_label($r['status'])) ?></span></span>
                             </a>
                         <?php endif; ?>
                     <?php endforeach; ?>

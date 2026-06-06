@@ -371,13 +371,23 @@ window.crmToggleNav = function crmToggleNav() {
   if (window.lucide) window.lucide.createIcons();
 };
 
-/* Quote builder inside a modal (cotizaciones) */
-window.crmQuoteModal = function crmQuoteModal(autoOpen, defaultRate) {
+/* Quote editor inside a modal (cotizaciones) — create + edit with line items */
+window.crmQuoteModal = function crmQuoteModal(opts) {
+  opts = opts || {};
+  var defaults = opts.defaults || {};
   return {
+    form: {},
     items: [{ d: '', q: 1, p: 0 }],
     tax: 18,
     currency: 'DOP',
-    rate: Number(defaultRate) > 0 ? Number(defaultRate) : 60,
+    rate: Number(defaults.rate) > 0 ? Number(defaults.rate) : 60,
+    reset() {
+      this.form = { id: 0, client_id: '', title: '', category: '', status: 'Borrador', valid_until: defaults.validUntil || '', notes: '', terms: defaults.terms || '' };
+      this.items = [{ d: '', q: 1, p: 0 }];
+      this.tax = 18;
+      this.currency = 'DOP';
+      this.rate = Number(defaults.rate) > 0 ? Number(defaults.rate) : 60;
+    },
     sym() { return this.currency === 'USD' ? 'US$' : 'RD$'; },
     altSym() { return this.currency === 'USD' ? 'RD$' : 'US$'; },
     nf(n) { return (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
@@ -393,29 +403,27 @@ window.crmQuoteModal = function crmQuoteModal(autoOpen, defaultRate) {
     },
     addLine() { this.items.push({ d: '', q: 1, p: 0 }); this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); },
     removeLine(index) { if (this.items.length > 1) this.items.splice(index, 1); },
-    init() { if (autoOpen) this.open(); },
+    openNew() { this.reset(); this.open(); },
+    openEdit(d) {
+      d = d || {};
+      this.form = {
+        id: d.id || 0, client_id: d.client_id || '', title: d.title || '', category: d.category || '',
+        status: d.status || 'Borrador', valid_until: d.valid_until || (defaults.validUntil || ''),
+        notes: d.notes || '', terms: (d.terms && d.terms.length) ? d.terms : (defaults.terms || '')
+      };
+      this.items = (d.items && d.items.length) ? d.items.map(function (it) { return { d: it.d || '', q: Number(it.q) || 0, p: Number(it.p) || 0 }; }) : [{ d: '', q: 1, p: 0 }];
+      this.tax = Number(d.tax_rate) >= 0 && d.tax_rate !== undefined && d.tax_rate !== '' ? Number(d.tax_rate) : 18;
+      this.currency = d.currency === 'USD' ? 'USD' : 'DOP';
+      this.rate = Number(d.exchange_rate) > 0 ? Number(d.exchange_rate) : (Number(defaults.rate) > 0 ? Number(defaults.rate) : 60);
+      this.open();
+    },
+    init() {
+      this.reset();
+      if (opts.autoEdit) { this.openEdit(opts.autoEdit); }
+      else if (opts.autoOpen) { this.open(); }
+    },
     open() { const d = this.$refs.dlg; if (d && !d.open) d.showModal(); this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); },
     close() { const d = this.$refs.dlg; if (d && d.open) d.close(); }
   };
 };
 
-/* Quote builder (cotizaciones) */
-window.quoteBuilder = function quoteBuilder() {
-  return {
-    items: [{ d: '', q: 1, p: 0 }],
-    tax: 18,
-    subtotal() {
-      return this.items.reduce((sum, item) => sum + (Number(item.q) || 0) * (Number(item.p) || 0), 0);
-    },
-    total() {
-      return this.subtotal() * (1 + (Number(this.tax) || 0) / 100);
-    },
-    addLine() {
-      this.items.push({ d: '', q: 1, p: 0 });
-      this.$nextTick ? this.$nextTick(() => schInitIcons()) : setTimeout(schInitIcons, 0);
-    },
-    removeLine(index) {
-      if (this.items.length > 1) this.items.splice(index, 1);
-    }
-  };
-};

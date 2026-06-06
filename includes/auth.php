@@ -150,6 +150,23 @@ function login_clear_failures(string $ipKey, ?string $emailHash = null): void
     }
 }
 
+/**
+ * Lightweight anti-abuse gate for public, unauthenticated form submissions
+ * (contact, support). Reuses the login_attempts table under a namespaced key
+ * (e.g. "form:contacto:<ip>") so it never interferes with the login throttle.
+ * Returns false when the per-IP submission rate is exceeded; records the
+ * attempt when allowed.
+ */
+function form_throttle_ok(string $tag, int $max = 6): bool
+{
+    $ipKey = 'form:' . $tag . ':' . login_ip_key();
+    if (login_recent_failures($ipKey) >= $max) {
+        return false;
+    }
+    login_record_failure($ipKey);
+    return true;
+}
+
 /* ============================================================
    Authentication
    ============================================================ */

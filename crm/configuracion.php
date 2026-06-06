@@ -10,7 +10,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && ($_POST['form'] ?? '') ==
     setting_set('quote_terms', trim((string) ($_POST['quote_terms'] ?? '')));
     $rate = (float) ($_POST['quote_exchange_rate'] ?? 0);
     setting_set('quote_exchange_rate', (string) ($rate > 0 ? $rate : 1));
-    flash('success', 'Preferencias de cotización guardadas.');
+    $svc = (int) ($_POST['service_interval_days'] ?? 0);
+    setting_set('service_interval_days', (string) ($svc > 0 ? $svc : 180));
+    flash('success', 'Preferencias guardadas.');
     redirect('crm/configuracion.php');
 }
 
@@ -21,7 +23,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && isset($_POST['delete_id']
         flash('warning', 'No puedes eliminar tu propio usuario.');
     } elseif ($did > 0) {
         db()->prepare('DELETE FROM users WHERE id=?')->execute([$did]);
+        log_activity('user', $did, 'usuario_eliminado', null);
         flash('success', 'Usuario eliminado.');
+    }
+    redirect('crm/configuracion.php');
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && ($_POST['form'] ?? '') === 'user_edit') {
+    $uid = (int) ($_POST['id'] ?? 0);
+    $me = (int) (current_user()['id'] ?? 0);
+    $name = trim((string) ($_POST['name'] ?? ''));
+    $email = trim((string) ($_POST['email'] ?? ''));
+    $role = trim((string) ($_POST['role'] ?? 'soporte'));
+    if (!in_array($role, ['admin', 'ventas', 'soporte', 'ingenieria'], true)) { $role = 'soporte'; }
+    $status = in_array(($_POST['status'] ?? 'activo'), ['activo', 'inactivo'], true) ? $_POST['status'] : 'activo';
+    $password = (string) ($_POST['password'] ?? '');
+
+    if ($uid <= 0 || $name === '' || $email === '') {
+        flash('warning', 'Nombre y correo son obligatorios.');
+    } elseif ($uid === $me && ($role !== 'admin' || $status !== 'activo')) {
+        flash('warning', 'No puedes quitarte a ti mismo el rol admin ni desactivarte.');
+    } elseif ($password !== '' && strlen($password) < 8) {
+        flash('warning', 'La contraseña debe tener al menos 8 caracteres.');
+    } else {
+        try {
+            if ($password !== '') {
+                db()->prepare('UPDATE users SET name=?, email=?, role=?, status=?, password_hash=?, updated_at=NOW() WHERE id=?')
+                    ->execute([$name, $email, $role, $status, password_hash($password, PASSWORD_DEFAULT), $uid]);
+            } else {
+                db()->prepare('UPDATE users SET name=?, email=?, role=?, status=?, updated_at=NOW() WHERE id=?')
+                    ->execute([$name, $email, $role, $status, $uid]);
+            }
+            log_activity('user', $uid, 'usuario_actualizado', $name);
+            flash('success', 'Usuario actualizado.');
+        } catch (Throwable) {
+            flash('warning', 'No se pudo actualizar. Verifica que el correo no esté en uso.');
+        }
     }
     redirect('crm/configuracion.php');
 }
@@ -41,6 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && ($_POST['form'] ?? '') ==
         try {
             $stmt = db()->prepare('INSERT INTO users (name, email, password_hash, role, status, created_at, updated_at) VALUES (?, ?, ?, ?, "activo", NOW(), NOW())');
             $stmt->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $role]);
+            log_activity('user', (int) db()->lastInsertId(), 'usuario_creado', $name);
             flash('success', 'Usuario creado.');
             redirect('crm/configuracion.php');
         } catch (Throwable $e) {
@@ -59,6 +97,7 @@ $users = $hasDb ? fetch_all('SELECT id, name, email, role, status, created_at FR
 
 $quoteTermsSetting = setting_get('quote_terms', quote_default_terms());
 $quoteRateSetting = setting_get('quote_exchange_rate', '60');
+$serviceIntervalSetting = setting_get('service_interval_days', '180');
 
 $crmTitle = 'Configuracion';
 require_once __DIR__ . '/../includes/crm_header.php';
@@ -69,7 +108,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
 <?php endif; ?>
 
 <div class="crm-module-grid">
-    <article class="crm-card" x-data="crmFormModal({id:0,name:'',email:'',role:'soporte',password:''})">
+    <article class="crm-card" x-data="crmFormModal({id:0,name:'',email:'',role:'soporte',status:'activo',password:''})">
         <div class="crm-card__head">
             <div>
                 <h2>Usuarios</h2>
@@ -95,18 +134,23 @@ require_once __DIR__ . '/../includes/crm_header.php';
                             <tr>
                                 <td><strong><?= e($user['name']) ?></strong></td>
                                 <td><?= e($user['email']) ?></td>
-                                <td><?= e($user['role']) ?></td>
-                                <td><span class="status-chip <?= e(status_class($user['status'])) ?>"><?= e($user['status']) ?></span></td>
+                                <td><?= e(status_label($user['role'])) ?></td>
+                                <td><span class="status-chip <?= e(status_class($user['status'])) ?>"><?= e(status_label($user['status'])) ?></span></td>
                                 <td class="text-right">
-                                    <?php if ($hasDb && (int) $user['id'] !== (int) (current_user()['id'] ?? -1)): ?>
-                                        <form method="post" style="display:inline" onsubmit="return confirm('¿Eliminar a <?= e(addslashes($user['name'])) ?>?');">
-                                            <?= csrf_field() ?>
-                                            <input type="hidden" name="delete_id" value="<?= (int) $user['id'] ?>">
-                                            <button type="submit" class="crm-icon-action crm-icon-action--danger" title="Eliminar"><i data-lucide="trash-2"></i></button>
-                                        </form>
-                                    <?php else: ?>
-                                        <span class="dash-sub" style="color:var(--muted);font-size:.74rem">Tú</span>
-                                    <?php endif; ?>
+                                    <div class="crm-row-actions">
+                                        <?php if ($hasDb): ?>
+                                            <button type="button" class="crm-icon-action" title="Editar" @click='openEdit(<?= e(json_encode(['id' => (int) $user['id'], 'name' => (string) $user['name'], 'email' => (string) $user['email'], 'role' => (string) $user['role'], 'status' => (string) $user['status'], 'password' => ''])) ?>)'><i data-lucide="pencil"></i></button>
+                                        <?php endif; ?>
+                                        <?php if ($hasDb && (int) $user['id'] !== (int) (current_user()['id'] ?? -1)): ?>
+                                            <form method="post" style="display:inline" onsubmit="return confirm('¿Eliminar a <?= e(addslashes($user['name'])) ?>?');">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="delete_id" value="<?= (int) $user['id'] ?>">
+                                                <button type="submit" class="crm-icon-action crm-icon-action--danger" title="Eliminar"><i data-lucide="trash-2"></i></button>
+                                            </form>
+                                        <?php else: ?>
+                                            <span class="dash-sub" style="color:var(--muted);font-size:.74rem">Tú</span>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -117,12 +161,13 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <dialog x-ref="dlg" class="crm-modal" @click.self="close()" @cancel.prevent="close()">
                 <form method="post" class="crm-modal__form">
                     <?= csrf_field() ?>
-                    <input type="hidden" name="form" value="user">
+                    <input type="hidden" name="form" :value="form.id ? 'user_edit' : 'user'">
+                    <input type="hidden" name="id" :value="form.id">
                     <header class="crm-modal__head">
                         <span class="crm-modal__icon"><i data-lucide="user-plus"></i></span>
                         <div class="crm-modal__titles">
-                            <h2>Nuevo usuario</h2>
-                            <p>Alta de acceso interno con rol operativo.</p>
+                            <h2 x-text="form.id ? 'Editar usuario' : 'Nuevo usuario'">Nuevo usuario</h2>
+                            <p>Acceso interno con rol operativo.</p>
                         </div>
                         <button type="button" class="crm-modal__close" @click="close()" aria-label="Cerrar"><i data-lucide="x"></i></button>
                     </header>
@@ -130,13 +175,14 @@ require_once __DIR__ . '/../includes/crm_header.php';
                         <label class="crm-field"><span class="required">Nombre</span><input name="name" required x-model="form.name" class="crm-input"></label>
                         <label class="crm-field"><span class="required">Correo</span><input type="email" name="email" required x-model="form.email" class="crm-input"></label>
                         <div class="crm-form-grid">
-                            <label class="crm-field"><span class="required">Rol</span><select name="role" x-model="form.role" class="crm-select"><?php foreach (['admin','ventas','soporte','ingenieria'] as $r): ?><option value="<?= e($r) ?>"><?= e($r) ?></option><?php endforeach; ?></select></label>
-                            <label class="crm-field"><span class="required">Contraseña</span><input type="password" name="password" minlength="8" required x-model="form.password" class="crm-input" placeholder="Mínimo 8 caracteres"></label>
+                            <label class="crm-field"><span class="required">Rol</span><select name="role" x-model="form.role" class="crm-select"><?php foreach (['admin','ventas','soporte','ingenieria'] as $r): ?><option value="<?= e($r) ?>"><?= e(ucfirst($r)) ?></option><?php endforeach; ?></select></label>
+                            <label class="crm-field" x-show="form.id" x-cloak><span>Estado</span><select name="status" x-model="form.status" class="crm-select"><option value="activo">Activo</option><option value="inactivo">Inactivo</option></select></label>
                         </div>
+                        <label class="crm-field"><span :class="form.id ? '' : 'required'" x-text="form.id ? 'Nueva contraseña (opcional)' : 'Contraseña'">Contraseña</span><input type="password" name="password" minlength="8" :required="!form.id" x-model="form.password" class="crm-input" :placeholder="form.id ? 'Dejar en blanco para no cambiar' : 'Mínimo 8 caracteres'"></label>
                     </div>
                     <footer class="crm-modal__foot">
                         <button type="button" class="crm-secondary-btn" @click="close()">Cancelar</button>
-                        <button type="submit" class="crm-primary-btn"><i data-lucide="check" class="h-4 w-4"></i>Crear acceso</button>
+                        <button type="submit" class="crm-primary-btn"><i data-lucide="check" class="h-4 w-4"></i><span x-text="form.id ? 'Guardar cambios' : 'Crear acceso'">Crear acceso</span></button>
                     </footer>
                 </form>
             </dialog>
@@ -183,6 +229,11 @@ require_once __DIR__ . '/../includes/crm_header.php';
                     <label class="crm-field">
                         <span>Tasa de cambio por defecto (US$ 1 = RD$)</span>
                         <input type="number" step="0.01" min="0" name="quote_exchange_rate" value="<?= e($quoteRateSetting) ?>" class="crm-input" <?= $hasDb ? '' : 'disabled' ?>>
+                    </label>
+                    <label class="crm-field">
+                        <span>Intervalo de mantenimiento (días)</span>
+                        <input type="number" step="1" min="1" name="service_interval_days" value="<?= e($serviceIntervalSetting) ?>" class="crm-input" <?= $hasDb ? '' : 'disabled' ?>>
+                        <small style="color:var(--muted);font-size:.72rem">Al resolver un ticket con equipo, el próximo servicio se agenda con este intervalo.</small>
                     </label>
                 </div>
                 <label class="crm-field">

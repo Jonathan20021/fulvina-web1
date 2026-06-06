@@ -3,6 +3,10 @@ require_once __DIR__ . '/includes/bootstrap.php';
 verify_csrf();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Honeypot: bots fill the hidden "website" field; silently drop them.
+    if (trim((string) ($_POST['website'] ?? '')) !== '') {
+        redirect('soporte.php');
+    }
     $pdo = db(false);
     $company = trim((string) ($_POST['company'] ?? ''));
     $contact = trim((string) ($_POST['contact_name'] ?? ''));
@@ -13,7 +17,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $priority = trim((string) ($_POST['priority'] ?? 'Media'));
     $description = trim((string) ($_POST['description'] ?? ''));
 
-    if ($company === '' || $contact === '' || $email === '' || $description === '') {
+    if (!form_throttle_ok('soporte')) {
+        flash('warning', 'Recibimos varios reportes desde tu conexión. Intenta de nuevo en unos minutos.');
+        redirect('soporte.php');
+    } elseif ($company === '' || $contact === '' || $email === '' || $description === '') {
         flash('warning', 'Completa empresa, contacto, correo y descripcion del problema.');
     } elseif ($pdo && table_exists('tickets')) {
         $pdo->beginTransaction();
@@ -125,6 +132,7 @@ require_once __DIR__ . '/includes/public_header.php';
 
         <form method="post" class="sch-public-form" data-reveal="right" data-reveal-delay="100">
             <?= csrf_field() ?>
+            <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
             <h2 class="sx-h2" style="font-size:1.4rem;margin-bottom:1.2rem">Reporte de soporte</h2>
             <div class="sch-form-grid">
                 <label class="sch-field">

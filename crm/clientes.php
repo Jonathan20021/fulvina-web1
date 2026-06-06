@@ -9,6 +9,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && isset($_POST['delete_id']
     $did = (int) $_POST['delete_id'];
     if ($did > 0) {
         db()->prepare('DELETE FROM clients WHERE id=?')->execute([$did]);
+        log_activity('client', $did, 'cliente_eliminado', null);
         flash('success', 'Cliente eliminado.');
     }
     redirect('crm/clientes.php');
@@ -32,11 +33,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
     } elseif ($id > 0) {
         $stmt = db()->prepare('UPDATE clients SET name=?, rnc=?, email=?, phone=?, address=?, city=?, sector=?, status=?, updated_at=NOW() WHERE id=?');
         $stmt->execute([...$payload, $id]);
+        log_activity('client', $id, 'cliente_actualizado', $payload[0]);
         flash('success', 'Cliente actualizado.');
         redirect('crm/clientes.php');
     } else {
         $stmt = db()->prepare('INSERT INTO clients (name, rnc, email, phone, address, city, sector, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
         $stmt->execute($payload);
+        log_activity('client', (int) db()->lastInsertId(), 'cliente_creado', $payload[0]);
         flash('success', 'Cliente creado.');
         redirect('crm/clientes.php');
     }
@@ -60,25 +63,43 @@ $clientShape = function (array $c): array {
 };
 $editingClean = $editing ? $clientShape($editing) : null;
 
+$page = max(1, (int) ($_GET['page'] ?? 1));
+$perPage = 40;
+$offset = ($page - 1) * $perPage;
+$totalPages = 1;
+
 if ($hasDb) {
     if ($q !== '') {
-        $clients = fetch_all('SELECT * FROM clients WHERE name LIKE ? OR email LIKE ? OR phone LIKE ? OR rnc LIKE ? ORDER BY name ASC', ["%{$q}%", "%{$q}%", "%{$q}%", "%{$q}%"]);
+        $where = '(name LIKE ? OR email LIKE ? OR phone LIKE ? OR rnc LIKE ?)';
+        $params = ["%{$q}%", "%{$q}%", "%{$q}%", "%{$q}%"];
+        $order = 'name ASC';
     } else {
-        $clients = fetch_all('SELECT * FROM clients ORDER BY created_at DESC LIMIT 80');
+        $where = '1=1';
+        $params = [];
+        $order = 'created_at DESC';
     }
+    $totalMatching = (int) (fetch_one("SELECT COUNT(*) c FROM clients WHERE {$where}", $params)['c'] ?? 0);
+    $totalPages = max(1, (int) ceil($totalMatching / $perPage));
+    $clients = fetch_all("SELECT * FROM clients WHERE {$where} ORDER BY {$order} LIMIT {$perPage} OFFSET {$offset}", $params);
+    $clientTotal = (int) (fetch_one('SELECT COUNT(*) c FROM clients')['c'] ?? 0);
+    $clientActive = db_count('clients', "status='activo'");
+    $clientProspects = db_count('clients', "status='prospecto'");
+    $clientWithContact = db_count('clients', "(COALESCE(email,'')<>'' OR COALESCE(phone,'')<>'')");
+    $clientSectorCount = (int) (fetch_one("SELECT COUNT(DISTINCT NULLIF(sector,'')) c FROM clients")['c'] ?? 0);
 } else {
     $clients = [
         ['id' => 1, 'name' => 'Hospital Metropolitano de Santiago', 'rnc' => '101-00000-1', 'email' => 'compras@hms.local', 'phone' => '809-000-0000', 'city' => 'Santiago', 'sector' => 'Privado', 'status' => 'activo', 'created_at' => date('Y-m-d')],
         ['id' => 2, 'name' => 'Plaza de la Salud', 'rnc' => '101-00000-2', 'email' => 'biomedica@plaza.local', 'phone' => '809-000-0001', 'city' => 'Santo Domingo', 'sector' => 'Privado', 'status' => 'activo', 'created_at' => date('Y-m-d')],
         ['id' => 3, 'name' => 'Hospital Jaime Mota', 'rnc' => '101-00000-3', 'email' => 'mantenimiento@jaimemota.local', 'phone' => '809-000-0002', 'city' => 'Barahona', 'sector' => 'Publico', 'status' => 'activo', 'created_at' => date('Y-m-d')],
     ];
+    $clientTotal = count($clients);
+    $clientActive = count(array_filter($clients, fn ($c) => strtolower((string) ($c['status'] ?? '')) === 'activo'));
+    $clientProspects = count(array_filter($clients, fn ($c) => strtolower((string) ($c['status'] ?? '')) === 'prospecto'));
+    $clientWithContact = count(array_filter($clients, fn ($c) => trim((string) ($c['email'] ?? '')) !== '' || trim((string) ($c['phone'] ?? '')) !== ''));
+    $clientSectorCount = count(array_unique(array_filter(array_map(fn ($c) => trim((string) ($c['sector'] ?? '')), $clients))));
 }
 
-$clientTotal = count($clients);
-$clientActive = count(array_filter($clients, fn ($c) => strtolower((string) ($c['status'] ?? '')) === 'activo'));
-$clientProspects = count(array_filter($clients, fn ($c) => strtolower((string) ($c['status'] ?? '')) === 'prospecto'));
-$clientWithContact = count(array_filter($clients, fn ($c) => trim((string) ($c['email'] ?? '')) !== '' || trim((string) ($c['phone'] ?? '')) !== ''));
-$clientSectorCount = count(array_unique(array_filter(array_map(fn ($c) => trim((string) ($c['sector'] ?? '')), $clients))));
+$clientQueryForPage = fn (int $p) => http_build_query(array_filter(['q' => $q, 'page' => $p], fn ($v) => $v !== '' && $v !== null));
 
 $crmTitle = 'Clientes';
 require_once __DIR__ . '/../includes/crm_header.php';
@@ -127,16 +148,16 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <tr>
                     <th>Cliente</th>
                     <th>Contacto</th>
-                    <th>Ubicacion</th>
+                    <th>Ubicación</th>
                     <th>Estado</th>
-                    <th class="text-right">Accion</th>
+                    <th class="text-right">Acción</th>
                 </tr>
             </thead>
             <tbody>
                 <?php foreach ($clients as $client): $cd = $clientShape($client); ?>
                     <tr>
                         <td>
-                            <strong><?= e($client['name']) ?></strong>
+                            <a href="<?= url('crm/cliente.php?id=' . (int) $client['id']) ?>"><strong><?= e($client['name']) ?></strong></a>
                             <p class="mt-1 text-xs text-slate-500">RNC <?= e($client['rnc'] ?: 'No registrado') ?> - <?= e($client['sector'] ?: 'Sin sector') ?></p>
                         </td>
                         <td>
@@ -144,9 +165,10 @@ require_once __DIR__ . '/../includes/crm_header.php';
                             <p class="mt-1 text-slate-500"><?= e($client['phone'] ?: 'Sin telefono') ?></p>
                         </td>
                         <td><?= e($client['city'] ?: 'Sin ciudad') ?></td>
-                        <td><span class="status-chip <?= e(status_class($client['status'])) ?>"><?= e($client['status']) ?></span></td>
+                        <td><span class="status-chip <?= e(status_class($client['status'])) ?>"><?= e(status_label($client['status'])) ?></span></td>
                         <td class="text-right">
                             <div class="crm-row-actions">
+                                <a class="crm-icon-action" href="<?= url('crm/cliente.php?id=' . (int) $client['id']) ?>" title="Ver ficha 360°"><i data-lucide="layout-dashboard"></i></a>
                                 <button type="button" class="crm-icon-action" title="Editar" @click='openEdit(<?= e(json_encode($cd)) ?>)'><i data-lucide="pencil"></i></button>
                                 <form method="post" style="display:inline" onsubmit="return confirm('¿Eliminar a <?= e(addslashes($client['name'])) ?>? También se borrarán sus equipos, cotizaciones y tickets.');">
                                     <?= csrf_field() ?>
@@ -163,6 +185,13 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <div class="crm-empty"><i data-lucide="building-2" class="h-6 w-6"></i><strong><?= $q !== '' ? 'Sin coincidencias' : 'Aún no hay clientes' ?></strong><p><?= $q !== '' ? 'Prueba con otro término de búsqueda.' : 'Crea tu primera institución con el botón “Nuevo cliente”.' ?></p></div>
         <?php endif; ?>
         </div>
+        <?php if ($totalPages > 1): ?>
+            <div class="crm-pager">
+                <a class="<?= $page <= 1 ? 'is-disabled' : '' ?>" href="<?= $page <= 1 ? '#' : url('crm/clientes.php?' . $clientQueryForPage($page - 1)) ?>"><i data-lucide="chevron-left" class="h-4 w-4"></i>Anterior</a>
+                <b><?= e((string) $page) ?> / <?= e((string) $totalPages) ?></b>
+                <a class="<?= $page >= $totalPages ? 'is-disabled' : '' ?>" href="<?= $page >= $totalPages ? '#' : url('crm/clientes.php?' . $clientQueryForPage($page + 1)) ?>">Siguiente<i data-lucide="chevron-right" class="h-4 w-4"></i></a>
+            </div>
+        <?php endif; ?>
     </article>
 
     <dialog x-ref="dlg" class="crm-modal" @click.self="close()" @cancel.prevent="close()">

@@ -1,23 +1,11 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
 require_login();
+if (db(false)) { ensure_quote_schema(); }
 
 $hasDb = db(false) && table_exists('clients');
+$demo  = !$hasDb;           // sample data ONLY when MySQL is unavailable
 $today = date('Y-m-d');
-
-/* Real active-pipeline value — drives the sample/live decision. */
-$pipelineValueReal = $hasDb
-    ? (float) (fetch_one("SELECT COALESCE(SUM(total),0) v FROM quotes WHERE status IN ('Borrador','Enviado','Cotizado','Negociacion','Aprobado')")['v'] ?? 0)
-    : 0.0;
-
-/* Sample mode: no DB, or data too sparse to drive attractive analytics (a fresh
-   seed). In sample mode the whole panel shows a cohesive representative dataset at
-   one consistent scale; once real commercial volume exists (active pipeline ≥
-   RD$ 50k) the financial figures and operational tables switch to live data.
-   Note: line/brand/team/trend breakdowns stay representative because the current
-   schema does not attribute revenue to those dimensions. */
-$sample   = !$hasDb || $pipelineValueReal < 50000;
-$liveData = $hasDb && !$sample;
 
 $initialsOf = static function (string $name): string {
     $name = preg_replace('/^(Ing\.|Lic\.|Dr\.|Dra\.|Sr\.|Sra\.)\s+/u', '', trim($name));
@@ -25,142 +13,87 @@ $initialsOf = static function (string $name): string {
     return strtoupper(mb_substr($p[0] ?? 'S', 0, 1) . (isset($p[1]) ? mb_substr($p[1], 0, 1) : ''));
 };
 
-/* ---- Period -------------------------------------------------------------- */
-$periodStart = date('Y-m-01');
-$periodEnd = date('Y-m-t');
-$months_es = [1=>'ene',2=>'feb',3=>'mar',4=>'abr',5=>'may',6=>'jun',7=>'jul',8=>'ago',9=>'sep',10=>'oct',11=>'nov',12=>'dic'];
-$periodLabel = (int) date('j', strtotime($periodStart)) . ' – ' . (int) date('j', strtotime($periodEnd)) . ' ' . $months_es[(int) date('n')] . ' ' . date('Y');
+/* ---- Period (real, server-side) ----------------------------------------- */
+$period = analytics_period((string) ($_GET['period'] ?? 'month'));
+$periodLabel = $period['label'];
 
-/* ---- Operational counters ------------------------------------------------ */
-$stats = [
-    'open' => $liveData ? db_count('tickets', "status = 'Abierto'") : 24,
-    'process' => $liveData ? db_count('tickets', "status = 'En proceso'") : 11,
-    'resolved' => $liveData ? db_count('tickets', "status IN ('Resuelto','Cerrado') AND DATE(COALESCE(resolved_at, updated_at)) = ?", [$today]) : 7,
-    'quotes' => $liveData ? db_count('quotes', "status IN ('Borrador','Enviado','Cotizado','Aprobado')") : 18,
-    'equipment' => $liveData ? db_count('equipment', "status IN ('activo','requiere revision')") : 152,
-    'clients' => $liveData ? db_count('clients', "status = 'activo'") : 28,
-];
+/* ---- Real analytics ----------------------------------------------------- */
+$kpis    = analytics_kpis($period);
+$stages  = analytics_pipeline_by_stage();
+$trend   = analytics_monthly_trend(6);
+$lines   = analytics_revenue_by_line();
+$team    = analytics_team_performance(5);
+$brandRows = analytics_equipment_by_brand(5);
+$resolution = analytics_resolution($period);
 
-/* ---- Quote pipeline by stage -------------------------------------------- */
-$stageMeta = [
-    'Borrador'    => ['#94a3b8', 6, 234500],
-    'Enviado'     => ['#0666b3', 5, 386900],
-    'Cotizado'    => ['#1fa6d8', 4, 312800],
-    'Negociacion' => ['#9c7d34', 2, 165400],
-    'Aprobado'    => ['#0a7d36', 1, 184900],
-];
-$stages = [];
-foreach ($stageMeta as $name => [$color, $demoCount, $demoAmount]) {
-    $stages[$name] = [
-        'color'  => $color,
-        'count'  => $liveData ? db_count('quotes', 'status = ?', [$name]) : $demoCount,
-        'amount' => $liveData ? (float) (fetch_one('SELECT COALESCE(SUM(total),0) amount FROM quotes WHERE status = ?', [$name])['amount'] ?? 0) : (float) $demoAmount,
-    ];
-}
 $pipelineTotal = array_sum(array_column($stages, 'amount')) ?: 1;
+$pipelineValue = (float) $kpis['pipeline']['value'];
+$openQuoteCount = array_sum(array_column($stages, 'count'));
+$wonValue = (float) $kpis['won']['value'];
+$wonDelta = (float) $kpis['won']['delta'];
+$winRate  = (float) $kpis['win_rate']['value'];
+$openTickets = (int) $kpis['open_tickets']['value'];
+$criticalTickets = $hasDb && table_exists('tickets') ? db_count('tickets', "priority IN ('Critica','Alta') AND status NOT IN ('Resuelto','Cerrado')") : ($demo ? 3 : 0);
 
-/* ---- Hero: active pipeline value + period delta -------------------------- */
-$pipelineValue = $sample ? 1284500.00 : $pipelineValueReal;
-$pipelinePrev  = $sample ? 1185000.00 : $pipelineValueReal * 0.922;
-$pipelineDeltaAbs = $pipelineValue - $pipelinePrev;
-$pipelineDeltaPct = $pipelinePrev > 0 ? round($pipelineDeltaAbs / $pipelinePrev * 100, 1) : 0.0;
+$stats = ['open' => $openTickets, 'quotes' => $openQuoteCount];
 
-/* ---- Monthly trend (representative insight) ------------------------------ */
-$trendLabels = ['Ene','Feb','Mar','Abr','May','Jun'];
-$trend = [
-    'ingresos'     => [820, 940, 760, 1080, 990, 1284],   // miles RD$
-    'cotizaciones' => [22, 26, 19, 31, 28, 34],
-    'tickets'      => [38, 41, 35, 44, 40, 42],
-];
-
-/* ---- Service dynamics (weekly, representative insight) ------------------- */
-$dynLabels = ['S1','S2','S3','S4','S5','S6','S7','S8'];
-$dynamics = [
-    'nuevos'    => [12, 15, 11, 18, 14, 20, 16, 19],
-    'resueltos' => [9, 13, 12, 15, 16, 18, 17, 21],
-    'cotizados' => [4, 6, 5, 8, 7, 9, 8, 11],
-];
-
-/* ---- KPI feature data ---------------------------------------------------- */
-if ($sample) {
-    $topTech   = ['name' => 'Ing. Rafael Mena', 'metric' => 41, 'metricLabel' => 'resueltos'];
-    $bestQuote = ['client' => 'Hospital Metropolitano', 'amount' => 486200];
-    $wonValue  = 612400;
-    $winRate   = 46.5;
-} else {
-    $tt = fetch_one("SELECT users.name, COUNT(*) c FROM tickets JOIN users ON users.id = tickets.assigned_to WHERE tickets.status IN ('Resuelto','Cerrado') GROUP BY users.id ORDER BY c DESC LIMIT 1");
-    $topTech = $tt ? ['name' => $tt['name'], 'metric' => (int) $tt['c'], 'metricLabel' => 'resueltos'] : ['name' => 'Sin asignados', 'metric' => 0, 'metricLabel' => 'resueltos'];
-    $bq = fetch_one('SELECT clients.name, quotes.total FROM quotes JOIN clients ON clients.id = quotes.client_id ORDER BY quotes.total DESC LIMIT 1');
-    $bestQuote = $bq ? ['client' => $bq['name'], 'amount' => (float) $bq['total']] : ['client' => '—', 'amount' => 0];
-    $wonValue = (float) (fetch_one("SELECT COALESCE(SUM(total),0) v FROM quotes WHERE status = 'Aprobado' AND MONTH(COALESCE(updated_at, created_at)) = MONTH(CURDATE())")['v'] ?? 0);
-    $won = db_count('quotes', "status = 'Aprobado'");
-    $closed = db_count('quotes', "status IN ('Aprobado','Rechazado','Cerrado')");
-    $winRate = $closed > 0 ? round($won / $closed * 100, 1) : 0.0;
+/* ---- Team (real): tone + presence --------------------------------------- */
+$tones = ['green', 'blue', 'teal', 'gold', 'slate'];
+foreach ($team as $i => &$tm) { $tm['tone'] = $tones[$i % count($tones)]; }
+unset($tm);
+$teamHas = false;
+foreach ($team as $tm) {
+    if ((float) $tm['ingresos'] > 0 || (int) $tm['cotizaciones'] > 0 || (int) $tm['resueltos'] > 0) { $teamHas = true; break; }
 }
+$topTech = ($teamHas && !empty($team))
+    ? ['name' => $team[0]['name'], 'metric' => (int) $team[0]['resueltos'], 'metricLabel' => 'resueltos']
+    : ['name' => 'Sin actividad', 'metric' => 0, 'metricLabel' => 'resueltos'];
 $topTech['initials'] = $initialsOf($topTech['name']);
 
-/* ---- Revenue by business line (representative insight) ------------------- */
-$lines = [
-    ['Equipos médicos',            'monitor',   42, 539000, '#0a7d36'],
-    ['Gases medicinales',          'wind',      23, 295000, '#12a04a'],
-    ['Diseño hospitalario',        'ruler',     16, 205000, '#1fa6d8'],
-    ['Instalación y certificación','wrench',    12, 154000, '#9c7d34'],
-    ['Soporte y mantenimiento',    'life-buoy',  7,  91500, '#0666b3'],
-];
+/* ---- Best quote (real) -------------------------------------------------- */
+if ($hasDb) {
+    $bq = fetch_one('SELECT clients.name, quotes.total FROM quotes LEFT JOIN clients ON clients.id = quotes.client_id ORDER BY quotes.total DESC LIMIT 1');
+    $bestQuote = $bq ? ['client' => $bq['name'] ?? 'Cliente', 'amount' => (float) $bq['total']] : ['client' => '—', 'amount' => 0.0];
+} else {
+    $bestQuote = ['client' => 'Hospital Metropolitano', 'amount' => 486200.0];
+}
 
-/* ---- Team performance (representative insight) --------------------------- */
-$team = [
-    ['Ing. Rafael Mena',  'green', 'Soporte técnico',  342900, 18, 41, 96, ['Top ventas', 'gold', 'crown']],
-    ['Ing. Laura García', 'blue',  'Ing. de servicio', 286400, 14, 33, 91, ['Racha activa', 'green', 'flame']],
-    ['Ing. Pedro Susaña', 'teal',  'Biomédico',        198750, 11, 27, 89, ['Mejor reseña', 'gold', 'star']],
-    ['Ing. Carla Reyes',  'gold',  'Soporte técnico',  154200,  9, 22, 88, ['', '', '']],
-    ['Lic. José Ramírez', 'slate', 'Ventas',           132500, 21,  8, 84, ['', '', '']],
-];
+/* ---- Presence flags ----------------------------------------------------- */
+$linesHas  = !empty($lines) && array_sum(array_column($lines, 'amount')) > 0;
+$brandTotal = array_sum(array_map(fn ($b) => (int) $b['total'], $brandRows)) ?: 0;
+$brandsHas = $brandTotal > 0;
+$trendHas  = array_sum($trend['ingresos_raw']) > 0 || array_sum($trend['cotizaciones']) > 0 || array_sum($trend['tickets']) > 0;
+$brandPalette = ['#0a7d36', '#0666b3', '#1bb6c2', '#9c7d34', '#94a3b8'];
 
-/* ---- Brand mix (representative insight) ---------------------------------- */
-$brands = [
-    ['Dräger',        'Dr', 31, 412000, '#0a7d36'],
-    ['GE HealthCare', 'GE', 24, 318000, '#0666b3'],
-    ['Philips',       'Ph', 18, 239000, '#1bb6c2'],
-    ['Mindray',       'Mi', 14, 186000, '#9c7d34'],
-    ['Otros',         '+',  13, 173000, '#94a3b8'],
-];
-
-/* ---- Live operational tables -------------------------------------------- */
-$recentTickets = $liveData
-    ? fetch_all('SELECT tickets.*, clients.name AS client_name, equipment.name AS equipment_name, equipment.serial, users.name AS assigned_name FROM tickets LEFT JOIN clients ON clients.id = tickets.client_id LEFT JOIN equipment ON equipment.id = tickets.equipment_id LEFT JOIN users ON users.id = tickets.assigned_to ORDER BY FIELD(tickets.priority, "Critica","Alta","Media","Baja"), tickets.created_at DESC LIMIT 5')
-    : [
-        ['id' => 267, 'client_name' => 'Hospital Metropolitano de Santiago', 'equipment_name' => 'Tomógrafo Siemens', 'serial' => '12345ABC', 'subject' => 'Tomógrafo intermitente, error 8042', 'priority' => 'Alta', 'status' => 'Abierto', 'assigned_name' => 'Ing. R. Mena', 'created_at' => $today . ' 08:10:00', 'description' => 'El equipo se detiene durante el escaneo y muestra error 8042. Ocurre de forma intermitente.', 'reported_phone' => '809-555-2266'],
+/* ---- Live operational tables (real when DB present) --------------------- */
+$recentTickets = $hasDb && table_exists('tickets')
+    ? fetch_all('SELECT tickets.*, clients.name AS client_name, equipment.name AS equipment_name, equipment.serial, users.name AS assigned_name FROM tickets LEFT JOIN clients ON clients.id = tickets.client_id LEFT JOIN equipment ON equipment.id = tickets.equipment_id LEFT JOIN users ON users.id = tickets.assigned_to WHERE tickets.status NOT IN ("Resuelto","Cerrado") ORDER BY FIELD(tickets.priority, "Critica","Alta","Media","Baja"), tickets.created_at DESC LIMIT 5')
+    : ($demo ? [
+        ['id' => 267, 'client_name' => 'Hospital Metropolitano de Santiago', 'equipment_name' => 'Tomógrafo Siemens', 'serial' => '12345ABC', 'subject' => 'Tomógrafo intermitente, error 8042', 'priority' => 'Alta', 'status' => 'Abierto', 'assigned_name' => 'Ing. R. Mena', 'created_at' => $today . ' 08:10:00', 'description' => 'El equipo se detiene durante el escaneo y muestra error 8042.', 'reported_phone' => '809-555-2266'],
         ['id' => 263, 'client_name' => 'Plaza de la Salud', 'equipment_name' => 'Ventilador Puritan Bennett', 'serial' => 'PB-840', 'subject' => 'Falla de encendido', 'priority' => 'Alta', 'status' => 'En proceso', 'assigned_name' => 'Ing. L. García', 'created_at' => $today . ' 09:25:00', 'description' => 'Equipo no completa secuencia de encendido.'],
-        ['id' => 261, 'client_name' => 'CEDIMAT', 'equipment_name' => 'Monitor multiparámetro', 'serial' => 'MX-450', 'subject' => 'Lecturas de SpO2 erráticas', 'priority' => 'Media', 'status' => 'En proceso', 'assigned_name' => 'Ing. P. Susaña', 'created_at' => $today . ' 10:40:00'],
         ['id' => 258, 'client_name' => 'CAID', 'equipment_name' => 'Sistema central de gases', 'serial' => 'SCH-CAID-02', 'subject' => 'Alarma de presión baja', 'priority' => 'Critica', 'status' => 'Abierto', 'assigned_name' => 'Ing. C. Reyes', 'created_at' => $today . ' 07:05:00'],
-        ['id' => 254, 'client_name' => 'Hospital General Plaza', 'equipment_name' => 'Autoclave 90L', 'serial' => 'AC-90', 'subject' => 'Ciclo de esterilización incompleto', 'priority' => 'Media', 'status' => 'Abierto', 'assigned_name' => 'Sin asignar', 'created_at' => $today . ' 11:15:00'],
-    ];
+    ] : []);
 
 $selectedTicket = $recentTickets[0] ?? null;
 
-$quotes = $liveData
+$quotes = $hasDb
     ? fetch_all('SELECT quotes.*, clients.name AS client_name FROM quotes LEFT JOIN clients ON clients.id = quotes.client_id ORDER BY quotes.created_at DESC LIMIT 5')
     : [
-        ['id' => 1042, 'quote_number' => 'COT-2026-0142', 'client_name' => 'Hospital Metropolitano', 'title' => 'Renovación de monitores UCI', 'status' => 'Negociacion', 'total' => 486200, 'updated_at' => $today],
-        ['id' => 1041, 'quote_number' => 'COT-2026-0141', 'client_name' => 'Plaza de la Salud', 'title' => 'Central de gases medicinales', 'status' => 'Enviado', 'total' => 312800, 'updated_at' => date('Y-m-d', strtotime('-1 day'))],
-        ['id' => 1040, 'quote_number' => 'COT-2026-0140', 'client_name' => 'CEDIMAT', 'title' => 'Ventiladores de transporte (x4)', 'status' => 'Cotizado', 'total' => 198400, 'updated_at' => date('Y-m-d', strtotime('-2 day'))],
-        ['id' => 1039, 'quote_number' => 'COT-2026-0139', 'client_name' => 'CAID', 'title' => 'Mantenimiento anual preventivo', 'status' => 'Aprobado', 'total' => 96500, 'updated_at' => date('Y-m-d', strtotime('-3 day'))],
-        ['id' => 1038, 'quote_number' => 'COT-2026-0138', 'client_name' => 'Hospital General Plaza', 'title' => 'Autoclave de doble puerta', 'status' => 'Borrador', 'total' => 142000, 'updated_at' => date('Y-m-d', strtotime('-4 day'))],
+        ['id' => 1042, 'quote_number' => 'SCH-2026-0142', 'client_name' => 'Hospital Metropolitano', 'title' => 'Renovación de monitores UCI', 'status' => 'Negociacion', 'total' => 486200, 'updated_at' => $today],
+        ['id' => 1041, 'quote_number' => 'SCH-2026-0141', 'client_name' => 'Plaza de la Salud', 'title' => 'Central de gases medicinales', 'status' => 'Enviado', 'total' => 312800, 'updated_at' => date('Y-m-d', strtotime('-1 day'))],
+        ['id' => 1040, 'quote_number' => 'SCH-2026-0140', 'client_name' => 'CEDIMAT', 'title' => 'Ventiladores de transporte (x4)', 'status' => 'Cotizado', 'total' => 198400, 'updated_at' => date('Y-m-d', strtotime('-2 day'))],
     ];
 
-$maintenance = $liveData
-    ? fetch_all('SELECT equipment.*, clients.name AS client_name FROM equipment LEFT JOIN clients ON clients.id = equipment.client_id WHERE next_service_at IS NOT NULL ORDER BY next_service_at ASC LIMIT 4')
-    : [
-        ['name' => 'Tomógrafo Siemens Somatom', 'client_name' => 'Hospital Metropolitano', 'warranty_until' => date('Y-m-d', strtotime('+58 day'))],
-        ['name' => 'Ventilador Dräger Evita', 'client_name' => 'Plaza de la Salud', 'warranty_until' => date('Y-m-d', strtotime('+74 day'))],
-        ['name' => 'Monitor GE B450', 'client_name' => 'CEDIMAT', 'warranty_until' => date('Y-m-d', strtotime('+128 day'))],
-        ['name' => 'Central de gases SCH', 'client_name' => 'CAID', 'warranty_until' => date('Y-m-d', strtotime('+212 day'))],
-    ];
+$maintenance = analytics_warranties_expiring(4);
+$overdueServices = analytics_overdue_services(8);
 
 /* ---- Helpers ------------------------------------------------------------- */
-$money0 = fn($v) => 'RD$ ' . number_format((float) $v, 0, '.', ',');
-$kfmt = fn($v) => $v >= 1000000 ? number_format($v / 1000000, 2) . 'M' : ($v >= 1000 ? number_format($v / 1000, 0) . 'k' : (string) (int) $v);
+$money0 = fn ($v) => 'RD$ ' . number_format((float) $v, 0, '.', ',');
+$kfmt = fn ($v) => $v >= 1000000 ? number_format($v / 1000000, 2) . 'M' : ($v >= 1000 ? number_format($v / 1000, 0) . 'k' : (string) (int) $v);
+$delta_chip = function (float $d): string {
+    $up = $d >= 0;
+    return '<span class="dash-delta ' . ($up ? 'dash-delta--up' : 'dash-delta--down') . '"><i data-lucide="' . ($up ? 'trending-up' : 'trending-down') . '"></i>' . ($up ? '+' : '') . e((string) $d) . '%</span>';
+};
 
 /** Inline SVG area sparkline from a numeric series. */
 function spark_svg(array $pts, string $id, string $stroke = '#0a7d36'): string
@@ -191,6 +124,17 @@ function spark_svg(array $pts, string $id, string $stroke = '#0a7d36'): string
 
 $heroParts = explode('.', number_format($pipelineValue, 2, '.', ','));
 
+/* Monthly accent-chart metadata derived from real trend */
+$avgOf = fn (array $a) => count($a) ? array_sum($a) / count($a) : 0;
+$lastIngreso = $trend['ingresos_raw'] ? (float) end($trend['ingresos_raw']) : 0.0;
+$lastCot = $trend['cotizaciones'] ? (int) end($trend['cotizaciones']) : 0;
+$lastTk = $trend['tickets'] ? (int) end($trend['tickets']) : 0;
+$monthlyMeta = [
+    'ingresos'     => ['label' => 'RD$ ' . $kfmt($lastIngreso), 'avg' => 'RD$ ' . $kfmt($avgOf($trend['ingresos_raw'])), 'meta' => 'RD$ ' . $kfmt($trend['ingresos_raw'] ? max($trend['ingresos_raw']) : 0)],
+    'cotizaciones' => ['label' => $lastCot . ' cotiz.', 'avg' => round($avgOf($trend['cotizaciones'])) . ' cotiz.', 'meta' => ($trend['cotizaciones'] ? max($trend['cotizaciones']) : 0) . ' cotiz.'],
+    'tickets'      => ['label' => $lastTk . ' tickets', 'avg' => round($avgOf($trend['tickets'])) . ' tickets', 'meta' => ($trend['tickets'] ? max($trend['tickets']) : 0) . ' tickets'],
+];
+
 $crmTitle = 'Panel de operaciones';
 require_once __DIR__ . '/../includes/crm_header.php';
 ?>
@@ -201,7 +145,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
     </div>
 <?php endif; ?>
 
-<div class="dash" x-data="{ tf: '<?= e($periodLabel) ?>', tech: 'Todos los técnicos', tfOpen: false, techOpen: false }">
+<div class="dash">
 
     <!-- ============ Toolbar ============ -->
     <div class="dash-bar">
@@ -209,7 +153,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <h2>
                 <i data-lucide="layout-dashboard" class="h-5 w-5 text-sch-blue"></i>
                 Panel de operaciones
-                <?php if ($sample): ?>
+                <?php if ($demo): ?>
                     <span class="dash-live" style="background:var(--gold-soft);color:var(--gold-strong)"><i data-lucide="flask-conical" class="h-3.5 w-3.5"></i> Datos de muestra</span>
                 <?php else: ?>
                     <span class="dash-live"><span class="dash-live-dot" style="width:6px;height:6px;border-radius:9px;background:#0a7d36;display:inline-block"></span> En vivo</span>
@@ -217,44 +161,27 @@ require_once __DIR__ . '/../includes/crm_header.php';
             </h2>
             <p>Soporte, ventas y mantenimiento de SCH MEDICOS en un solo lugar.</p>
         </div>
-        <div class="dash-bar__tools">
-            <div class="dash-avatars" aria-label="Equipo de servicio">
-                <?php foreach (array_slice($team, 0, 4) as $m): ?>
-                    <span class="av av--<?= e($m[1]) ?>" title="<?= e($m[0]) ?>"><?= e($initialsOf($m[0])) ?></span>
-                <?php endforeach; ?>
-                <a class="dash-avatars__add" href="<?= url('crm/configuracion.php') ?>" aria-label="Gestionar equipo" title="Gestionar equipo"><i data-lucide="plus" class="h-4 w-4"></i></a>
-            </div>
+        <div class="dash-bar__tools" x-data="{ tfOpen: false }">
+            <?php if ($teamHas): ?>
+                <div class="dash-avatars" aria-label="Equipo de servicio">
+                    <?php foreach (array_slice($team, 0, 4) as $m): ?>
+                        <span class="av av--<?= e($m['tone']) ?>" title="<?= e($m['name']) ?>"><?= e($initialsOf($m['name'])) ?></span>
+                    <?php endforeach; ?>
+                    <a class="dash-avatars__add" href="<?= url('crm/configuracion.php') ?>" aria-label="Gestionar equipo" title="Gestionar equipo"><i data-lucide="plus" class="h-4 w-4"></i></a>
+                </div>
+            <?php endif; ?>
 
             <div class="dash-dd" @click.outside="tfOpen = false">
-                <button type="button" class="dash-chip dash-chip--accent" @click="tfOpen = !tfOpen; techOpen = false" :aria-expanded="tfOpen"><i data-lucide="calendar-days"></i><span x-text="tf"><?= e($periodLabel) ?></span><i data-lucide="chevron-down"></i></button>
+                <button type="button" class="dash-chip dash-chip--accent" @click="tfOpen = !tfOpen" :aria-expanded="tfOpen"><i data-lucide="calendar-days"></i><span><?= e($periodLabel) ?></span><i data-lucide="chevron-down"></i></button>
                 <div class="dash-pop dash-pop--left" x-show="tfOpen" x-transition.origin.top.left x-cloak>
                     <div class="dash-pop__label">Periodo</div>
-                    <?php
-                    $tfOptions = [
-                        'Hoy' => date('d/m/Y'),
-                        'Esta semana' => 'Semana actual',
-                        'Este mes' => $periodLabel,
-                        'Trimestre' => 'Trimestre ' . (int) ceil((int) date('n') / 3) . ' ' . date('Y'),
-                        'Año' => date('Y'),
-                    ];
-                    foreach ($tfOptions as $optLabel => $optValue): ?>
-                        <button type="button" class="dash-pop__item" :class="{ 'is-active': tf === '<?= e(addslashes($optValue)) ?>' }" @click="tf = '<?= e(addslashes($optValue)) ?>'; tfOpen = false; window.crmToast('Periodo: <?= e(addslashes($optLabel)) ?>', 'calendar-days')"><i data-lucide="calendar-check"></i><?= e($optLabel) ?></button>
+                    <?php foreach (analytics_period_options() as $k => $label): ?>
+                        <a class="dash-pop__item <?= $period['key'] === $k ? 'is-active' : '' ?>" href="<?= url('crm/index.php?period=' . $k) ?>"><i data-lucide="calendar-check"></i><?= e($label) ?></a>
                     <?php endforeach; ?>
                 </div>
             </div>
 
-            <div class="dash-dd" @click.outside="techOpen = false">
-                <button type="button" class="dash-chip" @click="techOpen = !techOpen; tfOpen = false" :aria-expanded="techOpen"><i data-lucide="users"></i><span class="dash-chip__hide" x-text="tech">Todos los técnicos</span><i data-lucide="chevron-down"></i></button>
-                <div class="dash-pop dash-pop--left" x-show="techOpen" x-transition.origin.top.left x-cloak>
-                    <div class="dash-pop__label">Filtrar por técnico</div>
-                    <button type="button" class="dash-pop__item" :class="{ 'is-active': tech === 'Todos los técnicos' }" @click="tech = 'Todos los técnicos'; techOpen = false; window.crmToast('Mostrando todo el equipo', 'users')"><i data-lucide="users"></i>Todos los técnicos</button>
-                    <hr>
-                    <?php foreach ($team as $m): ?>
-                        <button type="button" class="dash-pop__item" :class="{ 'is-active': tech === '<?= e(addslashes($m[0])) ?>' }" @click="tech = '<?= e(addslashes($m[0])) ?>'; techOpen = false; window.crmToast('Filtrado: <?= e(addslashes($m[0])) ?>', 'user-round')"><span class="av av--<?= e($m[1]) ?>" style="--av-size:22px"><?= e($initialsOf($m[0])) ?></span><?= e($m[0]) ?></button>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-
+            <a href="<?= url('crm/reportes.php') ?>" class="dash-chip"><i data-lucide="bar-chart-3"></i><span class="dash-chip__hide">Reportes</span></a>
             <button type="button" class="dash-iconbtn" @click="window.dashExport()" aria-label="Exportar CSV" title="Exportar CSV"><i data-lucide="download"></i></button>
             <button type="button" class="dash-iconbtn dash-iconbtn--solid" @click="window.dashShare()" aria-label="Compartir panel" title="Compartir panel"><i data-lucide="share-2"></i></button>
         </div>
@@ -268,14 +195,11 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <span class="cur">RD$</span><?= e($heroParts[0]) ?><span class="dec">.<?= e($heroParts[1] ?? '00') ?></span>
             </div>
             <div class="dash-hero__meta">
-                <?php $up = $pipelineDeltaPct >= 0; ?>
-                <span class="dash-delta <?= $up ? 'dash-delta--up' : 'dash-delta--down' ?>">
-                    <i data-lucide="<?= $up ? 'trending-up' : 'trending-down' ?>"></i><?= ($up ? '+' : '') . e((string) $pipelineDeltaPct) ?>%
-                </span>
-                <span class="dash-delta dash-delta--solid">+<?= e($money0($pipelineDeltaAbs)) ?></span>
+                <?= $delta_chip($wonDelta) ?>
+                <span class="dash-delta dash-delta--solid">Ganado <?= e($money0($wonValue)) ?></span>
             </div>
-            <p class="dash-hero__sub">vs. periodo anterior <b><?= e($money0($pipelinePrev)) ?></b> · <?= e($periodLabel) ?></p>
-            <div class="dash-hero__spark"><?= spark_svg($trend['ingresos'], 'heroSpark', '#0a7d36') ?></div>
+            <p class="dash-hero__sub"><b><?= e((string) $openQuoteCount) ?></b> cotizaciones abiertas · <?= e($periodLabel) ?></p>
+            <?php if ($trendHas): ?><div class="dash-hero__spark"><?= spark_svg($trend['ingresos'], 'heroSpark', '#0a7d36') ?></div><?php endif; ?>
         </article>
 
         <div class="dash-kpis">
@@ -309,16 +233,16 @@ require_once __DIR__ . '/../includes/crm_header.php';
                     <span class="dash-kpi__icon dash-kpi__icon--amber"><i data-lucide="life-buoy"></i></span>
                 </div>
                 <div class="dash-kpi__value"><?= e((string) $stats['open']) ?></div>
-                <div class="dash-kpi__foot"><span class="dash-delta dash-delta--up"><i data-lucide="trending-up"></i>+3</span><span class="dash-sub">esta semana</span></div>
+                <div class="dash-kpi__foot"><span class="dash-sub"><?= e((string) $criticalTickets) ?> de alta prioridad</span></div>
             </article>
 
             <article class="dash-kpi">
                 <div class="dash-kpi__top">
-                    <span class="dash-kpi__label">Valor ganado (mes)</span>
+                    <span class="dash-kpi__label">Valor ganado</span>
                     <span class="dash-kpi__icon dash-kpi__icon--gold"><i data-lucide="wallet"></i></span>
                 </div>
                 <div class="dash-kpi__value">RD$ <?= e($kfmt($wonValue)) ?></div>
-                <div class="dash-kpi__foot"><span class="dash-delta dash-delta--up"><i data-lucide="trending-up"></i>+12%</span><span class="dash-sub"><?= e((string) $stats['quotes']) ?> activas</span></div>
+                <div class="dash-kpi__foot"><?= $delta_chip($wonDelta) ?><span class="dash-sub"><?= e((string) $stats['quotes']) ?> activas</span></div>
             </article>
 
             <article class="dash-kpi">
@@ -327,24 +251,26 @@ require_once __DIR__ . '/../includes/crm_header.php';
                     <span class="dash-kpi__icon"><i data-lucide="target"></i></span>
                 </div>
                 <div class="dash-kpi__value"><?= e((string) $winRate) ?>%</div>
-                <div class="dash-kpi__foot"><span class="dash-delta dash-delta--up"><i data-lucide="trending-up"></i>+1.8</span><span class="dash-sub">vs. mes previo</span></div>
+                <div class="dash-kpi__foot"><span class="dash-sub">aprobadas / cerradas · histórico</span></div>
             </article>
         </div>
     </section>
 
     <!-- ============ Pipeline stage pills ============ -->
-    <div class="dash-pills">
-        <?php foreach ($stages as $name => $s): $pct = round($s['amount'] / $pipelineTotal * 100, 1); ?>
-            <a class="dash-pill" href="<?= url('crm/cotizaciones.php') ?>">
-                <span class="dash-pill__dot" style="background:<?= e($s['color']) ?>"></span>
-                <span class="dash-pill__txt">
-                    <b><?= e($money0($s['amount'])) ?></b>
-                    <span><?= e($name) ?> · <?= e((string) $pct) ?>% · <?= e((string) $s['count']) ?></span>
-                </span>
-            </a>
-        <?php endforeach; ?>
-        <a class="dash-pill dash-pill--cta" href="<?= url('crm/cotizaciones.php') ?>"><span>Detalles <i data-lucide="arrow-right"></i></span></a>
-    </div>
+    <?php if ($openQuoteCount > 0): ?>
+        <div class="dash-pills">
+            <?php foreach ($stages as $name => $s): $pct = round($s['amount'] / $pipelineTotal * 100, 1); ?>
+                <a class="dash-pill" href="<?= e(url('crm/cotizaciones.php') . '?status=' . rawurlencode($name)) ?>">
+                    <span class="dash-pill__dot" style="background:<?= e($s['color']) ?>"></span>
+                    <span class="dash-pill__txt">
+                        <b><?= e($money0($s['amount'])) ?></b>
+                        <span><?= e($name) ?> · <?= e((string) $pct) ?>% · <?= e((string) $s['count']) ?></span>
+                    </span>
+                </a>
+            <?php endforeach; ?>
+            <a class="dash-pill dash-pill--cta" href="<?= url('crm/cotizaciones.php') ?>"><span>Detalles <i data-lucide="arrow-right"></i></span></a>
+        </div>
+    <?php endif; ?>
 
     <!-- ============ Mid row: business lines + monthly accent chart ============ -->
     <section class="dash-mid">
@@ -354,18 +280,22 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <a class="dash-card__meta" href="<?= url('crm/reportes.php') ?>">Reporte <i data-lucide="arrow-up-right" class="h-3.5 w-3.5"></i></a>
             </div>
             <div class="dash-card__body">
-                <div class="dash-lines">
-                    <?php foreach ($lines as [$label, $icon, $pct, $amount, $color]): ?>
-                        <div class="dash-line">
-                            <span class="dash-line__icon" style="background:<?= e($color) ?>1a;color:<?= e($color) ?>"><i data-lucide="<?= e($icon) ?>"></i></span>
-                            <div class="dash-line__main">
-                                <b><?= e($label) ?></b>
-                                <div class="dash-line__track"><span class="dash-line__fill" style="width:<?= e((string) $pct) ?>%;background:<?= e($color) ?>"></span></div>
+                <?php if ($linesHas): ?>
+                    <div class="dash-lines">
+                        <?php foreach ($lines as $l): ?>
+                            <div class="dash-line">
+                                <span class="dash-line__icon" style="background:<?= e($l['color']) ?>1a;color:<?= e($l['color']) ?>"><i data-lucide="<?= e($l['icon']) ?>"></i></span>
+                                <div class="dash-line__main">
+                                    <b><?= e($l['line']) ?></b>
+                                    <div class="dash-line__track"><span class="dash-line__fill" style="width:<?= e((string) max(3, $l['pct'])) ?>%;background:<?= e($l['color']) ?>"></span></div>
+                                </div>
+                                <div class="dash-line__val"><b><?= e($money0($l['amount'])) ?></b><span><?= e((string) $l['pct']) ?>%</span></div>
                             </div>
-                            <div class="dash-line__val"><b><?= e($money0($amount)) ?></b><span><?= e((string) $pct) ?>%</span></div>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <div class="chart-empty"><i data-lucide="layers"></i><strong>Sin ingresos por línea</strong><p>Asigna una línea de negocio a tus cotizaciones para ver este desglose real.</p></div>
+                <?php endif; ?>
             </div>
         </article>
 
@@ -375,18 +305,25 @@ require_once __DIR__ . '/../includes/crm_header.php';
                     <h3>Promedio mensual</h3>
                     <p>Últimos 6 meses · <?= date('Y') ?></p>
                 </div>
-                <div class="dash-seg" role="tablist" aria-label="Métrica del gráfico">
-                    <button type="button" class="is-active" :class="{ 'is-active': metric==='ingresos' }" @click="metric='ingresos'; dashSetMonthly('ingresos')">Ingresos</button>
-                    <button type="button" :class="{ 'is-active': metric==='cotizaciones' }" @click="metric='cotizaciones'; dashSetMonthly('cotizaciones')">Cotiz.</button>
-                    <button type="button" :class="{ 'is-active': metric==='tickets' }" @click="metric='tickets'; dashSetMonthly('tickets')">Tickets</button>
+                <?php if ($trendHas): ?>
+                    <div class="dash-seg" role="tablist" aria-label="Métrica del gráfico">
+                        <button type="button" class="is-active" :class="{ 'is-active': metric==='ingresos' }" @click="metric='ingresos'; dashSetMonthly('ingresos')">Ingresos</button>
+                        <button type="button" :class="{ 'is-active': metric==='cotizaciones' }" @click="metric='cotizaciones'; dashSetMonthly('cotizaciones')">Cotiz.</button>
+                        <button type="button" :class="{ 'is-active': metric==='tickets' }" @click="metric='tickets'; dashSetMonthly('tickets')">Tickets</button>
+                    </div>
+                <?php endif; ?>
+            </div>
+            <?php if ($trendHas): ?>
+                <div class="dash-accent__value">
+                    <span id="dashMonthlyValue"><?= e($monthlyMeta['ingresos']['label']) ?></span>
                 </div>
-            </div>
-            <div class="dash-accent__value">
-                <span id="dashMonthlyValue">RD$ 1.28M</span>
-                <span class="dash-delta dash-delta--solid"><i data-lucide="trending-up"></i> +8.4%</span>
-            </div>
-            <div class="dash-accent__chart"><canvas id="dashMonthly"></canvas></div>
-            <div class="dash-accent__foot"><span>Promedio: <b id="dashMonthlyAvg" style="color:#fff">RD$ 962k</b></span><span>Meta: <b id="dashMonthlyMeta" style="color:#fff">RD$ 1.2M</b></span></div>
+                <div class="dash-accent__chart"><canvas id="dashMonthly"></canvas></div>
+                <div class="dash-accent__foot"><span>Promedio: <b id="dashMonthlyAvg" style="color:#fff"><?= e($monthlyMeta['ingresos']['avg']) ?></b></span><span>Máximo: <b id="dashMonthlyMeta" style="color:#fff"><?= e($monthlyMeta['ingresos']['meta']) ?></b></span></div>
+            <?php else: ?>
+                <div class="dash-accent__chart" style="display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.75);text-align:center;padding:1.5rem">
+                    <div><i data-lucide="bar-chart-2" style="width:28px;height:28px;opacity:.7"></i><p style="margin-top:.5rem;font-size:.85rem">Aún no hay actividad mensual registrada.</p></div>
+                </div>
+            <?php endif; ?>
         </article>
     </section>
 
@@ -397,72 +334,72 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <span class="dash-card__meta"><?= e($periodLabel) ?></span>
         </div>
         <div class="dash-card__body" style="padding-top:0">
-            <div class="dash-team-wrap">
-                <table class="dash-team-table">
-                    <thead>
-                        <tr>
-                            <th>Integrante</th>
-                            <th>Ingresos</th>
-                            <th>Cotiz.</th>
-                            <th>Resueltos</th>
-                            <th>CSAT</th>
-                            <th>Distinción</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($team as $i => [$name, $tone, $role, $income, $cotiz, $resueltos, $csat, $tag]): ?>
-                            <tr class="<?= $i === 0 ? 'is-top' : '' ?>">
-                                <td>
-                                    <div class="dash-person">
-                                        <span class="av av--<?= e($tone) ?>"><?= e($initialsOf($name)) ?></span>
-                                        <span class="dash-person__id"><b><?= e($name) ?></b><span><?= e($role) ?></span></span>
-                                    </div>
-                                </td>
-                                <td><span class="dash-money"><?= e($money0($income)) ?></span></td>
-                                <td><span class="dash-badge dash-badge--soft"><?= e((string) $cotiz) ?></span></td>
-                                <td><span class="dash-badge dash-badge--green"><?= e((string) $resueltos) ?></span></td>
-                                <td><span class="dash-sub" style="color:var(--ink-soft);font-weight:700"><?= e(number_format($csat / 100, 2)) ?></span></td>
-                                <td>
-                                    <?php if (!empty($tag[0])): ?>
-                                        <span class="dash-tag dash-tag--<?= e($tag[1]) ?>"><i data-lucide="<?= e($tag[2]) ?>" class="h-3.5 w-3.5"></i><?= e($tag[0]) ?></span>
-                                    <?php else: ?>
-                                        <span class="dash-sub">—</span>
-                                    <?php endif; ?>
-                                </td>
+            <?php if ($teamHas): ?>
+                <div class="dash-team-wrap">
+                    <table class="dash-team-table">
+                        <thead>
+                            <tr>
+                                <th>Integrante</th>
+                                <th>Rol</th>
+                                <th>Ingresos</th>
+                                <th>Cotiz.</th>
+                                <th>Resueltos</th>
                             </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($team as $i => $m): ?>
+                                <tr class="<?= $i === 0 ? 'is-top' : '' ?>">
+                                    <td>
+                                        <div class="dash-person">
+                                            <span class="av av--<?= e($m['tone']) ?>"><?= e($initialsOf($m['name'])) ?></span>
+                                            <span class="dash-person__id"><b><?= e($m['name']) ?></b></span>
+                                        </div>
+                                    </td>
+                                    <td><span class="dash-sub" style="text-transform:capitalize"><?= e((string) ($m['role'] ?? '—')) ?></span></td>
+                                    <td><span class="dash-money"><?= e($money0($m['ingresos'])) ?></span></td>
+                                    <td><span class="dash-badge dash-badge--soft"><?= e((string) (int) $m['cotizaciones']) ?></span></td>
+                                    <td><span class="dash-badge dash-badge--green"><?= e((string) (int) $m['resueltos']) ?></span></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php else: ?>
+                <div class="chart-empty"><i data-lucide="users-round"></i><strong>Sin actividad del equipo</strong><p>El desempeño se calcula de cotizaciones creadas y tickets resueltos por cada usuario.</p></div>
+            <?php endif; ?>
         </div>
     </article>
 
-    <!-- ============ Brand mix ============ -->
+    <!-- ============ Inventory by brand ============ -->
     <article class="dash-card">
         <div class="dash-card__head">
-            <h3><i data-lucide="package"></i> Mezcla de cartera por marca</h3>
-            <span class="dash-card__meta">RD$ 1.33M en pipeline</span>
+            <h3><i data-lucide="package"></i> Inventario instalado por marca</h3>
+            <a class="dash-card__meta" href="<?= url('crm/equipos.php') ?>">Equipos <i data-lucide="arrow-up-right" class="h-3.5 w-3.5"></i></a>
         </div>
         <div class="dash-card__body">
-            <div class="dash-brands">
-                <?php foreach ($brands as [$brand, $mono, $pct, $amount, $color]): ?>
-                    <div class="dash-brand">
-                        <span class="dash-brand__mono" style="background:<?= e($color) ?>1a;color:<?= e($color) ?>"><?= e($mono) ?></span>
-                        <div class="dash-brand__main">
-                            <div class="dash-brand__row"><b><?= e($brand) ?></b><span style="color:<?= e($color) ?>"><?= e((string) $pct) ?>%</span></div>
-                            <div class="dash-brand__track"><span class="dash-brand__fill" style="width:<?= e((string) $pct) ?>%;background:<?= e($color) ?>"></span></div>
-                            <span class="dash-brand__amt"><?= e($money0($amount)) ?></span>
+            <?php if ($brandsHas): ?>
+                <div class="dash-brands">
+                    <?php foreach ($brandRows as $i => $b): $pct = round($b['total'] / max(1, $brandTotal) * 100); $color = $brandPalette[$i % count($brandPalette)]; $mono = mb_strtoupper(mb_substr((string) $b['brand'], 0, 2)); ?>
+                        <div class="dash-brand">
+                            <span class="dash-brand__mono" style="background:<?= e($color) ?>1a;color:<?= e($color) ?>"><?= e($mono) ?></span>
+                            <div class="dash-brand__main">
+                                <div class="dash-brand__row"><b><?= e($b['brand']) ?></b><span style="color:<?= e($color) ?>"><?= e((string) $pct) ?>%</span></div>
+                                <div class="dash-brand__track"><span class="dash-brand__fill" style="width:<?= e((string) max(3, $pct)) ?>%;background:<?= e($color) ?>"></span></div>
+                                <span class="dash-brand__amt"><?= e((string) (int) $b['total']) ?> equipo<?= (int) $b['total'] === 1 ? '' : 's' ?></span>
+                            </div>
                         </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <div class="chart-empty"><i data-lucide="package"></i><strong>Sin inventario registrado</strong><p>Registra equipos instalados para ver la mezcla por fabricante.</p></div>
+            <?php endif; ?>
         </div>
     </article>
 
     <!-- ============ Service dynamics line chart ============ -->
     <article class="dash-card">
         <div class="dash-card__head">
-            <h3><i data-lucide="activity"></i> Dinámica de servicio</h3>
+            <h3><i data-lucide="activity"></i> Dinámica mensual de servicio</h3>
             <div class="dash-legend">
                 <span style="--c:#0666b3">Tickets nuevos</span>
                 <span style="--c:#0a7d36">Resueltos</span>
@@ -470,38 +407,71 @@ require_once __DIR__ . '/../includes/crm_header.php';
             </div>
         </div>
         <div class="dash-card__body" style="padding-bottom:.6rem">
-            <div class="dash-dynamic__chart"><canvas id="dashDynamic"></canvas></div>
+            <?php if ($trendHas): ?>
+                <div class="dash-dynamic__chart"><canvas id="dashDynamic"></canvas></div>
+            <?php else: ?>
+                <div class="chart-empty"><i data-lucide="activity"></i><strong>Sin movimiento aún</strong><p>La dinámica de tickets y cotizaciones aparecerá con la operación diaria.</p></div>
+            <?php endif; ?>
         </div>
     </article>
 
     <p class="dash-section-label">Operación en vivo</p>
 
+    <?php if ($overdueServices): ?>
+        <article class="ops-card" style="border-color:#fecaca;background:linear-gradient(180deg,#fef2f2,#fff)">
+            <header class="ops-card__head">
+                <h3><i data-lucide="alert-triangle" class="h-4 w-4 text-red-600"></i>Mantenimientos vencidos <span class="ops-status bg-red-100 text-red-700"><?= e((string) count($overdueServices)) ?></span></h3>
+                <a href="<?= url('crm/agenda.php') ?>">Agenda</a>
+            </header>
+            <div class="overflow-x-auto">
+                <table class="ops-table">
+                    <thead><tr><th>Cliente</th><th>Equipo</th><th>Área</th><th>Programado</th><th class="text-right">Días vencido</th></tr></thead>
+                    <tbody>
+                        <?php foreach ($overdueServices as $ov): $days = max(0, (int) floor((time() - strtotime((string) $ov['next_service_at'])) / 86400)); ?>
+                            <tr>
+                                <td><strong><?= e($ov['client_name'] ?? 'Cliente') ?></strong></td>
+                                <td><?= e($ov['name'] ?? 'Equipo') ?></td>
+                                <td><?= e($ov['area'] ?: '—') ?></td>
+                                <td class="ops-nowrap"><?= e(date_es($ov['next_service_at'])) ?></td>
+                                <td class="text-right"><span class="ops-status bg-red-50 text-red-700 ring-1 ring-red-200"><?= e((string) $days) ?> d</span></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </article>
+    <?php endif; ?>
+
     <!-- ============ Live operational tables (real CRM records) ============ -->
     <article class="ops-card">
         <header class="ops-card__head">
-            <h3><i data-lucide="life-buoy" class="h-4 w-4 text-red-500"></i>Tickets urgentes <span class="ops-status bg-red-100 text-red-700"><?= e((string) max(1, count($recentTickets))) ?></span></h3>
+            <h3><i data-lucide="life-buoy" class="h-4 w-4 text-red-500"></i>Tickets urgentes <span class="ops-status bg-red-100 text-red-700"><?= e((string) count($recentTickets)) ?></span></h3>
             <a href="<?= url('crm/tickets.php') ?>">Ver todos</a>
         </header>
-        <div class="overflow-x-auto">
-            <table class="ops-table ops-table--tickets">
-                <thead>
-                    <tr><th>ID</th><th>Cliente</th><th>Asunto</th><th>Prioridad</th><th>Estado</th><th>Técnico</th><th>Creado</th></tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($recentTickets as $ticket): ?>
-                        <tr>
-                            <td><a href="<?= url('crm/tickets.php?id=' . (int) $ticket['id']) ?>">TK-<?= date('Y') ?>-<?= str_pad((string) $ticket['id'], 4, '0', STR_PAD_LEFT) ?></a></td>
-                            <td><?= e($ticket['client_name'] ?? 'Sin cliente') ?></td>
-                            <td><?= e($ticket['subject']) ?></td>
-                            <td><span class="ops-status <?= e(priority_class($ticket['priority'])) ?>"><?= e($ticket['priority']) ?></span></td>
-                            <td><span class="ops-status <?= e(status_class($ticket['status'])) ?>"><?= e($ticket['status']) ?></span></td>
-                            <td><?= e($ticket['assigned_name'] ?? 'Sin asignar') ?></td>
-                            <td class="ops-nowrap"><?= e(date('d/m H:i', strtotime($ticket['created_at'] ?? 'now'))) ?></td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
+        <?php if ($recentTickets): ?>
+            <div class="overflow-x-auto">
+                <table class="ops-table ops-table--tickets">
+                    <thead>
+                        <tr><th>ID</th><th>Cliente</th><th>Asunto</th><th>Prioridad</th><th>Estado</th><th>Técnico</th><th>Creado</th></tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($recentTickets as $ticket): ?>
+                            <tr>
+                                <td><a href="<?= url('crm/tickets.php?id=' . (int) $ticket['id']) ?>">TK-<?= date('Y') ?>-<?= str_pad((string) $ticket['id'], 4, '0', STR_PAD_LEFT) ?></a></td>
+                                <td><?= e($ticket['client_name'] ?? 'Sin cliente') ?></td>
+                                <td><?= e($ticket['subject']) ?></td>
+                                <td><span class="ops-status <?= e(priority_class($ticket['priority'])) ?>"><?= e($ticket['priority']) ?></span></td>
+                                <td><span class="ops-status <?= e(status_class($ticket['status'])) ?>"><?= e($ticket['status']) ?></span></td>
+                                <td><?= e($ticket['assigned_name'] ?? 'Sin asignar') ?></td>
+                                <td class="ops-nowrap"><?= e(date('d/m H:i', strtotime($ticket['created_at'] ?? 'now'))) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php else: ?>
+            <div class="crm-empty"><i data-lucide="check-circle-2" class="h-6 w-6"></i><strong>No hay tickets urgentes</strong><p>Todos los casos están resueltos o no hay tickets abiertos.</p></div>
+        <?php endif; ?>
     </article>
 
     <div class="ops-row ops-row--split">
@@ -519,104 +489,75 @@ require_once __DIR__ . '/../includes/crm_header.php';
                     </div>
                     <p class="ops-focus__subject"><?= e($selectedTicket['subject']) ?></p>
                     <dl class="ops-focus__grid">
-                        <div><dt>Cliente</dt><dd><?= e($selectedTicket['client_name'] ?? 'Hospital Metropolitano de Santiago') ?></dd></div>
-                        <div><dt>Técnico</dt><dd><?= e($selectedTicket['assigned_name'] ?? 'Ing. R. Mena') ?></dd></div>
-                        <div><dt>Equipo</dt><dd><?= e($selectedTicket['equipment_name'] ?? 'Sistema central de gases') ?> · <?= e($selectedTicket['serial'] ?? 'SCH-HMS-001') ?></dd></div>
-                        <div><dt>Ubicación</dt><dd>Imagenología · 1er Nivel</dd></div>
-                        <div><dt>Contacto</dt><dd>Ing. Laura Peña · <?= e($selectedTicket['reported_phone'] ?? '809-555-2266') ?></dd></div>
+                        <div><dt>Cliente</dt><dd><?= e($selectedTicket['client_name'] ?? 'Sin cliente') ?></dd></div>
+                        <div><dt>Técnico</dt><dd><?= e($selectedTicket['assigned_name'] ?? 'Sin asignar') ?></dd></div>
+                        <div><dt>Equipo</dt><dd><?= e($selectedTicket['equipment_name'] ?? 'Sin equipo') ?><?= !empty($selectedTicket['serial']) ? ' · ' . e($selectedTicket['serial']) : '' ?></dd></div>
                         <div><dt>Creado</dt><dd><?= e(date('d/m/Y H:i', strtotime($selectedTicket['created_at'] ?? 'now'))) ?></dd></div>
                     </dl>
-                    <p class="ops-focus__desc"><?= e($selectedTicket['description'] ?? 'El equipo se detiene durante el escaneo y muestra error 8042. Ocurre de forma intermitente.') ?></p>
+                    <?php if (!empty($selectedTicket['description'])): ?><p class="ops-focus__desc"><?= e($selectedTicket['description']) ?></p><?php endif; ?>
                 </div>
                 <div class="ops-focus__actions">
-                    <?php if ($liveData):
-                        $uid = (int) (current_user()['id'] ?? 0);
-                        $curStatus = $selectedTicket['status'] ?? 'Abierto';
-                        $curPriority = $selectedTicket['priority'] ?? 'Media';
-                        $curAssigned = (string) ($selectedTicket['assigned_to'] ?? '');
-                        $curDue = (string) ($selectedTicket['due_at'] ?? '');
-                    ?>
-                        <form method="post" action="<?= url('crm/tickets.php') ?>" style="display:contents">
-                            <?= csrf_field() ?>
-                            <input type="hidden" name="form" value="update">
-                            <input type="hidden" name="id" value="<?= (int) $selectedTicket['id'] ?>">
-                            <input type="hidden" name="status" value="<?= e($curStatus) ?>">
-                            <input type="hidden" name="priority" value="<?= e($curPriority) ?>">
-                            <input type="hidden" name="assigned_to" value="<?= e((string) $uid) ?>">
-                            <input type="hidden" name="due_at" value="<?= e($curDue) ?>">
-                            <button class="ops-action-blue" type="submit"><i data-lucide="user-round-plus" class="h-4 w-4"></i>Tomar ticket</button>
-                        </form>
-                        <form method="post" action="<?= url('crm/tickets.php') ?>" style="display:contents">
-                            <?= csrf_field() ?>
-                            <input type="hidden" name="form" value="update">
-                            <input type="hidden" name="id" value="<?= (int) $selectedTicket['id'] ?>">
-                            <input type="hidden" name="status" value="Resuelto">
-                            <input type="hidden" name="priority" value="<?= e($curPriority) ?>">
-                            <input type="hidden" name="assigned_to" value="<?= e($curAssigned) ?>">
-                            <input type="hidden" name="due_at" value="<?= e($curDue) ?>">
-                            <button class="ops-action-green" type="submit"><i data-lucide="circle-check" class="h-4 w-4"></i>Resolver</button>
-                        </form>
-                    <?php else: ?>
-                        <a class="ops-action-blue" href="<?= url('crm/tickets.php?id=' . (int) $selectedTicket['id']) ?>"><i data-lucide="user-round-plus" class="h-4 w-4"></i>Tomar ticket</a>
-                        <a class="ops-action-green" href="<?= url('crm/tickets.php?id=' . (int) $selectedTicket['id']) ?>"><i data-lucide="circle-check" class="h-4 w-4"></i>Resolver</a>
-                    <?php endif; ?>
+                    <a class="ops-action-blue" href="<?= url('crm/tickets.php?id=' . (int) $selectedTicket['id']) ?>"><i data-lucide="user-round-plus" class="h-4 w-4"></i>Gestionar</a>
+                    <a class="ops-action-green" href="<?= url('crm/tickets.php?id=' . (int) $selectedTicket['id']) ?>"><i data-lucide="circle-check" class="h-4 w-4"></i>Resolver</a>
                 </div>
             </article>
         <?php endif; ?>
 
         <article class="ops-card">
             <header class="ops-card__head">
-                <h3><i data-lucide="calendar-days" class="h-4 w-4 text-sch-blue"></i>Calendario de mantenimiento</h3>
-                <span><?= e(date_long_es(date('Y-m-d'))) ?></span>
+                <h3><i data-lucide="calendar-days" class="h-4 w-4 text-sch-blue"></i>Próximos servicios</h3>
+                <a href="<?= url('crm/agenda.php') ?>">Agenda</a>
             </header>
-            <div class="ops-calendar">
-                <?php
-                $calendarRows = ['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00'];
-                foreach ($calendarRows as $i => $hour):
-                    $event = $maintenance[$i % max(1, count($maintenance))] ?? null;
-                    $isNow = $i === 2;
-                ?>
-                    <div class="ops-calendar__bar">
-                        <div><?= e($hour) ?></div>
-                        <div>
-                            <?php if ($isNow): ?><span class="ops-now-dot" aria-label="Ahora"></span><?php endif; ?>
-                            <?php if ($event && in_array($i, [1,3,5,6], true)): ?>
-                                <span class="ops-calendar__event">
-                                    <?= e($event['client_name'] ?? 'Cliente SCH') ?>
-                                    <small>Mantenimiento preventivo · <?= e($event['name'] ?? 'Equipo médico') ?></small>
-                                </span>
-                            <?php endif; ?>
+            <?php $upcoming = analytics_upcoming_services(6); ?>
+            <?php if ($upcoming): ?>
+                <div class="dash-card__body" style="display:grid;gap:.55rem">
+                    <?php foreach ($upcoming as $u): $d = strtotime((string) ($u['next_service_at'] ?? 'now')); ?>
+                        <div class="agenda-up">
+                            <div class="agenda-up__date">
+                                <b><?= e(date('d', $d)) ?></b>
+                                <span><?= e(['','ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'][(int) date('n', $d)]) ?></span>
+                            </div>
+                            <div class="agenda-up__body">
+                                <b><?= e($u['client_name'] ?? 'Cliente') ?></b>
+                                <span><?= e($u['name'] ?? 'Equipo') ?> · <?= e($u['area'] ?? 'Área') ?></span>
+                            </div>
                         </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <div class="crm-empty"><i data-lucide="calendar-check" class="h-6 w-6"></i><strong>Sin servicios próximos</strong><p>Programa mantenimientos desde la agenda.</p></div>
+            <?php endif; ?>
         </article>
     </div>
 
     <article class="ops-card">
         <header class="ops-card__head">
-            <h3><i data-lucide="file-text" class="h-4 w-4 text-sch-blue"></i>Pipeline de cotizaciones</h3>
+            <h3><i data-lucide="file-text" class="h-4 w-4 text-sch-blue"></i>Cotizaciones recientes</h3>
             <a href="<?= url('crm/cotizaciones.php') ?>">Ver todas</a>
         </header>
-        <div class="overflow-x-auto">
-            <table class="ops-table">
-                <thead>
-                    <tr><th>Número</th><th>Cliente</th><th>Asunto</th><th>Etapa</th><th class="text-right">Valor</th><th>Actualizado</th></tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($quotes as $quote): ?>
-                        <tr>
-                            <td><a href="<?= url('crm/cotizaciones.php?action=view&id=' . (int) $quote['id']) ?>"><?= e($quote['quote_number']) ?></a></td>
-                            <td><?= e($quote['client_name'] ?? 'Cliente') ?></td>
-                            <td><?= e($quote['title']) ?></td>
-                            <td><span class="ops-status <?= e(status_class($quote['status'])) ?>"><?= e($quote['status']) ?></span></td>
-                            <td class="text-right ops-nowrap"><?= money($quote['total']) ?></td>
-                            <td class="ops-nowrap"><?= e(date_es($quote['updated_at'] ?? $quote['created_at'] ?? null)) ?></td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
+        <?php if ($quotes): ?>
+            <div class="overflow-x-auto">
+                <table class="ops-table">
+                    <thead>
+                        <tr><th>Número</th><th>Cliente</th><th>Asunto</th><th>Etapa</th><th class="text-right">Valor</th><th>Actualizado</th></tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($quotes as $quote): ?>
+                            <tr>
+                                <td><a href="<?= url('crm/cotizaciones.php?action=view&id=' . (int) $quote['id']) ?>"><?= e($quote['quote_number']) ?></a></td>
+                                <td><?= e($quote['client_name'] ?? 'Cliente') ?></td>
+                                <td><?= e($quote['title']) ?></td>
+                                <td><span class="ops-status <?= e(status_class($quote['status'])) ?>"><?= e($quote['status']) ?></span></td>
+                                <td class="text-right ops-nowrap"><?= money($quote['total']) ?></td>
+                                <td class="ops-nowrap"><?= e(date_es($quote['updated_at'] ?? $quote['created_at'] ?? null)) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php else: ?>
+            <div class="crm-empty"><i data-lucide="file-text" class="h-6 w-6"></i><strong>Aún no hay cotizaciones</strong><p>Crea la primera desde el módulo de cotizaciones.</p></div>
+        <?php endif; ?>
     </article>
 
     <div class="ops-row ops-row--split">
@@ -625,67 +566,76 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <h3><i data-lucide="shield-alert" class="h-4 w-4 text-amber-500"></i>Garantías por vencer</h3>
                 <a href="<?= url('crm/equipos.php') ?>">Ver todas</a>
             </header>
-            <div class="overflow-x-auto">
-                <table class="ops-table">
-                    <thead>
-                        <tr><th>Equipo</th><th>Cliente</th><th>Vence</th><th class="text-right">Días</th><th>Estado</th></tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($maintenance as $item): ?>
-                            <?php $days = !empty($item['warranty_until']) ? max(0, (int) floor((strtotime($item['warranty_until']) - time()) / 86400)) : 0; ?>
-                            <tr>
-                                <td><?= e($item['name']) ?></td>
-                                <td><?= e($item['client_name'] ?? 'Cliente') ?></td>
-                                <td class="ops-nowrap"><?= e(date_es($item['warranty_until'] ?? null)) ?></td>
-                                <td class="text-right"><?= e((string) $days) ?></td>
-                                <td><span class="ops-status <?= $days < 90 ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200' : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' ?>"><?= $days < 90 ? 'Por vencer' : 'Vigente' ?></span></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
+            <?php if ($maintenance): ?>
+                <div class="overflow-x-auto">
+                    <table class="ops-table">
+                        <thead>
+                            <tr><th>Equipo</th><th>Cliente</th><th>Vence</th><th class="text-right">Días</th><th>Estado</th></tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($maintenance as $item): ?>
+                                <?php $days = !empty($item['warranty_until']) ? max(0, (int) floor((strtotime($item['warranty_until']) - time()) / 86400)) : 0; ?>
+                                <tr>
+                                    <td><?= e($item['name']) ?></td>
+                                    <td><?= e($item['client_name'] ?? 'Cliente') ?></td>
+                                    <td class="ops-nowrap"><?= e(date_es($item['warranty_until'] ?? null)) ?></td>
+                                    <td class="text-right"><?= e((string) $days) ?></td>
+                                    <td><span class="ops-status <?= $days < 90 ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200' : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' ?>"><?= $days < 90 ? 'Por vencer' : 'Vigente' ?></span></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php else: ?>
+                <div class="crm-empty"><i data-lucide="shield-check" class="h-6 w-6"></i><strong>Sin garantías próximas</strong><p>No hay equipos con garantía por vencer.</p></div>
+            <?php endif; ?>
         </article>
 
         <article class="ops-card">
             <header class="ops-card__head">
                 <h3><i data-lucide="history" class="h-4 w-4 text-sch-blue"></i>Actividad reciente</h3>
-                <a href="<?= url('crm/reportes.php') ?>">Ver todas</a>
+                <a href="<?= url('crm/reportes.php') ?>">Reportes</a>
             </header>
-            <div class="ops-activity">
-                <?php foreach (array_slice($recentTickets, 0, 5) as $i => $ticket): ?>
-                    <div class="ops-activity-row">
-                        <time><?= e(date('H:i', strtotime("-{$i} hour"))) ?></time>
-                        <i data-lucide="<?= $i % 2 === 0 ? 'ticket-check' : 'send' ?>" class="h-4 w-4"></i>
-                        <span><b>TK-<?= date('Y') ?>-<?= str_pad((string) $ticket['id'], 4, '0', STR_PAD_LEFT) ?></b> · <?= e($ticket['client_name'] ?? 'Cliente') ?></span>
-                        <span><?= e($ticket['assigned_name'] ?? 'SCH') ?></span>
-                    </div>
-                <?php endforeach; ?>
-            </div>
+            <?php if ($recentTickets): ?>
+                <div class="ops-activity">
+                    <?php foreach (array_slice($recentTickets, 0, 5) as $i => $ticket): ?>
+                        <div class="ops-activity-row">
+                            <time><?= e(date('d/m', strtotime($ticket['created_at'] ?? 'now'))) ?></time>
+                            <i data-lucide="<?= $i % 2 === 0 ? 'ticket' : 'send' ?>" class="h-4 w-4"></i>
+                            <span><b>TK-<?= date('Y') ?>-<?= str_pad((string) $ticket['id'], 4, '0', STR_PAD_LEFT) ?></b> · <?= e($ticket['client_name'] ?? 'Cliente') ?></span>
+                            <span><?= e($ticket['assigned_name'] ?? 'Sin asignar') ?></span>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <div class="crm-empty"><i data-lucide="history" class="h-6 w-6"></i><strong>Sin actividad reciente</strong><p>Los movimientos del CRM aparecerán aquí.</p></div>
+            <?php endif; ?>
         </article>
     </div>
 </div>
 
 <script>
 (function () {
-    var trend = <?= json_encode($trend) ?>;
-    var trendLabels = <?= json_encode($trendLabels, JSON_UNESCAPED_UNICODE) ?>;
-    var dyn = <?= json_encode($dynamics) ?>;
-    var dynLabels = <?= json_encode($dynLabels, JSON_UNESCAPED_UNICODE) ?>;
+    var trend = <?= json_encode(['ingresos' => $trend['ingresos'], 'cotizaciones' => $trend['cotizaciones'], 'tickets' => $trend['tickets'], 'resueltos' => $trend['resueltos']], JSON_HEX_TAG | JSON_HEX_AMP) ?>;
+    var trendLabels = <?= json_encode($trend['labels'], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
+    var monthlyMeta = <?= json_encode($monthlyMeta, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 
     var dashData = <?= json_encode([
         'periodo'  => $periodLabel,
         'pipeline' => $pipelineValue,
+        'ganado'   => $wonValue,
         'stages'   => array_values(array_map(fn ($k, $v) => ['etapa' => $k, 'monto' => $v['amount'], 'cotizaciones' => $v['count']], array_keys($stages), $stages)),
-        'lineas'   => array_map(fn ($l) => ['linea' => $l[0], 'pct' => $l[2], 'monto' => $l[3]], $lines),
-        'equipo'   => array_map(fn ($t) => ['nombre' => $t[0], 'rol' => $t[2], 'ingresos' => $t[3], 'cotizaciones' => $t[4], 'resueltos' => $t[5], 'csat' => $t[6]], $team),
-        'marcas'   => array_map(fn ($b) => ['marca' => $b[0], 'pct' => $b[2], 'monto' => $b[3]], $brands),
-    ], JSON_UNESCAPED_UNICODE) ?>;
+        'lineas'   => array_map(fn ($l) => ['linea' => $l['line'], 'pct' => $l['pct'], 'monto' => $l['amount']], $lines),
+        'equipo'   => array_map(fn ($t) => ['nombre' => $t['name'], 'rol' => $t['role'] ?? '', 'ingresos' => (float) $t['ingresos'], 'cotizaciones' => (int) $t['cotizaciones'], 'resueltos' => (int) $t['resueltos']], $team),
+        'marcas'   => array_map(fn ($b) => ['marca' => $b['brand'], 'equipos' => (int) $b['total']], $brandRows),
+    ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
     window.dashExport = function () {
         var rows = [];
         rows.push(['SCH MEDICOS — Panel de operaciones']);
         rows.push(['Periodo', dashData.periodo]);
         rows.push(['Valor del pipeline activo (RD$)', dashData.pipeline]);
+        rows.push(['Valor ganado (RD$)', dashData.ganado]);
         rows.push([]);
         rows.push(['Pipeline por etapa', 'Monto (RD$)', 'Cotizaciones']);
         dashData.stages.forEach(function (s) { rows.push([s.etapa, s.monto, s.cotizaciones]); });
@@ -693,11 +643,11 @@ require_once __DIR__ . '/../includes/crm_header.php';
         rows.push(['Ingresos por línea de negocio', '%', 'Monto (RD$)']);
         dashData.lineas.forEach(function (l) { rows.push([l.linea, l.pct, l.monto]); });
         rows.push([]);
-        rows.push(['Equipo', 'Rol', 'Ingresos (RD$)', 'Cotizaciones', 'Resueltos', 'CSAT']);
-        dashData.equipo.forEach(function (t) { rows.push([t.nombre, t.rol, t.ingresos, t.cotizaciones, t.resueltos, (t.csat / 100).toFixed(2)]); });
+        rows.push(['Equipo', 'Rol', 'Ingresos (RD$)', 'Cotizaciones', 'Resueltos']);
+        dashData.equipo.forEach(function (t) { rows.push([t.nombre, t.rol, t.ingresos, t.cotizaciones, t.resueltos]); });
         rows.push([]);
-        rows.push(['Mezcla por marca', '%', 'Monto (RD$)']);
-        dashData.marcas.forEach(function (b) { rows.push([b.marca, b.pct, b.monto]); });
+        rows.push(['Inventario por marca', 'Equipos']);
+        dashData.marcas.forEach(function (b) { rows.push([b.marca, b.equipos]); });
         var csv = rows.map(function (r) {
             return r.map(function (c) {
                 c = (c == null ? '' : String(c));
@@ -720,24 +670,18 @@ require_once __DIR__ . '/../includes/crm_header.php';
         }
     };
 
-    var monthlyMeta = {
-        ingresos:     { label: 'RD$ 1.28M', avg: 'RD$ 962k', meta: 'RD$ 1.2M', fmt: function (v) { return 'RD$ ' + v + 'k'; } },
-        cotizaciones: { label: '34 cotiz.', avg: '26 cotiz.', meta: '30 cotiz.', fmt: function (v) { return v + ' cotiz.'; } },
-        tickets:      { label: '42 tickets', avg: '40 tickets', meta: '38 tickets', fmt: function (v) { return v + ' tickets'; } }
-    };
-
     var monthlyChart = null;
-
     function buildMonthly(metric) {
         var ctx = document.getElementById('dashMonthly');
         if (!ctx || !window.Chart) return;
         var data = trend[metric];
         var last = data.length - 1;
         var colors = data.map(function (_, i) { return i === last ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.38)'; });
+        var fmt = metric === 'ingresos' ? function (v) { return 'RD$ ' + v + 'k'; } : (metric === 'cotizaciones' ? function (v) { return v + ' cotiz.'; } : function (v) { return v + ' tickets'; });
         if (monthlyChart) {
             monthlyChart.data.datasets[0].data = data;
             monthlyChart.data.datasets[0].backgroundColor = colors;
-            monthlyChart.options.plugins.tooltip.callbacks.label = function (c) { return monthlyMeta[metric].fmt(c.parsed.y); };
+            monthlyChart.options.plugins.tooltip.callbacks.label = function (c) { return fmt(c.parsed.y); };
             monthlyChart.update();
             return;
         }
@@ -746,15 +690,8 @@ require_once __DIR__ . '/../includes/crm_header.php';
             data: { labels: trendLabels, datasets: [{ data: data, backgroundColor: colors, borderRadius: 6, borderSkipped: false, maxBarThickness: 30 }] },
             options: {
                 responsive: true, maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: { backgroundColor: 'rgba(8,18,30,.92)', padding: 10, displayColors: false,
-                        callbacks: { label: function (c) { return monthlyMeta[metric].fmt(c.parsed.y); } } }
-                },
-                scales: {
-                    x: { grid: { display: false }, border: { display: false }, ticks: { color: 'rgba(255,255,255,.78)', font: { weight: '600', size: 11 } } },
-                    y: { display: false, beginAtZero: true, grace: '12%' }
-                }
+                plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(8,18,30,.92)', padding: 10, displayColors: false, callbacks: { label: function (c) { return fmt(c.parsed.y); } } } },
+                scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: 'rgba(255,255,255,.78)', font: { weight: '600', size: 11 } } }, y: { display: false, beginAtZero: true, grace: '12%' } }
             }
         });
     }
@@ -762,6 +699,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
     window.dashSetMonthly = function (metric) {
         buildMonthly(metric);
         var m = monthlyMeta[metric];
+        if (!m) return;
         var vEl = document.getElementById('dashMonthlyValue');
         var aEl = document.getElementById('dashMonthlyAvg');
         var mEl = document.getElementById('dashMonthlyMeta');
@@ -774,26 +712,19 @@ require_once __DIR__ . '/../includes/crm_header.php';
         var ctx = document.getElementById('dashDynamic');
         if (!ctx || !window.Chart) return;
         function ds(data, color) {
-            return { data: data, borderColor: color, backgroundColor: color + '22', borderWidth: 2.5,
-                tension: .4, fill: true, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: color, pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2 };
+            return { data: data, borderColor: color, backgroundColor: color + '22', borderWidth: 2.5, tension: .4, fill: true, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: color, pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2 };
         }
         new Chart(ctx, {
             type: 'line',
-            data: { labels: dynLabels, datasets: [
-                Object.assign({ label: 'Tickets nuevos' }, ds(dyn.nuevos, '#0666b3')),
-                Object.assign({ label: 'Resueltos' }, ds(dyn.resueltos, '#0a7d36')),
-                Object.assign({ label: 'Cotizaciones' }, ds(dyn.cotizados, '#9c7d34'))
+            data: { labels: trendLabels, datasets: [
+                Object.assign({ label: 'Tickets nuevos' }, ds(trend.tickets, '#0666b3')),
+                Object.assign({ label: 'Resueltos' }, ds(trend.resueltos, '#0a7d36')),
+                Object.assign({ label: 'Cotizaciones' }, ds(trend.cotizaciones, '#9c7d34'))
             ] },
             options: {
                 responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: { backgroundColor: 'rgba(8,18,30,.92)', padding: 10, cornerRadius: 8, titleColor: '#cbd5e1', usePointStyle: true }
-                },
-                scales: {
-                    x: { grid: { display: false }, border: { display: false }, ticks: { color: '#56697b', font: { weight: '600', size: 11 } } },
-                    y: { beginAtZero: true, border: { display: false }, grid: { color: '#eef3f8' }, ticks: { color: '#8696a6', maxTicksLimit: 5, font: { size: 11 } } }
-                }
+                plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(8,18,30,.92)', padding: 10, cornerRadius: 8, usePointStyle: true } },
+                scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: '#56697b', font: { weight: '600', size: 11 } } }, y: { beginAtZero: true, border: { display: false }, grid: { color: '#eef3f8' }, ticks: { color: '#8696a6', maxTicksLimit: 5, font: { size: 11 } } } }
             }
         });
     }
@@ -804,11 +735,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
         buildMonthly('ingresos');
         buildDynamic();
     }
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
-    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
 </script>
 

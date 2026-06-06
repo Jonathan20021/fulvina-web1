@@ -70,7 +70,7 @@ $schema = $schema ?? [
     <script defer src="<?= asset('assets/js/app.js') ?>"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script defer src="https://unpkg.com/lucide@latest"></script>
-    <script type="application/ld+json"><?= json_encode($schema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?></script>
+    <script type="application/ld+json"><?= json_encode($schema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?></script>
 </head>
 <body class="<?= e($bodyClass) ?>" x-data="{ mobile: false }">
 <div class="scroll-progress" aria-hidden="true"></div>

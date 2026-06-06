@@ -36,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         $dueAt = $_POST['due_at'] ?: null;
 
         if ($clientId <= 0 || $subject === '' || $description === '') {
-            flash('warning', 'Cliente, asunto y descripcion son obligatorios.');
+            flash('warning', 'Cliente, asunto y descripción son obligatorios.');
         } else {
             if (column_exists('tickets', 'source')) {
                 $stmt = db()->prepare('INSERT INTO tickets (client_id, equipment_id, subject, description, priority, status, source, reported_by, reported_email, reported_phone, assigned_to, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, "interno", ?, ?, ?, ?, ?, NOW(), NOW())');
@@ -45,8 +45,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
                 $stmt = db()->prepare('INSERT INTO tickets (client_id, equipment_id, subject, description, priority, status, reported_by, reported_email, reported_phone, assigned_to, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
                 $stmt->execute([$clientId, $equipmentId, $subject, $description, $priority, $status, $reportedBy, $reportedEmail, $reportedPhone, $assignedTo, $dueAt]);
             }
+            $newId = (int) db()->lastInsertId();
+            log_activity('ticket', $newId, 'ticket_creado', $subject);
             flash('success', 'Ticket creado.');
-            redirect('crm/tickets.php?id=' . db()->lastInsertId());
+            redirect('crm/tickets.php?id=' . $newId);
         }
     }
 
@@ -59,6 +61,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         $resolvedAt = in_array($status, ['Resuelto', 'Cerrado'], true) ? date('Y-m-d H:i:s') : null;
         $stmt = db()->prepare('UPDATE tickets SET status=?, priority=?, assigned_to=?, due_at=?, resolved_at=?, updated_at=NOW() WHERE id=?');
         $stmt->execute([$status, $priority, $assignedTo, $dueAt, $resolvedAt, $id]);
+
+        // Automation: resolving a ticket linked to an asset stamps its service dates.
+        if ($resolvedAt !== null) {
+            $eqId = (int) (fetch_one('SELECT equipment_id FROM tickets WHERE id=?', [$id])['equipment_id'] ?? 0);
+            if ($eqId > 0) {
+                $interval = max(1, (int) setting_get('service_interval_days', '180'));
+                if (column_exists('equipment', 'last_service_at')) {
+                    db()->prepare('UPDATE equipment SET last_service_at=CURDATE(), next_service_at=DATE_ADD(CURDATE(), INTERVAL ? DAY), updated_at=NOW() WHERE id=?')->execute([$interval, $eqId]);
+                } else {
+                    db()->prepare('UPDATE equipment SET next_service_at=DATE_ADD(CURDATE(), INTERVAL ? DAY), updated_at=NOW() WHERE id=?')->execute([$interval, $eqId]);
+                }
+                log_activity('equipment', $eqId, 'service_done', 'Servicio registrado al resolver el ticket #' . $id);
+            }
+        }
+        log_activity('ticket', $id, 'ticket_' . str_replace(' ', '_', strtolower($status)), null);
         flash('success', 'Ticket actualizado.');
         redirect('crm/tickets.php?id=' . $id);
     }
@@ -71,6 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
             $stmt = db()->prepare('INSERT INTO ticket_comments (ticket_id, user_id, author_name, body, is_internal, created_at) VALUES (?, ?, ?, ?, ?, NOW())');
             $stmt->execute([$id, current_user()['id'] ?: null, current_user()['name'] ?? 'SCH', $body, $isInternal]);
             db()->prepare('UPDATE tickets SET updated_at=NOW() WHERE id=?')->execute([$id]);
+            log_activity('ticket', $id, 'comentario', null);
             flash('success', 'Comentario agregado.');
             redirect('crm/tickets.php?id=' . $id);
         }
@@ -99,6 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         $id = (int) ($_POST['id'] ?? 0);
         if ($id > 0) {
             db()->prepare('DELETE FROM tickets WHERE id=?')->execute([$id]);
+            log_activity('ticket', $id, 'ticket_eliminado', null);
             flash('success', 'Ticket eliminado.');
         }
         redirect('crm/tickets.php');
@@ -146,10 +165,17 @@ if ($hasDb) {
     $totalPages = max(1, (int) ceil($totalTickets / $perPage));
     $sourceSelect = column_exists('tickets', 'source') ? 'tickets.source, tickets.public_reference,' : '"interno" AS source, NULL AS public_reference,';
     $tickets = fetch_all("SELECT tickets.*, {$sourceSelect} clients.name AS client_name, clients.email AS client_email, clients.phone AS client_phone, clients.support_slug, clients.support_token, equipment.name AS equipment_name, equipment.serial, equipment.area, users.name AS assigned_name FROM tickets LEFT JOIN clients ON clients.id = tickets.client_id LEFT JOIN equipment ON equipment.id = tickets.equipment_id LEFT JOIN users ON users.id = tickets.assigned_to WHERE {$where} ORDER BY FIELD(tickets.status,'Abierto','En proceso','Cotizado','Resuelto','Cerrado'), FIELD(tickets.priority,'Critica','Alta','Media','Baja'), tickets.updated_at DESC LIMIT {$perPage} OFFSET {$offset}", $params);
+
+    // Ensure the just-opened/selected ticket's modal always renders, even if it
+    // falls outside the current page/filter (e.g. a ticket created as Resuelto).
+    if ($selectedId > 0 && !array_filter($tickets, fn ($t) => (int) $t['id'] === $selectedId)) {
+        $sel = fetch_one("SELECT tickets.*, {$sourceSelect} clients.name AS client_name, clients.email AS client_email, clients.phone AS client_phone, clients.support_slug, clients.support_token, equipment.name AS equipment_name, equipment.serial, equipment.area, users.name AS assigned_name FROM tickets LEFT JOIN clients ON clients.id = tickets.client_id LEFT JOIN equipment ON equipment.id = tickets.equipment_id LEFT JOIN users ON users.id = tickets.assigned_to WHERE tickets.id = ?", [$selectedId]);
+        if ($sel) { array_unshift($tickets, $sel); }
+    }
     $stats = [
         'open' => db_count('tickets', "status IN ('Abierto','En proceso')"),
         'critical' => db_count('tickets', "priority IN ('Critica','Alta') AND status NOT IN ('Resuelto','Cerrado')"),
-        'due' => db_count('tickets', "due_at IS NOT NULL AND due_at <= CURDATE() AND status NOT IN ('Resuelto','Cerrado')"),
+        'due' => db_count('tickets', "due_at IS NOT NULL AND due_at < CURDATE() AND status NOT IN ('Resuelto','Cerrado')"),
         'portal' => column_exists('tickets', 'source') ? db_count('tickets', "source='portal_cliente'") : 0,
     ];
 } else {
@@ -222,7 +248,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
 <div class="helpdesk-v2" x-data="crmFormModal(<?= e(json_encode($emptyTicket)) ?>, <?= isset($_GET['new']) ? '{}' : 'null' ?>)">
     <section class="helpdesk-v2__top">
         <div class="helpdesk-v2__hero">
-            <span>Command center</span>
+            <span>Centro de soporte</span>
             <h2>Helpdesk por cliente, estado y prioridad</h2>
             <p>Tablero operativo para recibir tickets del portal publico, abrir casos internos, asignar responsables y cerrar seguimiento desde modales.</p>
             <div class="helpdesk-v2__actions">
@@ -300,6 +326,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                         <div class="helpdesk-lane__grid">
                             <?php foreach ($laneTickets as $ticket): ?>
                                 <?php $modalId = 'ticket-modal-' . (int) $ticket['id']; ?>
+                                <?php $isOverdue = !empty($ticket['due_at']) && strtotime((string) $ticket['due_at']) < strtotime('today') && !in_array((string) $ticket['status'], ['Resuelto', 'Cerrado'], true); ?>
                                 <button type="button" class="helpdesk-board-card is-<?= e(strtolower($ticket['priority'])) ?>" onclick="document.getElementById('<?= e($modalId) ?>').showModal()">
                                     <span class="helpdesk-board-card__meta">
                                         <strong>TK-<?= date('Y') ?>-<?= str_pad((string) $ticket['id'], 4, '0', STR_PAD_LEFT) ?></strong>
@@ -309,7 +336,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                                     <span class="helpdesk-board-card__client"><?= e($ticket['client_name'] ?? 'Sin cliente') ?></span>
                                     <span class="helpdesk-board-card__foot">
                                         <small><?= e($ticket['priority']) ?></small>
-                                        <small><?= e(date_es($ticket['due_at'] ?? null)) ?></small>
+                                        <?php if ($isOverdue): ?><small class="status-chip bg-red-50 text-red-700 ring-1 ring-red-200">Vencido</small><?php else: ?><small><?= e(date_es($ticket['due_at'] ?? null)) ?></small><?php endif; ?>
                                     </span>
                                 </button>
                             <?php endforeach; ?>
@@ -332,7 +359,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                             <th>Responsable</th>
                             <th>Vence</th>
                             <th>Origen</th>
-                            <th class="text-right">Accion</th>
+                            <th class="text-right">Acción</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -350,9 +377,10 @@ require_once __DIR__ . '/../includes/crm_header.php';
                                 <td data-label="Estado"><span class="status-chip <?= e(status_class($ticket['status'])) ?>"><?= e($ticket['status']) ?></span></td>
                                 <td data-label="Prioridad"><span class="status-chip <?= e(priority_class($ticket['priority'])) ?>"><?= e($ticket['priority']) ?></span></td>
                                 <td data-label="Responsable"><?= e($ticket['assigned_name'] ?? 'Sin asignar') ?></td>
-                                <td data-label="Vence"><?= e(date_es($ticket['due_at'] ?? null)) ?></td>
+                                <?php $isOverdue = !empty($ticket['due_at']) && strtotime((string) $ticket['due_at']) < strtotime('today') && !in_array((string) $ticket['status'], ['Resuelto', 'Cerrado'], true); ?>
+                                <td data-label="Vence"><?php if ($isOverdue): ?><span class="status-chip bg-red-50 text-red-700 ring-1 ring-red-200">Vencido</span> <?php endif; ?><?= e(date_es($ticket['due_at'] ?? null)) ?></td>
                                 <td data-label="Origen"><?= ($ticket['source'] ?? '') === 'portal_cliente' ? 'Portal' : 'Interno' ?></td>
-                                <td data-label="Accion" class="text-right">
+                                <td data-label="Acción" class="text-right">
                                     <button type="button" class="crm-secondary-btn helpdesk-list-action" onclick="document.getElementById('<?= e($modalId) ?>').showModal()"><i data-lucide="panel-right-open"></i>Detalle</button>
                                 </td>
                             </tr>
@@ -372,7 +400,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
         <footer class="helpdesk-v2__pager">
             <span><?= e((string) $totalTickets) ?> tickets visibles</span>
             <?php if ($totalPages > 1): ?>
-                <nav aria-label="Paginacion de tickets">
+                <nav aria-label="Paginación de tickets">
                     <a class="<?= $page <= 1 ? 'is-disabled' : '' ?>" href="<?= $page <= 1 ? '#' : url('crm/tickets.php?' . $queryForPage($page - 1)) ?>">Anterior</a>
                     <b><?= e((string) $page) ?> / <?= e((string) $totalPages) ?></b>
                     <a class="<?= $page >= $totalPages ? 'is-disabled' : '' ?>" href="<?= $page >= $totalPages ? '#' : url('crm/tickets.php?' . $queryForPage($page + 1)) ?>">Siguiente</a>
@@ -408,8 +436,8 @@ require_once __DIR__ . '/../includes/crm_header.php';
                         </div>
 
                         <article class="helpdesk-ticket-modal__block">
-                            <h3>Descripcion tecnica</h3>
-                            <p><?= nl2br(e($ticket['description'] ?? 'Sin descripcion')) ?></p>
+                            <h3>Descripción técnica</h3>
+                            <p><?= nl2br(e($ticket['description'] ?? 'Sin descripción')) ?></p>
                         </article>
 
                         <article class="helpdesk-ticket-modal__block">
@@ -492,7 +520,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                             <button class="crm-secondary-btn" type="submit"><i data-lucide="message-square-plus"></i>Agregar nota</button>
                         </form>
 
-                        <form method="post" class="helpdesk-ticket-modal__form" onsubmit="return confirm('Eliminar este ticket? Esta accion no se puede deshacer.');">
+                        <form method="post" class="helpdesk-ticket-modal__form" onsubmit="return confirm('¿Eliminar este ticket? Esta acción no se puede deshacer.');">
                             <?= csrf_field() ?>
                             <input type="hidden" name="form" value="delete">
                             <input type="hidden" name="id" value="<?= $ticketId ?>">
@@ -551,7 +579,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <span class="crm-modal__icon"><i data-lucide="life-buoy"></i></span>
                 <div class="crm-modal__titles">
                     <h2>Nuevo ticket interno</h2>
-                    <p>Registra cliente, equipo, prioridad y descripcion tecnica.</p>
+                    <p>Registra cliente, equipo, prioridad y descripción técnica.</p>
                 </div>
                 <button type="button" class="crm-modal__close" @click="close()" aria-label="Cerrar"><i data-lucide="x"></i></button>
             </header>
@@ -580,9 +608,9 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <div class="crm-form-grid">
                     <label class="crm-field"><span>Reportado por</span><input name="reported_by" x-model="form.reported_by" class="crm-input"></label>
                     <label class="crm-field"><span>Correo reporte</span><input type="email" name="reported_email" x-model="form.reported_email" class="crm-input"></label>
-                    <label class="crm-field"><span>Telefono reporte</span><input name="reported_phone" x-model="form.reported_phone" class="crm-input"></label>
+                    <label class="crm-field"><span>Teléfono reporte</span><input name="reported_phone" x-model="form.reported_phone" class="crm-input"></label>
                 </div>
-                <label class="crm-field"><span class="required">Descripcion</span><textarea name="description" required rows="5" x-model="form.description" class="crm-textarea"></textarea></label>
+                <label class="crm-field"><span class="required">Descripción</span><textarea name="description" required rows="5" x-model="form.description" class="crm-textarea"></textarea></label>
             </div>
             <footer class="crm-modal__foot">
                 <button type="button" class="crm-secondary-btn" @click="close()">Cancelar</button>

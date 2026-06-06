@@ -19,6 +19,84 @@ function money_cur(float|int|string|null $value, string $currency = 'DOP'): stri
     return $sym . ' ' . number_format((float) $value, 2, '.', ',');
 }
 
+/** Spanish words for a non-negative integer (supports up to 999,999,999,999). */
+function int_to_words_es(int $n): string
+{
+    if ($n < 0) { $n = -$n; }
+    if ($n === 0) return 'cero';
+    if ($n > 999999999999) { return (string) $n; } // beyond supported range: numeric fallback (never fatals)
+
+    $unidades = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciseis', 'diecisiete', 'dieciocho', 'diecinueve', 'veinte'];
+    $decenas = ['', '', 'veinti', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
+    $centenas = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
+
+    // 0..999
+    $under1000 = function (int $x) use ($unidades, $decenas, $centenas): string {
+        if ($x === 0) return '';
+        if ($x === 100) return 'cien';
+        $c = intdiv($x, 100);
+        $r = $x % 100;
+        $out = $centenas[$c];
+        if ($r > 0) {
+            if ($r <= 20) {
+                $part = $unidades[$r];
+            } else {
+                $d = intdiv($r, 10);
+                $u = $r % 10;
+                if ($d === 2) {
+                    $part = $u === 0 ? 'veinte' : 'veinti' . $unidades[$u];
+                } else {
+                    $part = $decenas[$d] . ($u > 0 ? ' y ' . $unidades[$u] : '');
+                }
+            }
+            $out = trim($out . ' ' . $part);
+        }
+        return $out;
+    };
+
+    // 0..999,999 (thousands + hundreds)
+    $underMillion = function (int $x) use ($under1000): string {
+        $miles = intdiv($x, 1000);
+        $resto = $x % 1000;
+        $parts = [];
+        if ($miles === 1) {
+            $parts[] = 'mil';
+        } elseif ($miles > 0) {
+            $parts[] = $under1000($miles) . ' mil';
+        }
+        if ($resto > 0) {
+            $parts[] = $under1000($resto);
+        }
+        return trim(implode(' ', $parts));
+    };
+
+    $millones = intdiv($n, 1000000);   // 0..999,999
+    $resto = $n % 1000000;             // 0..999,999
+    $parts = [];
+    if ($millones === 1) {
+        $parts[] = 'un millon';
+    } elseif ($millones > 0) {
+        $parts[] = $underMillion($millones) . ' millones';
+    }
+    if ($resto > 0) {
+        $parts[] = $underMillion($resto);
+    }
+    return trim(implode(' ', $parts));
+}
+
+/** Amount in words, accounting style: "DIECISIETE MIL SETECIENTOS PESOS CON 00/100". */
+function money_in_words(float $value, string $currency = 'DOP'): string
+{
+    // Round to total cents once so a fractional carry rolls into whole units
+    // (e.g. 1.999 -> "DOS ... CON 00/100", never "UNO ... CON 100/100").
+    $tc = (int) round(abs($value) * 100);
+    $entero = intdiv($tc, 100);
+    $cents = $tc % 100;
+    $unit = strtoupper($currency) === 'USD' ? 'DOLARES ESTADOUNIDENSES' : 'PESOS DOMINICANOS';
+    $words = int_to_words_es($entero);
+    return mb_strtoupper($words, 'UTF-8') . ' ' . $unit . ' CON ' . str_pad((string) $cents, 2, '0', STR_PAD_LEFT) . '/100';
+}
+
 function date_es(?string $date): string
 {
     if (!$date) {
@@ -194,6 +272,8 @@ function ensure_quote_schema(): void
         'currency' => "ALTER TABLE quotes ADD COLUMN currency VARCHAR(3) NOT NULL DEFAULT 'DOP' AFTER total",
         'exchange_rate' => "ALTER TABLE quotes ADD COLUMN exchange_rate DECIMAL(12,4) NOT NULL DEFAULT 1 AFTER currency",
         'terms' => "ALTER TABLE quotes ADD COLUMN terms TEXT NULL AFTER notes",
+        'category' => "ALTER TABLE quotes ADD COLUMN category VARCHAR(80) NULL AFTER title",
+        'approved_at' => "ALTER TABLE quotes ADD COLUMN approved_at DATETIME NULL AFTER status",
     ];
 
     foreach ($columns as $column => $statement) {
@@ -238,12 +318,12 @@ function setting_set(string $key, string $value): void
 /** Default, editable terms & conditions for quotes. */
 function quote_default_terms(): string
 {
-    return "1. Validez de la oferta: 30 dias a partir de la fecha de emision.\n"
-        . "2. Precios sujetos a cambio sin previo aviso por variacion del proveedor o de la tasa de cambio.\n"
-        . "3. Tiempo de entrega: segun disponibilidad, confirmado al recibir la orden de compra.\n"
+    return "1. Validez de la oferta: 30 días a partir de la fecha de emisión.\n"
+        . "2. Precios sujetos a cambio sin previo aviso por variación del proveedor o de la tasa de cambio.\n"
+        . "3. Tiempo de entrega: según disponibilidad, confirmado al recibir la orden de compra.\n"
         . "4. Forma de pago: 50% de anticipo, 50% contra entrega.\n"
-        . "5. Garantia segun fabricante. No incluye trabajos civiles ni electricos salvo indicacion expresa.\n"
-        . "6. Instalacion y puesta en marcha por personal certificado de SCH MEDICOS.";
+        . "5. Garantía según fabricante. No incluye trabajos civiles ni eléctricos salvo indicación expresa.\n"
+        . "6. Instalación y puesta en marcha por personal certificado de SCH MEDICOS.";
 }
 
 function client_support_access(array $client, bool $persist = true): array
@@ -313,13 +393,54 @@ function db_count(string $table, string $where = '1=1', array $params = []): int
 function status_class(string $status): string
 {
     return match (strtolower($status)) {
-        'abierto', 'pendiente', 'borrador' => 'bg-amber-50 text-amber-700 ring-1 ring-amber-200',
-        'en proceso', 'enviado', 'cotizado' => 'bg-blue-50 text-blue-700 ring-1 ring-blue-200',
-        'aprobado', 'resuelto', 'activo' => 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200',
-        'cerrado', 'inactivo', 'rechazado' => 'bg-slate-100 text-slate-600 ring-1 ring-slate-200',
-        'critico', 'alta', 'vencido' => 'bg-red-50 text-red-700 ring-1 ring-red-200',
+        'abierto', 'pendiente', 'borrador', 'nuevo', 'requiere revision', 'requiere revisión' => 'bg-amber-50 text-amber-700 ring-1 ring-amber-200',
+        'en proceso', 'enviado', 'cotizado', 'contactado', 'prospecto' => 'bg-blue-50 text-blue-700 ring-1 ring-blue-200',
+        'aprobado', 'resuelto', 'activo', 'convertido' => 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200',
+        'negociacion', 'negociación' => 'bg-amber-100 text-amber-800 ring-1 ring-amber-300',
+        'cerrado', 'inactivo', 'rechazado', 'descartado', 'retirado', 'demo' => 'bg-slate-100 text-slate-600 ring-1 ring-slate-200',
+        'critico', 'crítico', 'alta', 'vencido', 'vencida', 'fuera de servicio' => 'bg-red-50 text-red-700 ring-1 ring-red-200',
         default => 'bg-slate-100 text-slate-700 ring-1 ring-slate-200',
     };
+}
+
+/** Sentence-case label for a status value (storage stays lowercase). */
+function status_label(?string $status): string
+{
+    $s = trim((string) $status);
+    return $s === '' ? '—' : mb_strtoupper(mb_substr($s, 0, 1), 'UTF-8') . mb_substr($s, 1);
+}
+
+/**
+ * Append a row to the activity_log audit trail. Never throws — logging must
+ * not break the mutation it records. user_id is null for public/portal events.
+ */
+function log_activity(string $entityType, ?int $entityId, string $action, ?string $details = null): void
+{
+    if (!db(false) || !table_exists('activity_log')) {
+        return;
+    }
+    try {
+        db()->prepare('INSERT INTO activity_log (user_id, entity_type, entity_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, NOW())')
+            ->execute([current_user()['id'] ?? null, $entityType, $entityId, $action, $details]);
+    } catch (Throwable) {
+        /* swallow: auditing is best-effort */
+    }
+}
+
+/** Recent activity-log rows joined to the actor name (optionally scoped to an entity). */
+function activity_recent(int $limit = 10, ?string $entityType = null, ?int $entityId = null): array
+{
+    if (!db(false) || !table_exists('activity_log')) {
+        return [];
+    }
+    $where = '1=1';
+    $params = [];
+    if ($entityType !== null) { $where .= ' AND a.entity_type = ?'; $params[] = $entityType; }
+    if ($entityId !== null) { $where .= ' AND a.entity_id = ?'; $params[] = $entityId; }
+    $limit = max(1, min(50, $limit));
+    $userJoin = table_exists('users') ? 'LEFT JOIN users u ON u.id = a.user_id' : '';
+    $userCol = table_exists('users') ? 'u.name AS actor' : 'NULL AS actor';
+    return fetch_all("SELECT a.*, {$userCol} FROM activity_log a {$userJoin} WHERE {$where} ORDER BY a.created_at DESC, a.id DESC LIMIT {$limit}", $params);
 }
 
 function priority_class(string $priority): string

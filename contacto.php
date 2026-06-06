@@ -3,6 +3,10 @@ require_once __DIR__ . '/includes/bootstrap.php';
 verify_csrf();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Honeypot: bots fill the hidden "website" field; silently drop them.
+    if (trim((string) ($_POST['website'] ?? '')) !== '') {
+        redirect('contacto.php#cotizar');
+    }
     $name = trim((string) ($_POST['name'] ?? ''));
     $email = trim((string) ($_POST['email'] ?? ''));
     $phone = trim((string) ($_POST['phone'] ?? ''));
@@ -10,7 +14,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $message = trim((string) ($_POST['message'] ?? ''));
     $type = trim((string) ($_POST['type'] ?? 'Cotizacion'));
 
-    if ($name === '' || $email === '' || $message === '') {
+    if (!form_throttle_ok('contacto')) {
+        flash('warning', 'Recibimos varias solicitudes desde tu conexión. Intenta de nuevo en unos minutos.');
+        redirect('contacto.php#cotizar');
+    } elseif ($name === '' || $email === '' || $message === '') {
         flash('warning', 'Completa nombre, correo y mensaje.');
     } elseif (db(false) && table_exists('leads')) {
         $stmt = db()->prepare('INSERT INTO leads (name, email, phone, company, type, message, status, created_at) VALUES (?, ?, ?, ?, ?, ?, "nuevo", NOW())');
@@ -109,6 +116,7 @@ require_once __DIR__ . '/includes/public_header.php';
 
         <form id="cotizar" method="post" class="sch-public-form" data-reveal="right" data-reveal-delay="100">
             <?= csrf_field() ?>
+            <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
             <h2 class="sx-h2" style="font-size:1.4rem;margin-bottom:1.2rem">Cuentanos que necesitas</h2>
             <div class="sch-form-grid">
                 <label class="sch-field">
