@@ -9,7 +9,7 @@
         <span class="crm-modal__icon"><i data-lucide="file-text"></i></span>
         <div class="crm-modal__titles">
             <h2 id="crm-pdf-title">Vista previa de cotización</h2>
-            <p>Documento PDF en formato horizontal</p>
+            <p>Documento PDF · A4 vertical</p>
         </div>
         <a id="crm-pdf-open" href="#" target="_blank" rel="noopener" class="crm-modal__close" title="Abrir en pestaña nueva"><i data-lucide="external-link"></i></a>
         <button type="button" class="crm-modal__close" style="margin-left:.4rem" onclick="crmPdfPreviewClose()" aria-label="Cerrar"><i data-lucide="x"></i></button>

@@ -1,6 +1,7 @@
 node_modules/
-vendor/
 tmp/
+# vendor/ is committed on purpose: production deploys via git and the host has no
+# composer, so dompdf (PDF engine) must travel with the repo.
 
 .env
 .env.*
