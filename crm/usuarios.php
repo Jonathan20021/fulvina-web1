@@ -13,8 +13,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
 
     if (isset($_POST['delete_id'])) {
         $did = (int) $_POST['delete_id'];
+        $target = $did > 0 ? fetch_one('SELECT role, status FROM users WHERE id=?', [$did]) : null;
         if ($did > 0 && $did === $me) {
             flash('warning', 'No puedes eliminar tu propio usuario.');
+        } elseif ($target && ($target['role'] ?? '') === 'admin' && ($target['status'] ?? '') === 'activo' && active_admin_count() <= 1) {
+            flash('warning', 'No puedes eliminar al último administrador activo.');
         } elseif ($did > 0) {
             db()->prepare('DELETE FROM users WHERE id=?')->execute([$did]);
             log_activity('user', $did, 'usuario_eliminado', null);
@@ -32,10 +35,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         $status = in_array(($_POST['status'] ?? 'activo'), ['activo', 'inactivo'], true) ? $_POST['status'] : 'activo';
         $password = (string) ($_POST['password'] ?? '');
 
+        $cur = fetch_one('SELECT role, status FROM users WHERE id=?', [$uid]);
+        $wasAdmin = ($cur['role'] ?? '') === 'admin';
+        $losesAdmin = $wasAdmin && ($role !== 'admin' || $status !== 'activo');
         if ($uid <= 0 || $name === '' || $email === '') {
             flash('warning', 'Nombre y correo son obligatorios.');
-        } elseif ($uid === $me && ($role !== 'admin' || $status !== 'activo')) {
+        } elseif ($role === 'admin' && current_role() !== 'admin') {
+            flash('warning', 'Solo un administrador puede asignar el rol Administrador.');
+        } elseif ($uid === $me && $losesAdmin) {
             flash('warning', 'No puedes quitarte a ti mismo el rol admin ni desactivarte.');
+        } elseif ($losesAdmin && active_admin_count() <= 1) {
+            flash('warning', 'Debe quedar al menos un administrador activo en el sistema.');
         } elseif ($password !== '' && strlen($password) < 8) {
             flash('warning', 'La contraseña debe tener al menos 8 caracteres.');
         } else {
@@ -65,6 +75,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
 
         if ($name === '' || $email === '' || strlen($password) < 8) {
             flash('warning', 'Nombre, correo y contraseña de 8 caracteres son obligatorios.');
+        } elseif ($role === 'admin' && current_role() !== 'admin') {
+            flash('warning', 'Solo un administrador puede crear usuarios con rol Administrador.');
+            redirect('crm/usuarios.php');
         } else {
             try {
                 db()->prepare('INSERT INTO users (name, email, password_hash, role, status, created_at, updated_at) VALUES (?, ?, ?, ?, "activo", NOW(), NOW())')
@@ -164,7 +177,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                                     <span class="dash-person__id"><b><?= e($user['name']) ?><?= (int) $user['id'] === $meId ? ' <small style="color:var(--brand-strong);font-weight:600">· Tú</small>' : '' ?></b><span><?= e($user['email']) ?></span></span>
                                 </div>
                             </td>
-                            <td><span class="status-chip <?= e(status_class($user['role'])) ?>"><?= e(role_label((string) $user['role'])) ?></span></td>
+                            <td><span class="status-chip <?= e(role_class((string) $user['role'])) ?>"><?= e(role_label((string) $user['role'])) ?></span></td>
                             <td><span class="status-chip <?= e(status_class($user['status'])) ?>"><?= e(status_label($user['status'])) ?></span></td>
                             <td class="ops-nowrap"><?= e(date_es($user['created_at'] ?? null)) ?></td>
                             <td class="text-right">

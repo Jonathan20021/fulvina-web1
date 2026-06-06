@@ -116,6 +116,23 @@ function role_label(string $role): string
     return $roles[$role]['label'] ?? ucfirst($role);
 }
 
+/** Chip colour for a role (decoupled from status_class semantics). */
+function role_class(string $role): string
+{
+    return $role === 'admin'
+        ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+        : 'bg-blue-50 text-blue-700 ring-1 ring-blue-200';
+}
+
+/** Number of currently active administrators (for last-admin protection). */
+function active_admin_count(): int
+{
+    if (!db(false) || !table_exists('users')) {
+        return 1;
+    }
+    return db_count('users', "role='admin' AND status='activo'");
+}
+
 /** Capabilities of a role. admin (or '*') => all. */
 function role_caps(string $role): array
 {
