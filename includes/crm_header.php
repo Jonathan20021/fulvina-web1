@@ -47,6 +47,7 @@ $crmNavGroups = [
     ],
     'Sistema' => [
         'reportes.php'      => ['Reportes', 'bar-chart-3', null, false, 'reportes.view'],
+        'usuarios.php'      => ['Usuarios', 'users-round', null, false, 'usuarios.manage'],
         'roles.php'         => ['Roles y permisos', 'shield-check', null, false, 'config.manage'],
         'configuracion.php' => ['Configuración', 'settings', null, false, 'config.manage'],
     ],
@@ -129,9 +130,11 @@ foreach ($crmNavGroups as $g => $items) {
                 <div class="dash-pop" x-show="user" x-transition.origin.top.right x-cloak style="min-width:220px">
                     <div class="dash-pop__label">Sesión &middot; <?= e(ucfirst($userRole)) ?></div>
                     <a class="dash-pop__item" href="<?= url('crm/perfil.php') ?>"><i data-lucide="user-round"></i>Mi perfil</a>
-                    <?php if (current_role() === 'admin'): ?>
+                    <?php if (current_can('usuarios.manage')): ?>
+                        <a class="dash-pop__item" href="<?= url('crm/usuarios.php') ?>"><i data-lucide="users-round"></i>Usuarios y accesos</a>
+                    <?php endif; ?>
+                    <?php if (current_can('config.manage')): ?>
                         <a class="dash-pop__item" href="<?= url('crm/configuracion.php') ?>"><i data-lucide="settings"></i>Configuración</a>
-                        <a class="dash-pop__item" href="<?= url('crm/configuracion.php') ?>"><i data-lucide="users-round"></i>Usuarios y accesos</a>
                     <?php endif; ?>
                     <a class="dash-pop__item" href="<?= url('index.php') ?>"><i data-lucide="globe"></i>Ver sitio público</a>
                     <hr>

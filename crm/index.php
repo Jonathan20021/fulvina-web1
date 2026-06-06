@@ -167,7 +167,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                     <?php foreach (array_slice($team, 0, 4) as $m): ?>
                         <span class="av av--<?= e($m['tone']) ?>" title="<?= e($m['name']) ?>"><?= e($initialsOf($m['name'])) ?></span>
                     <?php endforeach; ?>
-                    <a class="dash-avatars__add" href="<?= url('crm/configuracion.php') ?>" aria-label="Gestionar equipo" title="Gestionar equipo"><i data-lucide="plus" class="h-4 w-4"></i></a>
+                    <a class="dash-avatars__add" href="<?= url(current_can('usuarios.manage') ? 'crm/usuarios.php' : 'crm/perfil.php') ?>" aria-label="Gestionar equipo" title="Gestionar equipo"><i data-lucide="plus" class="h-4 w-4"></i></a>
                 </div>
             <?php endif; ?>
 

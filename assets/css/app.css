@@ -8857,6 +8857,27 @@ html { scroll-padding-top: 74px; }
 .quote-status-form { display: inline-flex; align-items: center; gap: .3rem; }
 .quote-status-form select { height: 30px; padding: 0 .4rem; border-radius: 8px; border: 1px solid var(--line); font-size: .76rem; background: var(--surface); color: var(--ink-soft); }
 
+/* Configuración (cfg-*) */
+.cfg-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 1rem; align-items: start; }
+.cfg-side { display: grid; gap: 1rem; align-content: start; }
+.cfg-card .crm-card__head h2 { display: flex; align-items: center; gap: .5rem; }
+.cfg-ic { width: 17px; height: 17px; color: var(--brand); }
+.cfg-hint { color: var(--muted); font-size: .74rem; line-height: 1.4; }
+.cfg-hint code { background: var(--surface-2); border: 1px solid var(--line); border-radius: 5px; padding: .05rem .3rem; font-size: .72rem; }
+.cfg-info { display: grid; gap: .55rem; }
+.cfg-info > div { display: grid; grid-template-columns: 110px 1fr; gap: .6rem; align-items: baseline; }
+.cfg-info span { color: var(--muted); font-size: .74rem; font-weight: 600; }
+.cfg-info strong { color: var(--ink); font-size: .84rem; font-weight: 600; }
+.cfg-link { display: flex; align-items: center; gap: .7rem; padding: .7rem .8rem; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); transition: all var(--speed) var(--ease); }
+.cfg-link:hover { border-color: var(--brand); background: var(--brand-tint); transform: translateX(2px); }
+.cfg-link__ic { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: var(--brand-soft); color: var(--brand-strong); flex: 0 0 auto; }
+.cfg-link__ic svg { width: 18px; height: 18px; }
+.cfg-link__tx { min-width: 0; flex: 1; }
+.cfg-link__tx b { display: block; font-size: .86rem; color: var(--ink); }
+.cfg-link__tx small { color: var(--muted); font-size: .74rem; }
+.cfg-link__go { width: 16px; height: 16px; color: var(--faint); }
+@media (max-width: 980px) { .cfg-grid { grid-template-columns: 1fr; } }
+
 /* Roles & permissions matrix */
 .rbac-matrix th, .rbac-matrix td { vertical-align: middle; }
 .rbac-matrix .rbac-col { text-align: center; width: 130px; }

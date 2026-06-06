@@ -384,7 +384,7 @@ window.crmQuoteModal = function crmQuoteModal(opts) {
     reset() {
       this.form = { id: 0, client_id: '', title: '', category: '', status: 'Borrador', valid_until: defaults.validUntil || '', notes: '', terms: defaults.terms || '' };
       this.items = [{ d: '', q: 1, p: 0 }];
-      this.tax = 18;
+      this.tax = (defaults.tax !== undefined && Number(defaults.tax) >= 0) ? Number(defaults.tax) : 18;
       this.currency = 'DOP';
       this.rate = Number(defaults.rate) > 0 ? Number(defaults.rate) : 60;
     },

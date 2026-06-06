@@ -10,6 +10,7 @@ $hasCategory = $hasDb && column_exists('quotes', 'category');
 $hasApproved = $hasDb && column_exists('quotes', 'approved_at');
 $defaultQuoteTerms = setting_get('quote_terms', quote_default_terms());
 $defaultQuoteRate = (float) (setting_get('quote_exchange_rate', '60') ?: 60);
+$defaultQuoteTax = (float) setting_get('quote_tax_rate', '18');
 $clients = $hasDb ? fetch_all('SELECT id, name FROM clients ORDER BY name ASC') : [];
 $categories = quote_categories();
 $quoteStatuses = ['Borrador', 'Enviado', 'Cotizado', 'Negociacion', 'Aprobado', 'Rechazado'];
@@ -391,7 +392,7 @@ $quoteQueryForPage = fn (int $p) => http_build_query(array_filter([
 $modalOpts = json_encode([
     'autoOpen' => (isset($_GET['new']) || $action === 'new') && !$editPayload,
     'autoEdit' => $editPayload,
-    'defaults' => ['rate' => $defaultQuoteRate, 'terms' => $defaultQuoteTerms, 'validUntil' => date('Y-m-d', strtotime('+30 days'))],
+    'defaults' => ['rate' => $defaultQuoteRate, 'tax' => $defaultQuoteTax, 'terms' => $defaultQuoteTerms, 'validUntil' => date('Y-m-d', strtotime('+30 days'))],
 ], JSON_UNESCAPED_UNICODE);
 
 $crmTitle = 'Cotizaciones';
