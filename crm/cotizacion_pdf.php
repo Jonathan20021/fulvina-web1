@@ -172,8 +172,8 @@ ob_start();
         <div class="foot-inner">
             <table>
                 <tr>
-                    <td><b><?= $h(APP_NAME) ?>, SRL</b> &nbsp;·&nbsp; <?= $h(APP_TAGLINE) ?> &nbsp;·&nbsp; Desde <?= $h(APP_FOUNDED) ?><br><?= $h(APP_ADDRESS) ?> &nbsp;·&nbsp; <?= $h(APP_SECONDARY_ADDRESS) ?></td>
-                    <td class="right">Tel. <?= $h(APP_PHONE) ?> &nbsp;·&nbsp; <?= $h(APP_PHONE_US) ?><br><?= $h(APP_INFO_EMAIL) ?> &nbsp;·&nbsp; RNC y datos fiscales en factura final</td>
+                    <td><b><?= $h(APP_LEGAL) ?></b> &nbsp;·&nbsp; <?= $h(APP_TAGLINE) ?> &nbsp;·&nbsp; Desde <?= $h(APP_FOUNDED) ?><br><?= $h(APP_ADDRESS) ?> &nbsp;·&nbsp; <?= $h(APP_SECONDARY_ADDRESS) ?></td>
+                    <td class="right">Tel. <?= $h(APP_PHONE) ?> &nbsp;·&nbsp; <?= $h(APP_PHONE_US) ?><br><?= $h(APP_INFO_EMAIL) ?> &nbsp;·&nbsp; <?= APP_RNC !== '' ? 'RNC: ' . $h(APP_RNC) : 'RNC y datos fiscales en factura final' ?></td>
                 </tr>
             </table>
         </div>
@@ -215,7 +215,8 @@ ob_start();
             <td>
                 <div class="pcard pcard-l">
                     <h3>De</h3>
-                    <div class="name"><?= $h(APP_NAME) ?>, SRL</div>
+                    <div class="name"><?= $h(APP_LEGAL) ?></div>
+                    <?php if (APP_RNC !== ''): ?><p style="margin-top:2px"><b>RNC:</b> <?= $h(APP_RNC) ?></p><?php endif; ?>
                     <p>
                         <?= $h(APP_ADDRESS) ?><br>
                         Tel. <?= $h(APP_PHONE) ?> · <?= $h(APP_PHONE_US) ?><br>
@@ -301,7 +302,7 @@ ob_start();
 
     <table class="signs">
         <tr>
-            <td><div class="sign-line"><b>Por <?= $h(APP_NAME) ?>, SRL</b><span>Firma autorizada y sello</span></div></td>
+            <td><div class="sign-line"><b>Por <?= $h(APP_LEGAL) ?></b><span>Firma autorizada y sello</span></div></td>
             <td><div class="sign-line"><b>Aceptado por el cliente</b><span>Nombre, firma y fecha</span></div></td>
         </tr>
     </table>

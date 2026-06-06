@@ -40,7 +40,7 @@
     </div>
     <div class="sch-footer__bottom">
         <div class="sch-footer__bottom-inner">
-            <p>&copy; <?= date('Y') ?> SCH MEDICOS, SRL. Todos los derechos reservados.</p>
+            <p>&copy; <?= date('Y') ?> <?= e(APP_LEGAL) ?>. Todos los derechos reservados.</p>
             <p>Ingenieria hospitalaria, equipos medicos y soporte institucional.</p>
         </div>
     </div>

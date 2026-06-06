@@ -2,6 +2,7 @@
 require_once __DIR__ . '/config/app.php';
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/includes/functions.php';
+app_define_company();
 
 // The installer is a powerful, unauthenticated provisioning endpoint. Restrict
 // it to a genuine local host so it can never seed/leak on a public deployment.

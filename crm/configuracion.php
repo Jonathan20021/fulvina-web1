@@ -6,6 +6,7 @@ verify_csrf();
 $hasDb = db(false) && table_exists('settings');
 if (db(false)) { ensure_settings_schema(); }
 
+/* ---- Save quote / maintenance preferences ------------------------------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '') === 'settings') {
     setting_set('quote_terms', trim((string) ($_POST['quote_terms'] ?? '')));
     $rate = (float) ($_POST['quote_exchange_rate'] ?? 0);
@@ -19,21 +20,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '')
     redirect('crm/configuracion.php');
 }
 
+/* ---- Save company profile (all fields + logo upload) -------------------- */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '') === 'company') {
+    foreach (company_field_defs() as $key => [$label, $default, $const]) {
+        if ($key === 'company_logo') { continue; } // handled below
+        setting_set($key, trim((string) ($_POST[$key] ?? '')));
+    }
+
+    // Logo: typed path and/or uploaded image (upload wins).
+    $logoPath = trim((string) ($_POST['company_logo'] ?? ''));
+    $up = $_FILES['company_logo_file'] ?? null;
+    if ($up && ($up['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK && is_uploaded_file($up['tmp_name'])) {
+        if ((int) $up['size'] > 2 * 1024 * 1024) {
+            flash('warning', 'El logo debe pesar menos de 2 MB.');
+        } else {
+            $info = @getimagesize($up['tmp_name']);
+            $allowed = ['image/png' => 'png', 'image/jpeg' => 'jpg', 'image/webp' => 'webp'];
+            $mime = $info['mime'] ?? '';
+            if ($info && isset($allowed[$mime])) {
+                $fname = 'company-logo-' . date('YmdHis') . '.' . $allowed[$mime];
+                $dest = __DIR__ . '/../assets/media/' . $fname;
+                if (@move_uploaded_file($up['tmp_name'], $dest)) {
+                    $logoPath = 'assets/media/' . $fname;
+                } else {
+                    flash('warning', 'No se pudo guardar el logo (revisa permisos de assets/media).');
+                }
+            } else {
+                flash('warning', 'Formato de logo no válido. Usa PNG, JPG o WEBP.');
+            }
+        }
+    }
+    if ($logoPath !== '') { setting_set('company_logo', $logoPath); }
+    log_activity('config', null, 'empresa_actualizada', null);
+    flash('success', 'Datos de la empresa guardados.');
+    redirect('crm/configuracion.php');
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !db(false)) {
-    flash('warning', 'Ejecuta install.php para guardar preferencias en MySQL.');
+    flash('warning', 'Ejecuta install.php para guardar la configuración en MySQL.');
 }
 
 $quoteTermsSetting = setting_get('quote_terms', quote_default_terms());
 $quoteRateSetting = setting_get('quote_exchange_rate', '60');
 $quoteTaxSetting = setting_get('quote_tax_rate', '18');
 $serviceIntervalSetting = setting_get('service_interval_days', '180');
+$companyDefs = company_field_defs();
+$cv = fn (string $k) => company_value($k);
+$dis = db(false) ? '' : 'disabled';
 
 $crmTitle = 'Configuración';
 require_once __DIR__ . '/../includes/crm_header.php';
 ?>
 
 <?php if (!$hasDb): ?>
-    <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para guardar preferencias.</div>
+    <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para guardar la configuración.</div>
 <?php endif; ?>
 
 <section class="crm-cockpit">
@@ -41,22 +81,69 @@ require_once __DIR__ . '/../includes/crm_header.php';
         <div class="crm-cockpit__hero">
             <span class="crm-kicker"><i data-lucide="settings"></i>Sistema</span>
             <h2>Configuración del CRM.</h2>
-            <p>Valores por defecto que se aplican al crear cotizaciones y al programar mantenimientos. Los accesos y permisos se administran por separado.</p>
+            <p>Personaliza los datos de tu empresa y los valores por defecto del CRM. Todo se aplica al instante en encabezados, pie de página, PDFs y SEO.</p>
             <div class="crm-cockpit__actions">
                 <?php if (current_can('usuarios.manage')): ?><a href="<?= url('crm/usuarios.php') ?>" class="crm-secondary-btn"><i data-lucide="users-round" class="h-4 w-4"></i>Usuarios</a><?php endif; ?>
                 <a href="<?= url('crm/roles.php') ?>" class="crm-secondary-btn"><i data-lucide="shield-check" class="h-4 w-4"></i>Roles y permisos</a>
             </div>
         </div>
         <div class="crm-cockpit__metrics" aria-label="Resumen de configuración">
+            <article><span>Empresa</span><strong style="font-size:1.05rem"><?= e($cv('company_name')) ?></strong><small>identidad</small></article>
             <article><span>ITBIS</span><strong><?= e(rtrim(rtrim(number_format((float) $quoteTaxSetting, 2, '.', ''), '0'), '.')) ?>%</strong><small>por defecto</small></article>
             <article><span>Tasa US$</span><strong>RD$ <?= e(number_format((float) $quoteRateSetting, 2)) ?></strong><small>1 dólar</small></article>
             <article><span>Servicio</span><strong><?= e($serviceIntervalSetting) ?> d</strong><small>intervalo</small></article>
-            <article><span>Moneda</span><strong>DOP</strong><small>base</small></article>
         </div>
     </div>
 
+    <!-- Datos de la empresa (editable) -->
+    <form method="post" enctype="multipart/form-data" class="crm-card cfg-card" style="margin-bottom:1rem">
+        <?= csrf_field() ?>
+        <input type="hidden" name="form" value="company">
+        <div class="crm-card__head">
+            <div><h2><i data-lucide="building-2" class="cfg-ic"></i> Datos de la empresa</h2><p>Aparecen en la web pública, los encabezados, el pie del PDF y el SEO.</p></div>
+        </div>
+        <div class="crm-card__body" style="display:grid;gap:1rem">
+            <div class="cfg-logo-row">
+                <div class="cfg-logo-prev"><img src="<?= asset($cv('company_logo')) ?>" alt="Logo actual"></div>
+                <div style="flex:1;display:grid;gap:.6rem">
+                    <label class="crm-field"><span>Logo (subir PNG, JPG o WEBP · máx. 2 MB)</span><input type="file" name="company_logo_file" accept="image/png,image/jpeg,image/webp" class="crm-input" <?= $dis ?>></label>
+                    <label class="crm-field"><span>O ruta del logo</span><input name="company_logo" value="<?= e($cv('company_logo')) ?>" class="crm-input" <?= $dis ?>></label>
+                </div>
+            </div>
+
+            <p class="dash-section-label" style="margin:.2rem 0 0">Identidad</p>
+            <div class="crm-form-grid">
+                <label class="crm-field"><span>Nombre comercial</span><input name="company_name" value="<?= e($cv('company_name')) ?>" class="crm-input" <?= $dis ?>></label>
+                <label class="crm-field"><span>Razón social</span><input name="company_legal" value="<?= e($cv('company_legal')) ?>" class="crm-input" <?= $dis ?>></label>
+                <label class="crm-field"><span>RNC</span><input name="company_rnc" value="<?= e($cv('company_rnc')) ?>" class="crm-input" placeholder="1-30-XXXXX-X" <?= $dis ?>></label>
+                <label class="crm-field"><span>Año de fundación</span><input name="company_founded" value="<?= e($cv('company_founded')) ?>" class="crm-input" <?= $dis ?>></label>
+            </div>
+            <label class="crm-field"><span>Eslogan</span><input name="company_tagline" value="<?= e($cv('company_tagline')) ?>" class="crm-input" <?= $dis ?>></label>
+
+            <p class="dash-section-label" style="margin:.2rem 0 0">Contacto</p>
+            <div class="crm-form-grid">
+                <label class="crm-field"><span>Correo principal</span><input type="email" name="company_email" value="<?= e($cv('company_email')) ?>" class="crm-input" <?= $dis ?>></label>
+                <label class="crm-field"><span>Correo de información</span><input type="email" name="company_info_email" value="<?= e($cv('company_info_email')) ?>" class="crm-input" <?= $dis ?>></label>
+                <label class="crm-field"><span>Teléfono (RD)</span><input name="company_phone" value="<?= e($cv('company_phone')) ?>" class="crm-input" <?= $dis ?>></label>
+                <label class="crm-field"><span>Teléfono (US)</span><input name="company_phone_us" value="<?= e($cv('company_phone_us')) ?>" class="crm-input" <?= $dis ?>></label>
+                <label class="crm-field"><span>WhatsApp (solo números)</span><input name="company_whatsapp" value="<?= e($cv('company_whatsapp')) ?>" class="crm-input" placeholder="18095675559" <?= $dis ?>></label>
+            </div>
+
+            <p class="dash-section-label" style="margin:.2rem 0 0">Ubicación y SEO</p>
+            <div class="crm-form-grid">
+                <label class="crm-field"><span>Dirección (RD)</span><input name="company_address" value="<?= e($cv('company_address')) ?>" class="crm-input" <?= $dis ?>></label>
+                <label class="crm-field"><span>Dirección secundaria (US)</span><input name="company_address_2" value="<?= e($cv('company_address_2')) ?>" class="crm-input" <?= $dis ?>></label>
+            </div>
+            <label class="crm-field"><span>Descripción para buscadores (SEO)</span><textarea name="company_seo_desc" rows="3" class="crm-textarea" <?= $dis ?>><?= e($cv('company_seo_desc')) ?></textarea></label>
+
+            <div class="crm-toolbar" style="justify-content:flex-end">
+                <button class="crm-primary-btn" type="submit" <?= $dis ?>><i data-lucide="save" class="h-4 w-4"></i>Guardar datos de la empresa</button>
+            </div>
+        </div>
+    </form>
+
     <div class="cfg-grid">
-        <!-- Preferencias comerciales -->
+        <!-- Preferencias comerciales + mantenimiento -->
         <form method="post" class="crm-card cfg-card">
             <?= csrf_field() ?>
             <input type="hidden" name="form" value="settings">
@@ -65,63 +152,39 @@ require_once __DIR__ . '/../includes/crm_header.php';
             </div>
             <div class="crm-card__body" style="display:grid;gap:1rem">
                 <div class="crm-form-grid">
-                    <label class="crm-field">
-                        <span>ITBIS por defecto (%)</span>
-                        <input type="number" step="0.01" min="0" name="quote_tax_rate" value="<?= e($quoteTaxSetting) ?>" class="crm-input" <?= db(false) ? '' : 'disabled' ?>>
-                    </label>
-                    <label class="crm-field">
-                        <span>Tasa de cambio (US$ 1 = RD$)</span>
-                        <input type="number" step="0.01" min="0" name="quote_exchange_rate" value="<?= e($quoteRateSetting) ?>" class="crm-input" <?= db(false) ? '' : 'disabled' ?>>
-                    </label>
+                    <label class="crm-field"><span>ITBIS por defecto (%)</span><input type="number" step="0.01" min="0" name="quote_tax_rate" value="<?= e($quoteTaxSetting) ?>" class="crm-input" <?= $dis ?>></label>
+                    <label class="crm-field"><span>Tasa de cambio (US$ 1 = RD$)</span><input type="number" step="0.01" min="0" name="quote_exchange_rate" value="<?= e($quoteRateSetting) ?>" class="crm-input" <?= $dis ?>></label>
                 </div>
                 <label class="crm-field">
                     <span>Términos y condiciones por defecto</span>
-                    <textarea name="quote_terms" rows="9" class="crm-textarea" <?= db(false) ? '' : 'disabled' ?>><?= e($quoteTermsSetting) ?></textarea>
+                    <textarea name="quote_terms" rows="8" class="crm-textarea" <?= $dis ?>><?= e($quoteTermsSetting) ?></textarea>
                     <small class="cfg-hint">Aparecen al final del PDF de cada cotización.</small>
                 </label>
                 <div class="crm-card__head" style="padding:.4rem 0 0;border-top:1px solid var(--line)">
                     <div><h2 style="font-size:.95rem"><i data-lucide="wrench" class="cfg-ic"></i> Mantenimiento</h2></div>
                 </div>
-                <div class="crm-form-grid">
-                    <label class="crm-field">
-                        <span>Intervalo de servicio (días)</span>
-                        <input type="number" step="1" min="1" name="service_interval_days" value="<?= e($serviceIntervalSetting) ?>" class="crm-input" <?= db(false) ? '' : 'disabled' ?>>
-                        <small class="cfg-hint">Al resolver un ticket con equipo, el próximo servicio se agenda con este intervalo.</small>
-                    </label>
-                </div>
+                <label class="crm-field">
+                    <span>Intervalo de servicio (días)</span>
+                    <input type="number" step="1" min="1" name="service_interval_days" value="<?= e($serviceIntervalSetting) ?>" class="crm-input" <?= $dis ?>>
+                    <small class="cfg-hint">Al resolver un ticket con equipo, el próximo servicio se agenda con este intervalo.</small>
+                </label>
                 <div class="crm-toolbar" style="justify-content:flex-end">
-                    <button class="crm-primary-btn" type="submit" <?= db(false) ? '' : 'disabled' ?>><i data-lucide="save" class="h-4 w-4"></i>Guardar preferencias</button>
+                    <button class="crm-primary-btn" type="submit" <?= $dis ?>><i data-lucide="save" class="h-4 w-4"></i>Guardar preferencias</button>
                 </div>
             </div>
         </form>
 
-        <div class="cfg-side">
-            <!-- Datos de la empresa -->
-            <article class="crm-card cfg-card">
-                <div class="crm-card__head"><div><h2><i data-lucide="building-2" class="cfg-ic"></i> Datos de la empresa</h2><p>Se usan en encabezados, pie del PDF y SEO.</p></div></div>
-                <div class="crm-card__body cfg-info">
-                    <div><span>Razón social</span><strong><?= e(APP_NAME) ?>, SRL</strong></div>
-                    <div><span>Eslogan</span><strong><?= e(APP_TAGLINE) ?></strong></div>
-                    <div><span>Teléfono</span><strong><?= e(APP_PHONE) ?> · <?= e(APP_PHONE_US) ?></strong></div>
-                    <div><span>Correo</span><strong><?= e(APP_INFO_EMAIL) ?></strong></div>
-                    <div><span>Direcciones</span><strong><?= e(APP_ADDRESS) ?> · <?= e(APP_SECONDARY_ADDRESS) ?></strong></div>
-                    <div><span>Desde</span><strong><?= e(APP_FOUNDED) ?></strong></div>
-                    <p class="cfg-hint" style="margin-top:.2rem">Para cambiarlos, edita <code>config/app.php</code> en el servidor.</p>
-                </div>
-            </article>
-
-            <!-- Accesos -->
-            <article class="crm-card cfg-card">
-                <div class="crm-card__head"><div><h2><i data-lucide="key-round" class="cfg-ic"></i> Accesos y seguridad</h2></div></div>
-                <div class="crm-card__body" style="display:grid;gap:.55rem">
-                    <?php if (current_can('usuarios.manage')): ?>
-                        <a href="<?= url('crm/usuarios.php') ?>" class="cfg-link"><span class="cfg-link__ic"><i data-lucide="users-round"></i></span><span class="cfg-link__tx"><b>Usuarios</b><small>Alta, edición, rol y estado del equipo</small></span><i data-lucide="chevron-right" class="cfg-link__go"></i></a>
-                    <?php endif; ?>
-                    <a href="<?= url('crm/roles.php') ?>" class="cfg-link"><span class="cfg-link__ic"><i data-lucide="shield-check"></i></span><span class="cfg-link__tx"><b>Roles y permisos</b><small>Qué puede ver y hacer cada rol</small></span><i data-lucide="chevron-right" class="cfg-link__go"></i></a>
-                    <a href="<?= url('crm/perfil.php') ?>" class="cfg-link"><span class="cfg-link__ic"><i data-lucide="user-round"></i></span><span class="cfg-link__tx"><b>Mi perfil</b><small>Cambia tu nombre y contraseña</small></span><i data-lucide="chevron-right" class="cfg-link__go"></i></a>
-                </div>
-            </article>
-        </div>
+        <!-- Accesos -->
+        <article class="crm-card cfg-card">
+            <div class="crm-card__head"><div><h2><i data-lucide="key-round" class="cfg-ic"></i> Accesos y seguridad</h2></div></div>
+            <div class="crm-card__body" style="display:grid;gap:.55rem">
+                <?php if (current_can('usuarios.manage')): ?>
+                    <a href="<?= url('crm/usuarios.php') ?>" class="cfg-link"><span class="cfg-link__ic"><i data-lucide="users-round"></i></span><span class="cfg-link__tx"><b>Usuarios</b><small>Alta, edición, rol y estado del equipo</small></span><i data-lucide="chevron-right" class="cfg-link__go"></i></a>
+                <?php endif; ?>
+                <a href="<?= url('crm/roles.php') ?>" class="cfg-link"><span class="cfg-link__ic"><i data-lucide="shield-check"></i></span><span class="cfg-link__tx"><b>Roles y permisos</b><small>Qué puede ver y hacer cada rol</small></span><i data-lucide="chevron-right" class="cfg-link__go"></i></a>
+                <a href="<?= url('crm/perfil.php') ?>" class="cfg-link"><span class="cfg-link__ic"><i data-lucide="user-round"></i></span><span class="cfg-link__tx"><b>Mi perfil</b><small>Cambia tu nombre y contraseña</small></span><i data-lucide="chevron-right" class="cfg-link__go"></i></a>
+            </div>
+        </article>
     </div>
 </section>
 

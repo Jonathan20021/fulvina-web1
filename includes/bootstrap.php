@@ -24,6 +24,9 @@ require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/rbac.php';
 require_once __DIR__ . '/analytics.php';
 
+// Define APP_* company constants from the editable profile (DB settings → defaults).
+app_define_company();
+
 if (is_file(__DIR__ . '/../vendor/autoload.php')) {
     require_once __DIR__ . '/../vendor/autoload.php';
 }

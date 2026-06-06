@@ -8864,6 +8864,9 @@ html { scroll-padding-top: 74px; }
 .cfg-ic { width: 17px; height: 17px; color: var(--brand); }
 .cfg-hint { color: var(--muted); font-size: .74rem; line-height: 1.4; }
 .cfg-hint code { background: var(--surface-2); border: 1px solid var(--line); border-radius: 5px; padding: .05rem .3rem; font-size: .72rem; }
+.cfg-logo-row { display: flex; gap: 1rem; align-items: stretch; flex-wrap: wrap; }
+.cfg-logo-prev { flex: 0 0 auto; width: 132px; min-height: 92px; display: grid; place-items: center; padding: .6rem; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.cfg-logo-prev img { max-width: 100%; max-height: 80px; object-fit: contain; }
 .cfg-info { display: grid; gap: .55rem; }
 .cfg-info > div { display: grid; grid-template-columns: 110px 1fr; gap: .6rem; align-items: baseline; }
 .cfg-info span { color: var(--muted); font-size: .74rem; font-weight: 600; }
