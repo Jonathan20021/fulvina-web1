@@ -3,7 +3,7 @@ require_once __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/data/sch.php';
 
 $pageTitle = 'SCH MEDICOS | Ingenieria hospitalaria, gases medicinales y equipos medicos';
-$pageDescription = 'SCH MEDICOS: diseno, instalacion, certificacion y soporte tecnico de gases medicinales, equipos medicos e ingenieria hospitalaria para clinicas y hospitales desde 1995.';
+$pageDescription = 'SCH MEDICOS: diseño, instalacion, certificacion y soporte tecnico de gases medicinales, equipos medicos e ingenieria hospitalaria para clinicas y hospitales desde 1995.';
 $pageImage = asset('assets/media/og-cover.png');
 $bodyClass = 'sx';
 $pageStyles = ['assets/css/site-v2.css'];
@@ -49,7 +49,7 @@ require_once __DIR__ . '/includes/public_header.php';
                 <span class="ln"><span>Ingenieria hospitalaria,</span></span>
                 <span class="ln"><span>gases medicinales y equipos.</span></span>
             </h1>
-            <p class="sx-hero__qual">Diseno, instalacion, certificacion y soporte tecnico para clinicas y hospitales del sector publico y privado en el Caribe.</p>
+            <p class="sx-hero__qual">Diseño, instalacion, certificacion y soporte tecnico para clinicas y hospitales del sector publico y privado en el Caribe.</p>
             <div class="sx-hero__actions">
                 <a href="<?= url('contacto.php#cotizar') ?>" class="sx-btn"><i data-lucide="clipboard-pen-line"></i>Solicitar cotizacion</a>
                 <a href="<?= url('proyectos.php') ?>" class="sx-link">Ver proyectos<i data-lucide="arrow-right"></i></a>
@@ -162,7 +162,7 @@ require_once __DIR__ . '/includes/public_header.php';
     <div class="sx-container sx-heritage__grid">
         <h2 class="sx-sr">Sobre SCH MEDICOS</h2>
         <div class="sx-heritage__statement" data-reveal>
-            Fundada en enero de 1995 por Fulvio Montisano, SCH conceptualiza, disena e instala sistemas centrales de gases medicinales e ingenieria hospitalaria.
+            Fundada en enero de 1995 por Fulvio Montisano, SCH conceptualiza, diseña e instala sistemas centrales de gases medicinales e ingenieria hospitalaria.
         </div>
         <figure class="sx-heritage__media" data-reveal>
             <img src="<?= asset('assets/media/6.png') ?>" alt="Instalacion hospitalaria ejecutada por SCH MEDICOS" loading="lazy" decoding="async">

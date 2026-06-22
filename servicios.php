@@ -11,7 +11,7 @@ $pageFontsGeist = true;
 
 $sheetCodes = ['G-01', 'E-02', 'P-03'];
 $steps = [
-    ['Fase 01', 'Diseno y calculo', 'Levantamiento tecnico, planos, dimensionamiento y seleccion de componentes.'],
+    ['Fase 01', 'Diseño y calculo', 'Levantamiento tecnico, planos, dimensionamiento y seleccion de componentes.'],
     ['Fase 02', 'Instalacion', 'Montaje de sistemas, equipos, redes, cabeceros, manifolds y areas criticas.'],
     ['Fase 03', 'Certificacion', 'Pruebas, puesta en marcha y documentacion para entrega institucional.'],
     ['Fase 04', 'Soporte continuo', 'Mantenimiento preventivo, correctivo y seguimiento por ticket.'],
@@ -26,7 +26,7 @@ require_once __DIR__ . '/includes/public_header.php';
         <div data-reveal>
             <span class="sx-label">Productos y servicios</span>
             <h1 class="sx-cover__title">Sistemas tecnicos para areas clinicas y gases medicinales.</h1>
-            <p class="sx-cover__lead">SCH integra diseno, suministro, instalacion, certificacion y soporte para que la infraestructura hospitalaria opere con trazabilidad y respuesta tecnica.</p>
+            <p class="sx-cover__lead">SCH integra diseño, suministro, instalacion, certificacion y soporte para que la infraestructura hospitalaria opere con trazabilidad y respuesta tecnica.</p>
             <div class="sx-cover__actions">
                 <a href="<?= url('contacto.php#cotizar') ?>" class="sx-btn"><i data-lucide="clipboard-pen-line"></i>Solicitar cotizacion</a>
                 <a href="<?= url('soporte.php') ?>" class="sx-link">Reportar soporte<i data-lucide="arrow-right"></i></a>

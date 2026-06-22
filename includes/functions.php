@@ -798,12 +798,12 @@ function brand_lock(string $variant = 'public'): string
     if ($variant === 'footer') {
         return '<a href="' . $home . '" class="sch-brand sch-brand--light" aria-label="' . e(APP_NAME) . ' inicio">'
             . '<span class="sch-brand__plaque"><img src="' . $logo . '" alt="" width="200" height="182"></span>'
-            . '<span class="sch-brand__text"><strong>SCH MEDICOS</strong><small>' . e(APP_TAGLINE) . '</small></span></a>';
+            . '<span class="sch-brand__text"><strong>' . e(APP_TAGLINE) . '</strong></span></a>';
     }
 
     // public header
     return '<a href="' . $home . '" class="sch-brand" aria-label="' . e(APP_NAME) . ' inicio">'
         . '<img class="sch-brand__mark" src="' . $logo . '" alt="' . e(APP_NAME) . '" width="200" height="182">'
-        . '<span class="sch-brand__text"><strong>SCH MEDICOS</strong><small>' . e(APP_TAGLINE) . '</small></span>'
+        . '<span class="sch-brand__text"><strong>' . e(APP_TAGLINE) . '</strong></span>'
         . '<span class="sch-brand__since"><b>DESDE</b>' . e(APP_FOUNDED) . '</span></a>';
 }

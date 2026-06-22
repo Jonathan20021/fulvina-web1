@@ -254,7 +254,7 @@ if ($action === 'view') {
             <header class="quote-doc__head">
                 <div>
                     <span class="quote-doc__brand"><img src="<?= asset(APP_LOGO) ?>" alt="SCH MEDICOS"><strong>SCH MEDICOS</strong></span>
-                    <p>Equipos medicos, gases medicinales, diseno, instalacion, certificacion y soporte tecnico. RNC y datos fiscales en factura final.</p>
+                    <p>Equipos medicos, gases medicinales, diseño, instalacion, certificacion y soporte tecnico. RNC y datos fiscales en factura final.</p>
                 </div>
                 <div>
                     <span>Cotización</span>

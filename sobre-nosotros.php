@@ -11,7 +11,7 @@ $pageFontsGeist = true;
 $canonical = current_url();
 
 $milestones = [
-    ['1995', 'Fundacion en Santo Domingo por el Lic. Fulvio Montisano, con el diseno e instalacion de sistemas centrales de gases medicinales.'],
+    ['1995', 'Fundacion en Santo Domingo por el Lic. Fulvio Montisano, con el diseño e instalacion de sistemas centrales de gases medicinales.'],
     ['2000', 'Apertura de la primera sucursal en Santiago de los Caballeros.'],
     ['2008', 'Galardon en The Bizz Awards como empresa lider del sector.'],
     ['Hoy', 'Mas de 500 proyectos ejecutados y dos sedes operativas: Santo Domingo y Miami.'],
@@ -35,7 +35,7 @@ $standards = [
     ['ASTM E84', 'Reaccion superficial al fuego'],
     ['CE Mark', 'Conformidad europea'],
     ['SGS', 'Certificacion ISO'],
-    ['MSP / OPS / OMS', 'Guia de diseno de establecimientos de salud'],
+    ['MSP / OPS / OMS', 'Guia de diseño de establecimientos de salud'],
 ];
 
 require_once __DIR__ . '/includes/public_header.php';
@@ -64,7 +64,7 @@ require_once __DIR__ . '/includes/public_header.php';
     <div class="sx-container">
         <div class="sx-sechead" data-reveal>
             <h2 class="sx-h2">Tres decadas equipando el sector salud.</h2>
-            <p class="sx-lead">Lo que comenzo como diseno e instalacion de gases medicinales se amplio a ingenieria hospitalaria, consultoria, mantenimiento y equipos especializados.</p>
+            <p class="sx-lead">Lo que comenzo como diseño e instalacion de gases medicinales se amplio a ingenieria hospitalaria, consultoria, mantenimiento y equipos especializados.</p>
         </div>
         <div class="sx-timeline" data-reveal>
             <?php foreach ($milestones as $m): ?>
@@ -119,7 +119,7 @@ require_once __DIR__ . '/includes/public_header.php';
         <div class="sx-sechead" data-reveal>
             <span class="sx-kicker">Cumplimiento</span>
             <h2 class="sx-h2">Normas y estandares.</h2>
-            <p class="sx-lead">Disenamos, instalamos y certificamos conforme a estandares nacionales e internacionales del sector salud.</p>
+            <p class="sx-lead">Diseñamos, instalamos y certificamos conforme a estandares nacionales e internacionales del sector salud.</p>
         </div>
         <div class="sx-stds" data-reveal>
             <?php foreach ($standards as $s): ?>

@@ -25,7 +25,7 @@ function company_field_defs(): array
         'company_address'    => ['Dirección (RD)', 'Santo Domingo, Republica Dominicana', 'APP_ADDRESS'],
         'company_address_2'  => ['Dirección secundaria (US)', 'Miami, Florida, USA', 'APP_SECONDARY_ADDRESS'],
         'company_founded'    => ['Año de fundación', '1995', 'APP_FOUNDED'],
-        'company_seo_desc'   => ['Descripción SEO', 'SCH MEDICOS ofrece equipos medicos, gases medicinales, diseno hospitalario, instalacion, certificacion y soporte tecnico para clinicas y hospitales.', 'SEO_DEFAULT_DESCRIPTION'],
+        'company_seo_desc'   => ['Descripción SEO', 'SCH MEDICOS ofrece equipos medicos, gases medicinales, diseño hospitalario, instalacion, certificacion y soporte tecnico para clinicas y hospitales.', 'SEO_DEFAULT_DESCRIPTION'],
         'company_logo'       => ['Logo (ruta del archivo)', 'assets/media/logo_SCH_-removebg-preview.png', 'APP_LOGO'],
     ];
 }

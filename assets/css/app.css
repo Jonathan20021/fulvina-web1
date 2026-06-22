@@ -6319,8 +6319,11 @@ html { scroll-padding-top: 74px; }
 }
 
 .site-public .sch-brand__text strong {
-  font-size: 1.18rem;
-  letter-spacing: -.04em;
+  font-size: .92rem;
+  line-height: 1.16;
+  letter-spacing: -.005em;
+  max-width: 215px;
+  white-space: normal;
 }
 
 .site-public .sch-brand__text small {
@@ -7154,7 +7157,11 @@ html { scroll-padding-top: 74px; }
 
 .site-public .sch-footer .sch-brand__text strong {
   color: #fff;
-  font-size: 1.22rem;
+  font-size: 1rem;
+  line-height: 1.18;
+  letter-spacing: -.005em;
+  max-width: 240px;
+  white-space: normal;
 }
 
 .site-public .sch-footer .sch-brand__text small {
@@ -7451,7 +7458,7 @@ html { scroll-padding-top: 74px; }
   }
 
   .site-public .sch-brand__text strong {
-    font-size: 1.02rem;
+    font-size: .82rem;
   }
 
   .site-public .public-nav__actions {
