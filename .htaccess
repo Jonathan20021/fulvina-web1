@@ -4,6 +4,10 @@ ErrorDocument 404 /fulvina-web/404.php
 <IfModule mod_rewrite.c>
   RewriteEngine On
 
+  # canonical host: send the staging subdomain straight to the public domain
+  RewriteCond %{HTTP_HOST} ^(www\.)?schmedicos\.kyrosrd\.com$ [NC]
+  RewriteRule ^ https://schmedicos.com%{REQUEST_URI} [R=301,L]
+
   # force HTTPS (skip when behind a proxy that already terminated TLS)
   RewriteCond %{HTTPS} off
   RewriteCond %{HTTP:X-Forwarded-Proto} !https
