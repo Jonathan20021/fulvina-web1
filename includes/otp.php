@@ -68,6 +68,52 @@ function mail_logo_url(): string
 }
 
 /**
+ * On-disk path of the email logo, so we can EMBED it (inline CID) instead of
+ * relying on a remote image that the client may block or fail to load. Returns
+ * null when a custom remote URL is set (then we link) or the file is missing.
+ */
+function mail_logo_disk_path(): ?string
+{
+    $custom = trim((string) setting_get('mail_logo_url', ''));
+    if ($custom !== '' && preg_match('#^https?://#i', $custom)) {
+        return null; // remote override → link, don't embed
+    }
+    $rel = $custom !== '' ? $custom : (defined('APP_LOGO') ? (string) APP_LOGO : 'assets/media/logo_SCH_-removebg-preview.png');
+    $path = __DIR__ . '/../' . ltrim($rel, '/');
+    return (is_file($path) && is_readable($path)) ? $path : null;
+}
+
+/** Build the Resend inline attachment for the logo (cid: "logo"), or null. */
+function mail_logo_attachment(): ?array
+{
+    $path = mail_logo_disk_path();
+    if ($path === null) {
+        return null;
+    }
+    $data = @file_get_contents($path);
+    if ($data === false || $data === '') {
+        return null;
+    }
+    $ext = strtolower((string) pathinfo($path, PATHINFO_EXTENSION));
+    $mime = [
+        'png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg',
+        'webp' => 'image/webp', 'gif' => 'image/gif', 'svg' => 'image/svg+xml',
+    ][$ext] ?? 'image/png';
+    return [
+        'filename' => 'logo.' . ($ext !== '' ? $ext : 'png'),
+        'content' => base64_encode($data),
+        'content_type' => $mime,
+        'content_id' => 'logo',
+    ];
+}
+
+/** Logo src for the email: embedded (cid) when the file is on disk, else URL. */
+function mail_logo_src(): string
+{
+    return mail_logo_disk_path() !== null ? 'cid:logo' : mail_logo_url();
+}
+
+/**
  * Branded, email-client-safe HTML shell (table layout + inline CSS). Wraps the
  * given content with the logo header and a company footer. Reused by every CRM
  * email so they all look consistent.
@@ -77,7 +123,7 @@ function mail_layout(string $preheader, string $content): string
     $brand = e(defined('APP_NAME') ? (string) APP_NAME : 'CRM');
     $legal = e(defined('APP_LEGAL') && APP_LEGAL !== '' ? (string) APP_LEGAL : (defined('APP_NAME') ? (string) APP_NAME : ''));
     $addr = e(defined('APP_ADDRESS') ? (string) APP_ADDRESS : '');
-    $logo = e(mail_logo_url());
+    $logo = e(mail_logo_src());
     $pre = e($preheader);
     $year = date('Y');
     $sans = "'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
@@ -118,7 +164,7 @@ function mail_layout(string $preheader, string $content): string
  * Send an email through the Resend API.
  * Returns ['ok' => bool, 'error' => string].
  */
-function mailer_send(string $toEmail, string $toName, string $subject, string $html): array
+function mailer_send(string $toEmail, string $toName, string $subject, string $html, array $attachments = []): array
 {
     $key = resend_api_key();
     if ($key === '') {
@@ -135,12 +181,16 @@ function mailer_send(string $toEmail, string $toName, string $subject, string $h
     $from = $fromName !== '' ? sprintf('%s <%s>', $fromName, mail_from_email()) : mail_from_email();
     $to = $toName !== '' ? sprintf('%s <%s>', $toName, $toEmail) : $toEmail;
 
-    $payload = json_encode([
+    $body = [
         'from' => $from,
         'to' => [$to],
         'subject' => $subject,
         'html' => $html,
-    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    ];
+    if ($attachments !== []) {
+        $body['attachments'] = array_values($attachments);
+    }
+    $payload = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
     $ch = curl_init('https://api.resend.com/emails');
     curl_setopt_array($ch, [
@@ -214,7 +264,8 @@ function otp_start(array $user): array
     $name = (string) ($user['name'] ?? '');
     $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 
-    $send = mailer_send($email, $name, 'Tu código de acceso al CRM', otp_email_html($name, $code));
+    $attach = array_values(array_filter([mail_logo_attachment()]));
+    $send = mailer_send($email, $name, 'Tu código de acceso al CRM', otp_email_html($name, $code), $attach);
     if (!$send['ok']) {
         return $send;
     }

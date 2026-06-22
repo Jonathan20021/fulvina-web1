@@ -104,8 +104,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '')
             '<p style="margin:6px 0 8px;font-size:19px;font-weight:700;color:#06243f;">Prueba de correo ✅</p>'
             . '<p style="margin:0 0 4px;">Hola ' . e((string) ($me['name'] ?? '')) . ',</p>'
             . '<p style="margin:0 0 8px;color:#56697e;">Este es un correo de prueba enviado desde la configuración del CRM de <strong>' . e(APP_NAME) . '</strong>. Si lo recibiste con su logo y formato, la integración con Resend quedó funcionando correctamente.</p>');
-        $r = mailer_send($to, (string) ($me['name'] ?? ''), 'Prueba de correo · ' . APP_NAME, $testBody);
+        $testAttach = array_values(array_filter([mail_logo_attachment()]));
+        $r = mailer_send($to, (string) ($me['name'] ?? ''), 'Prueba de correo · ' . APP_NAME, $testBody, $testAttach);
         flash($r['ok'] ? 'success' : 'warning', $r['ok'] ? ('Correo de prueba enviado a ' . $to . '.') : ('No se pudo enviar: ' . $r['error']));
+    }
+    redirect('crm/configuracion.php');
+}
+
+/* ---- Wipe demo / operational data (production cleanup) ------------------ */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '') === 'wipe_demo') {
+    if (strtoupper(trim((string) ($_POST['confirm'] ?? ''))) !== 'BORRAR') {
+        flash('warning', 'Escribe BORRAR (en mayúsculas) para confirmar la limpieza.');
+        redirect('crm/configuracion.php');
+    }
+    // Child → parent order; FK checks are also disabled as a safety net.
+    $wipeTables = [
+        'invoice_payments', 'invoice_items', 'invoices',
+        'quote_items', 'quotes',
+        'ticket_comments', 'tickets',
+        'equipment', 'contacts', 'leads', 'clients',
+        'activity_log', 'login_attempts',
+    ];
+    $pdo = db();
+    $deleted = 0;
+    try {
+        $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
+        foreach ($wipeTables as $t) {
+            if (!table_exists($t)) { continue; }
+            $deleted += (int) $pdo->query("SELECT COUNT(*) FROM `$t`")->fetchColumn();
+            $pdo->exec("TRUNCATE TABLE `$t`");
+        }
+        $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
+        log_activity('config', null, 'datos_demo_limpiados', null);
+        flash('success', 'Datos demo eliminados (' . $deleted . ' registros). El CRM quedó limpio. Se conservaron usuarios, configuración y roles.');
+    } catch (Throwable $e) {
+        try { $pdo->exec('SET FOREIGN_KEY_CHECKS=1'); } catch (Throwable) { /* ignore */ }
+        error_log('wipe_demo: ' . $e->getMessage());
+        flash('warning', 'No se pudo completar la limpieza. Revisa los permisos de la base de datos.');
     }
     redirect('crm/configuracion.php');
 }
@@ -322,6 +357,26 @@ require_once __DIR__ . '/../includes/crm_header.php';
             </div>
         </article>
     </div>
+
+    <!-- Zona de peligro: limpiar datos demo -->
+    <article class="crm-card cfg-card" style="margin-top:1rem;border-color:#f3c9c9;background:#fffafa">
+        <div class="crm-card__head">
+            <div><h2 style="color:#b42318"><i data-lucide="alert-triangle" class="cfg-ic"></i> Limpiar datos demo</h2><p>Borra todos los datos operativos de ejemplo para arrancar producción en limpio.</p></div>
+        </div>
+        <div class="crm-card__body" style="display:grid;gap:.9rem">
+            <div style="font-size:.86rem;color:#7c2d2d;background:#fff1f1;border:1px solid #f3c9c9;border-radius:10px;padding:.7rem .85rem;line-height:1.55">
+                <strong>Se eliminarán:</strong> clientes, contactos, equipos, cotizaciones, tickets, leads y facturas.<br>
+                <strong>Se conservan:</strong> usuarios, configuración (empresa / OTP) y roles.<br>
+                <strong>⚠️ Esta acción no se puede deshacer.</strong>
+            </div>
+            <form method="post" onsubmit="return confirm('¿Seguro que quieres borrar TODOS los datos demo? Esto no se puede deshacer.')" style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end">
+                <?= csrf_field() ?>
+                <input type="hidden" name="form" value="wipe_demo">
+                <label class="crm-field" style="flex:1;min-width:220px"><span>Escribe <b>BORRAR</b> para confirmar</span><input name="confirm" class="crm-input" autocomplete="off" placeholder="BORRAR" <?= $dis ?>></label>
+                <button class="crm-primary-btn" type="submit" style="background:#b42318;border-color:#b42318" <?= $dis ?>><i data-lucide="trash-2" class="h-4 w-4"></i>Limpiar datos demo</button>
+            </form>
+        </div>
+    </article>
 </section>
 
 <?php require_once __DIR__ . '/../includes/crm_footer.php'; ?>
