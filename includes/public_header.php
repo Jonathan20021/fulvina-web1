@@ -87,6 +87,8 @@ $schema = $schema ?? [
                 <span><i data-lucide="phone" class="h-4 w-4"></i><?= e(APP_PHONE) ?></span>
                 <span class="public-topbar__sep">/</span>
                 <span><i data-lucide="mail" class="h-4 w-4"></i><?= e(APP_EMAIL) ?></span>
+                <span class="public-topbar__sep">/</span>
+                <span><i data-lucide="mail" class="h-4 w-4"></i><?= e(APP_INFO_EMAIL) ?></span>
             </div>
             <a href="<?= url('soporte.php') ?>" class="public-topbar__cta">
                 <i data-lucide="headphones" class="h-4 w-4"></i>Reportar soporte 24/7
