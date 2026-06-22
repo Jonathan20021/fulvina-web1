@@ -43,6 +43,7 @@
             <p>&copy; <?= date('Y') ?> <?= e(APP_LEGAL) ?>. Todos los derechos reservados.</p>
             <p>Ingeniería hospitalaria, equipos médicos y soporte institucional.</p>
         </div>
+        <p class="sch-footer__credit" style="margin:.7rem 0 0;text-align:center;font-size:.78rem;color:#8aa6c0">Desarrollado por <a href="https://kyrosrd.com/" target="_blank" rel="noopener" style="color:#cfe0f0;text-decoration:none;font-weight:600">KYROS SOLUTIONS</a></p>
     </div>
 </footer>
 </body>
