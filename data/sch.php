@@ -21,7 +21,7 @@ $services = [
         'id' => 'paredes',
         'title' => 'Paredes modulares y proteccion hospitalaria',
         'summary' => 'Paredes de servicio verticales y horizontales, brazos, columnas, pedestales, revestimientos asepticos y proteccion para alto transito.',
-        'image' => 'Paredes-1.png',
+        'image' => 'paredes.jpeg',
         'items' => ['Paredes modulares', 'Brazos de servicio', 'Columnas de servicio', 'Cortinas asepticas', 'Protectores de pared', 'Acabados Acrovyn 4000'],
     ],
 ];
