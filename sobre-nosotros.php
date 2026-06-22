@@ -14,7 +14,7 @@ $milestones = [
     ['1995', 'Fundacion en Santo Domingo por el Lic. Fulvio Montisano, con el diseño e instalacion de sistemas centrales de gases medicinales.'],
     ['2000', 'Apertura de la primera sucursal en Santiago de los Caballeros.'],
     ['2008', 'Galardon en The Bizz Awards como empresa lider del sector.'],
-    ['Hoy', 'Mas de 500 proyectos ejecutados y dos sedes operativas: Santo Domingo y Miami.'],
+    ['Hoy', 'Mas de 600 proyectos ejecutados y dos sedes operativas: Santo Domingo y Miami.'],
 ];
 
 $values = [

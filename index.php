@@ -26,6 +26,9 @@ $schema = [
     ],
 ];
 
+// Years in business, computed from the founding year so it never goes stale.
+$yearsActive = max(1, (int) date('Y') - (int) APP_FOUNDED);
+
 $capCodes = ['G-01', 'E-02', 'P-03'];
 $capLabels = ['Gases medicinales', 'Equipamiento medico', 'Paredes y proteccion'];
 
@@ -55,8 +58,8 @@ require_once __DIR__ . '/includes/public_header.php';
                 <a href="<?= url('proyectos.php') ?>" class="sx-link">Ver proyectos<i data-lucide="arrow-right"></i></a>
             </div>
             <div class="sx-hero__ledger">
-                <div class="sx-hero__lcell"><span class="sx-hero__lnum">30</span><span class="sx-hero__llabel">Anos</span></div>
-                <div class="sx-hero__lcell"><span class="sx-hero__lnum">500+</span><span class="sx-hero__llabel">Proyectos</span></div>
+                <div class="sx-hero__lcell"><span class="sx-hero__lnum"><?= $yearsActive ?></span><span class="sx-hero__llabel">Anos</span></div>
+                <div class="sx-hero__lcell"><span class="sx-hero__lnum">600+</span><span class="sx-hero__llabel">Proyectos</span></div>
                 <div class="sx-hero__lcell"><span class="sx-hero__lnum sx-hero__lnum--spec">NFPA 99<br>ISO 7396-1</span><span class="sx-hero__llabel">Cumplimiento</span></div>
             </div>
         </div>
@@ -72,12 +75,12 @@ require_once __DIR__ . '/includes/public_header.php';
     <div class="sx-container">
         <div class="sx-ledger__grid">
             <div class="sx-ledger__anchorwrap">
-                <div class="sx-ledger__anchor">30</div>
-                <div class="sx-ledger__anchorlabel">Anos &middot; Desde 1995</div>
+                <div class="sx-ledger__anchor"><?= $yearsActive ?></div>
+                <div class="sx-ledger__anchorlabel">Anos &middot; Desde <?= e(APP_FOUNDED) ?></div>
             </div>
             <div data-reveal="fade">
                 <div class="sx-ledger__facts">
-                    <div class="sx-fact"><div class="sx-fact__num">500+</div><div class="sx-fact__label">Proyectos ejecutados</div></div>
+                    <div class="sx-fact"><div class="sx-fact__num">600+</div><div class="sx-fact__label">Proyectos ejecutados</div></div>
                     <div class="sx-fact"><div class="sx-fact__num">2</div><div class="sx-fact__label">Sedes: Sto. Dgo. y Miami</div></div>
                     <div class="sx-fact"><div class="sx-fact__num">24/7</div><div class="sx-fact__label">Soporte tecnico</div></div>
                     <div class="sx-fact sx-fact--std"><div class="sx-fact__std">NFPA 99 / ISO 7396-1</div><div class="sx-fact__label">Cumplimiento</div></div>
@@ -168,7 +171,7 @@ require_once __DIR__ . '/includes/public_header.php';
             <img src="<?= asset('assets/media/6.png') ?>" alt="Instalacion hospitalaria ejecutada por SCH MEDICOS" loading="lazy" decoding="async">
         </figure>
         <div class="sx-heritage__facts" data-reveal>
-            <span class="sx-hfact">30+ anos en el sector salud</span>
+            <span class="sx-hfact"><?= $yearsActive ?> anos en el sector salud</span>
             <span class="sx-hfact">Representacion oficial de marcas certificadas</span>
             <span class="sx-hfact">Equipo tecnico propio</span>
         </div>
