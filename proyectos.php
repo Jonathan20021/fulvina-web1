@@ -76,7 +76,7 @@ require_once __DIR__ . '/includes/public_header.php';
 <section class="sx-sec sx-sec--tight sx-sec--paper" aria-label="Instalaciones documentadas">
     <div class="sx-container">
         <div class="sx-strip" data-reveal>
-            <?php foreach (['1.png','2-1.png','3.png','6.png','9.png','15.png','Gases-1.png','Paredes-1.png'] as $image): ?>
+            <?php foreach (['1.png','2-1.png','3.png','6.png','9.png','15.jpg','Gases-1.png','Paredes-1.png'] as $image): ?>
                 <img src="<?= asset('assets/media/' . $image) ?>" alt="" aria-hidden="true" loading="lazy" decoding="async">
             <?php endforeach; ?>
         </div>

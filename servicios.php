@@ -87,7 +87,7 @@ require_once __DIR__ . '/includes/public_header.php';
 <section class="sx-sec sx-sec--tight sx-sec--paper" aria-label="Registro fotografico">
     <div class="sx-container">
         <div class="sx-strip" data-reveal>
-            <?php foreach (['Equipo-medico-1.png','Equipo-medico-3.png','Gases-2.png','Paredes-1.png','5.png','6.png','9.png','15.png'] as $image): ?>
+            <?php foreach (['Equipo-medico-1.png','Equipo-medico-3.png','Gases-2.png','Paredes-1.png','5.png','6.png','9.png','15.jpg'] as $image): ?>
                 <img src="<?= asset('assets/media/' . $image) ?>" alt="" aria-hidden="true" loading="lazy" decoding="async">
             <?php endforeach; ?>
         </div>
