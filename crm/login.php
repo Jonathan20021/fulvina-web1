@@ -104,7 +104,7 @@ $pendingEmailMask = $pending !== null ? otp_mask_email((string) ($pending['email
             <img class="sxl-aside__img" src="<?= asset('assets/media/5.png') ?>" alt="" aria-hidden="true">
             <a href="<?= url('index.php') ?>" class="sxl-brand">
                 <img src="<?= asset(APP_LOGO) ?>" alt="SCH MEDICOS">
-                <span><strong>SCH MEDICOS</strong><small><?= e(APP_TAGLINE) ?></small></span>
+                <span><strong><?= e(brand_wordmark()) ?></strong></span>
             </a>
             <div>
                 <h2 class="sxl-aside__h">Operacion comercial, soporte y equipos bajo control.</h2>
@@ -121,7 +121,7 @@ $pendingEmailMask = $pending !== null ? otp_mask_email((string) ($pending['email
             <div class="sxl-card">
                 <div class="sxl-cardbrand">
                     <img src="<?= asset(APP_LOGO) ?>" alt="SCH MEDICOS">
-                    <strong>SCH MEDICOS</strong>
+                    <strong><?= e(brand_wordmark()) ?></strong>
                 </div>
 
                 <a href="<?= url('index.php') ?>" class="sxl-back"><i data-lucide="arrow-left"></i>Volver al sitio</a>

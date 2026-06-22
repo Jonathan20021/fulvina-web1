@@ -688,7 +688,7 @@
 .sxl-aside > * { position: relative; z-index: 1; }
 .sxl-brand { display: inline-flex; align-items: center; gap: .7rem; text-decoration: none; width: fit-content; }
 .sxl-brand img { height: 38px; width: auto; }
-.sxl-brand strong { display: block; color: #fff; font-size: 1.05rem; font-weight: 600; letter-spacing: -.02em; }
+.sxl-brand strong { display: block; color: #fff; font-size: 1.05rem; font-weight: 600; letter-spacing: -.02em; line-height: 1.25; max-width: 260px; }
 .sxl-brand small { color: var(--muted-d); font-size: .72rem; }
 .sxl-aside__h { color: #fff; font-size: clamp(1.6rem, 2.4vw, 2.3rem); font-weight: 600; line-height: 1.12; letter-spacing: -.035em; max-width: 20ch; }
 .sxl-aside__p { margin-top: 1rem; max-width: 42ch; color: var(--muted-d); line-height: 1.55; font-size: .96rem; }

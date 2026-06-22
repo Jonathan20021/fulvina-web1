@@ -143,7 +143,7 @@ if ($ran) {
         <section class="install-card">
             <span class="login-card__brand" style="margin-top:0">
                 <img src="<?= asset(APP_LOGO) ?>" alt="SCH MEDICOS" width="200" height="182">
-                <strong>SCH MEDICOS</strong>
+                <strong><?= e(brand_wordmark()) ?></strong>
             </span>
             <h1>Instalar CRM SCH</h1>
             <p>Este instalador crea la base <strong><?= e(DB_NAME) ?></strong>, tablas, relaciones y datos demo para XAMPP local. Verifica que MySQL este encendido en el panel de XAMPP.</p>

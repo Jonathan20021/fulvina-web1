@@ -778,32 +778,39 @@ function image_alt(string $file, string $fallback): string
  * Official SCH brand lockup. Single source of truth for the logo.
  * Variants: 'public' (header), 'footer', 'crm', 'login'.
  */
+/** The brand wordmark text shown in headers, footer, login and the CRM. */
+function brand_wordmark(): string
+{
+    return 'Servicios para Clínicas y Hospitales';
+}
+
 function brand_lock(string $variant = 'public'): string
 {
     $logo = asset(APP_LOGO);
     $home = url('index.php');
+    $word = brand_wordmark();
 
     if ($variant === 'crm') {
         return '<a href="' . url('crm/index.php') . '" class="crm-wordmark" aria-label="' . e(APP_NAME) . ' CRM, inicio">'
             . '<span class="crm-wordmark__plaque"><img src="' . $logo . '" alt="" width="200" height="182"></span>'
-            . '<b>SCH <span>MEDICOS</span></b></a>';
+            . '<b>' . e($word) . '</b></a>';
     }
 
     if ($variant === 'login') {
         return '<span class="login-card__brand">'
             . '<img src="' . $logo . '" alt="' . e(APP_NAME) . '" width="200" height="182">'
-            . '<strong>SCH MEDICOS</strong></span>';
+            . '<strong>' . e($word) . '</strong></span>';
     }
 
     if ($variant === 'footer') {
         return '<a href="' . $home . '" class="sch-brand sch-brand--light" aria-label="' . e(APP_NAME) . ' inicio">'
             . '<span class="sch-brand__plaque"><img src="' . $logo . '" alt="" width="200" height="182"></span>'
-            . '<span class="sch-brand__text"><strong>' . e(APP_TAGLINE) . '</strong></span></a>';
+            . '<span class="sch-brand__text"><strong>' . e($word) . '</strong></span></a>';
     }
 
     // public header
     return '<a href="' . $home . '" class="sch-brand" aria-label="' . e(APP_NAME) . ' inicio">'
         . '<img class="sch-brand__mark" src="' . $logo . '" alt="' . e(APP_NAME) . '" width="200" height="182">'
-        . '<span class="sch-brand__text"><strong>' . e(APP_TAGLINE) . '</strong></span>'
+        . '<span class="sch-brand__text"><strong>' . e($word) . '</strong></span>'
         . '<span class="sch-brand__since"><b>DESDE</b>' . e(APP_FOUNDED) . '</span></a>';
 }

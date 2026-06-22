@@ -1889,9 +1889,11 @@ footer.sch-footer {
 .crm-wordmark__plaque img { height: 28px; width: auto; }
 .crm-wordmark b {
   font-family: "Space Grotesk", sans-serif;
-  font-size: 1.18rem;
+  font-size: .82rem;
+  line-height: 1.15;
   font-weight: 700;
-  letter-spacing: -.02em;
+  letter-spacing: -.01em;
+  max-width: 175px;
   color: #fff;
 }
 .crm-wordmark b span { color: #5fb0f0; }
@@ -3264,7 +3266,7 @@ body.login-page { height: 100dvh; overflow: hidden; }
 /* legacy brand lockup (install page) — keep logo ratio correct */
 .login-card__brand { display: flex; align-items: center; gap: .7rem; margin-top: 1.4rem; }
 .login-card__brand img { height: 44px; width: auto; }
-.login-card__brand strong { font-family: "Space Grotesk", sans-serif; font-size: 1.3rem; font-weight: 700; color: var(--ink); }
+.login-card__brand strong { font-family: "Space Grotesk", sans-serif; font-size: 1.02rem; line-height: 1.18; font-weight: 700; color: var(--ink); max-width: 250px; }
 
 .install-shell {
   display: grid;
@@ -6322,7 +6324,7 @@ html { scroll-padding-top: 74px; }
   font-size: .92rem;
   line-height: 1.16;
   letter-spacing: -.005em;
-  max-width: 215px;
+  max-width: 160px;
   white-space: normal;
 }
 
@@ -6337,7 +6339,7 @@ html { scroll-padding-top: 74px; }
 }
 
 .site-public .sch-brand__since {
-  padding-left: .85rem;
+  padding-left: .5rem;
   border-left-color: var(--public-line);
   color: var(--public-blue);
   font-size: 1rem;
