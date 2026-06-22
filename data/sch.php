@@ -7,7 +7,7 @@ $services = [
         'id' => 'gases',
         'title' => 'Sistemas centrales de gases medicinales',
         'summary' => 'Conceptualizacion, diseño, instalacion, puesta en marcha y certificacion de redes de gases medicos conforme a estandares regulatorios.',
-        'image' => 'Gases-5.png',
+        'image' => 'Gases-5.jpg',
         'items' => ['Salidas de gases', 'Alarmas sectoriales y maestras', 'Cajas de valvulas', 'Manifolds Lifeline', 'Bombas de aire medicinal', 'Compresores de vacio'],
     ],
     [
@@ -48,4 +48,4 @@ $brands = [
     ['name' => 'Hill-Rom MEDAES', 'logo' => 'Logo-g-1.png'],
 ];
 
-$heroImages = ['5.png', '2-1.png', 'Gases-5.png', 'Equipo-medico-6.png'];
+$heroImages = ['5.png', '2-1.png', 'Gases-5.jpg', 'Equipo-medico-6.png'];

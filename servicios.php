@@ -33,7 +33,7 @@ require_once __DIR__ . '/includes/public_header.php';
             </div>
         </div>
         <div class="sx-cover__media" data-reveal>
-            <img src="<?= asset('assets/media/Gases-5.png') ?>" alt="Sistema de gases medicinales certificado por SCH MEDICOS" loading="lazy" decoding="async">
+            <img src="<?= asset('assets/media/Gases-5.jpg') ?>" alt="Sistema de gases medicinales certificado por SCH MEDICOS" loading="lazy" decoding="async">
         </div>
     </div>
 </section>
