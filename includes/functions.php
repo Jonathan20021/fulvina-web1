@@ -163,6 +163,138 @@ function verify_csrf(): void
     }
 }
 
+/* ============================================================
+   Public form anti-spam: content heuristics, time-trap, CAPTCHA.
+   ============================================================ */
+
+/**
+ * High-precision spam filter for public form submissions, tuned for a
+ * Spanish-speaking (Dominican Republic) audience. $identity = fields where a
+ * URL never legitimately belongs (name, company, phone…); $body = the message.
+ */
+function looks_like_spam(array $identity, string $body): bool
+{
+    $all = $body . ' ' . implode(' ', array_map('strval', $identity));
+
+    // Non-Latin scripts (Cyrillic, Greek, Hebrew, Arabic, CJK, Thai): not our
+    // audience — virtually always bot spam.
+    if (preg_match('/[\x{0370}-\x{03FF}\x{0400}-\x{052F}\x{0590}-\x{05FF}\x{0600}-\x{06FF}\x{3040}-\x{30FF}\x{4E00}-\x{9FFF}\x{0E00}-\x{0E7F}]/u', $all)) {
+        return true;
+    }
+
+    // A URL in a name/company/phone field is never legitimate.
+    foreach ($identity as $f) {
+        if (preg_match('#https?://|www\.#i', (string) $f)) {
+            return true;
+        }
+    }
+
+    // Known URL shorteners anywhere (classic spam vector).
+    if (preg_match('#\b(goo\.su|bit\.ly|tinyurl\.com|t\.me|cutt\.ly|is\.gd|ow\.ly|rb\.gy|clck\.ru|vk\.cc|tiny\.cc|shorturl|surl\.li)\b#i', $all)) {
+        return true;
+    }
+
+    // Two or more links in the body reads as link spam.
+    if (preg_match_all('#https?://#i', $body) >= 2) {
+        return true;
+    }
+
+    // BBCode / anchor injection.
+    if (preg_match('#\[/?url[=\]]|<a\s+href#i', $all)) {
+        return true;
+    }
+
+    return false;
+}
+
+/** Hidden, signed timestamp so we can reject implausibly fast (bot) submits. */
+function form_time_field(): string
+{
+    $ts = time();
+    $sig = hash_hmac('sha256', (string) $ts, (string) ($_SESSION['csrf'] ?? 'k'));
+    return '<input type="hidden" name="fts" value="' . $ts . '"><input type="hidden" name="ftok" value="' . e($sig) . '">';
+}
+
+/** True when the form was on screen at least $minSeconds and the token is valid. */
+function form_time_ok(int $minSeconds = 2): bool
+{
+    $ts = (int) ($_POST['fts'] ?? 0);
+    $sig = (string) ($_POST['ftok'] ?? '');
+    if ($ts <= 0 || $sig === '') {
+        return false;
+    }
+    if (!hash_equals(hash_hmac('sha256', (string) $ts, (string) ($_SESSION['csrf'] ?? 'k')), $sig)) {
+        return false;
+    }
+    $elapsed = time() - $ts;
+    return $elapsed >= $minSeconds && $elapsed <= 86400;
+}
+
+/* ---- Cloudflare Turnstile (CAPTCHA) — keys editable in Configuración ---- */
+
+function turnstile_site_key(): string
+{
+    return trim((string) setting_get('turnstile_site_key', ''));
+}
+
+function turnstile_secret_key(): string
+{
+    return trim((string) setting_get('turnstile_secret_key', ''));
+}
+
+function turnstile_enabled(): bool
+{
+    return turnstile_site_key() !== '' && turnstile_secret_key() !== '';
+}
+
+/** Turnstile widget + loader (empty string when not configured). */
+function turnstile_widget(): string
+{
+    if (!turnstile_enabled()) {
+        return '';
+    }
+    return '<div class="cf-turnstile" data-sitekey="' . e(turnstile_site_key()) . '" data-theme="light"></div>'
+        . '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>';
+}
+
+/**
+ * Server-side verification of the Turnstile token.
+ * Returns true when it passes OR Turnstile is not configured. Fails open on a
+ * network/cURL error (so a Cloudflare outage never loses real leads); fails
+ * closed only on a missing/invalid token.
+ */
+function turnstile_verify(): bool
+{
+    if (!turnstile_enabled()) {
+        return true;
+    }
+    $token = (string) ($_POST['cf-turnstile-response'] ?? '');
+    if ($token === '') {
+        return false;
+    }
+    if (!function_exists('curl_init')) {
+        return true;
+    }
+    $ch = curl_init('https://challenges.cloudflare.com/turnstile/v0/siteverify');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 8,
+        CURLOPT_POSTFIELDS => http_build_query([
+            'secret' => turnstile_secret_key(),
+            'response' => $token,
+            'remoteip' => $_SERVER['REMOTE_ADDR'] ?? '',
+        ]),
+    ]);
+    $resp = curl_exec($ch);
+    curl_close($ch);
+    if ($resp === false) {
+        return true; // can't reach Cloudflare → don't block a possibly-real lead
+    }
+    $data = json_decode((string) $resp, true);
+    return is_array($data) && !empty($data['success']);
+}
+
 function flash(string $type, string $message): void
 {
     $_SESSION['flash'][] = ['type' => $type, 'message' => $message];

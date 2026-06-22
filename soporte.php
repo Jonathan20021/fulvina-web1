@@ -3,10 +3,6 @@ require_once __DIR__ . '/includes/bootstrap.php';
 verify_csrf();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Honeypot: bots fill the hidden "website" field; silently drop them.
-    if (trim((string) ($_POST['website'] ?? '')) !== '') {
-        redirect('soporte.php');
-    }
     $pdo = db(false);
     $company = trim((string) ($_POST['company'] ?? ''));
     $contact = trim((string) ($_POST['contact_name'] ?? ''));
@@ -15,11 +11,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $equipment = trim((string) ($_POST['equipment'] ?? ''));
     $serial = trim((string) ($_POST['serial'] ?? ''));
     $priority = trim((string) ($_POST['priority'] ?? 'Media'));
+    if (!in_array($priority, ['Baja', 'Media', 'Alta', 'Critica'], true)) { $priority = 'Media'; }
     $description = trim((string) ($_POST['description'] ?? ''));
+
+    // Silently drop obvious bot spam: honeypot filled, submitted too fast, or
+    // content no real report would contain.
+    if (trim((string) ($_POST['website'] ?? '')) !== ''
+        || !form_time_ok()
+        || looks_like_spam([$company, $contact, $phone, $equipment, $serial], $description)) {
+        redirect('soporte.php');
+    }
 
     if (!form_throttle_ok('soporte')) {
         flash('warning', 'Recibimos varios reportes desde tu conexión. Intenta de nuevo en unos minutos.');
         redirect('soporte.php');
+    } elseif (!turnstile_verify()) {
+        flash('warning', 'No pudimos verificar que no eres un robot. Intenta de nuevo.');
     } elseif ($company === '' || $contact === '' || $email === '' || $description === '') {
         flash('warning', 'Completa empresa, contacto, correo y descripcion del problema.');
     } elseif ($pdo && table_exists('tickets')) {
@@ -132,6 +139,7 @@ require_once __DIR__ . '/includes/public_header.php';
 
         <form method="post" class="sch-public-form" data-reveal="right" data-reveal-delay="100">
             <?= csrf_field() ?>
+            <?= form_time_field() ?>
             <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
             <h2 class="sx-h2" style="font-size:1.4rem;margin-bottom:1.2rem">Reporte de soporte</h2>
             <div class="sch-form-grid">
@@ -173,6 +181,7 @@ require_once __DIR__ . '/includes/public_header.php';
                     <textarea name="description" required rows="6" placeholder="Describe sintomas, hora aproximada, alarmas, codigos y acciones realizadas."></textarea>
                 </label>
             </div>
+            <?php if (turnstile_enabled()): ?><div style="margin-top:1rem"><?= turnstile_widget() ?></div><?php endif; ?>
             <div class="sch-form-actions">
                 <p>Los campos marcados con * son obligatorios para abrir el ticket.</p>
                 <button class="sch-btn-primary" type="submit"><i data-lucide="send" class="h-4 w-4"></i>Registrar ticket</button>

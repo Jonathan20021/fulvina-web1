@@ -111,6 +111,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '')
     redirect('crm/configuracion.php');
 }
 
+/* ---- Save anti-spam (Cloudflare Turnstile) keys ------------------------- */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '') === 'turnstile_settings') {
+    setting_set('turnstile_site_key', trim((string) ($_POST['turnstile_site_key'] ?? '')));
+    $sk = trim((string) ($_POST['turnstile_secret_key'] ?? ''));
+    if ($sk !== '') { setting_set('turnstile_secret_key', $sk); } // blank = keep current
+    log_activity('config', null, 'antispam_actualizado', null);
+    flash('success', 'Protección anti-spam guardada.');
+    redirect('crm/configuracion.php');
+}
+
 /* ---- Wipe demo / operational data (production cleanup) ------------------ */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '') === 'wipe_demo') {
     if (strtoupper(trim((string) ($_POST['confirm'] ?? ''))) !== 'BORRAR') {
@@ -167,6 +177,8 @@ $mailFromEmailSetting = (string) setting_get('mail_from_email', '');
 $mailFromNameSetting = (string) setting_get('mail_from_name', (string) (defined('APP_NAME') ? APP_NAME : ''));
 $mailLogoSetting = (string) setting_get('mail_logo_url', '');
 $otpEnabledSetting = setting_get('otp_enabled', '0') === '1';
+$turnstileSiteSetting = (string) setting_get('turnstile_site_key', '');
+$turnstileSecretSet = setting_get('turnstile_secret_key', '') !== '';
 
 $crmTitle = 'Configuración';
 require_once __DIR__ . '/../includes/crm_header.php';
@@ -272,6 +284,25 @@ require_once __DIR__ . '/../includes/crm_header.php';
         </div>
     </form>
     <form method="post" id="mail-test-form" style="display:none"><?= csrf_field() ?><input type="hidden" name="form" value="mail_test"></form>
+
+    <!-- Anti-spam: Cloudflare Turnstile (CAPTCHA) en formularios públicos -->
+    <form method="post" class="crm-card cfg-card" style="margin-bottom:1rem">
+        <?= csrf_field() ?>
+        <input type="hidden" name="form" value="turnstile_settings">
+        <div class="crm-card__head">
+            <div><h2><i data-lucide="bot" class="cfg-ic"></i> Protección anti-spam (CAPTCHA)</h2><p>Cloudflare Turnstile en los formularios públicos de contacto y soporte. Gratis y casi invisible.</p></div>
+        </div>
+        <div class="crm-card__body" style="display:grid;gap:1rem">
+            <div class="crm-form-grid">
+                <label class="crm-field"><span>Site Key (pública)</span><input name="turnstile_site_key" value="<?= e($turnstileSiteSetting) ?>" class="crm-input" autocomplete="off" placeholder="0x4AAAAAAA..." <?= $dis ?>></label>
+                <label class="crm-field"><span>Secret Key</span><input type="password" name="turnstile_secret_key" class="crm-input" autocomplete="off" placeholder="<?= $turnstileSecretSet ? '•••••••• (ya configurada — escribe para reemplazar)' : '0x4AAAAAAA...' ?>" <?= $dis ?>></label>
+            </div>
+            <small class="cfg-hint"><i data-lucide="info" class="h-3.5 w-3.5" style="display:inline;vertical-align:-2px"></i> Crea un widget gratis en <a class="underline" href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank" rel="noopener">Cloudflare Turnstile</a>, agrega el dominio <b>schmedicos.com</b> y pega aquí las dos claves. Si lo dejas vacío, igual siguen activos el filtro de contenido, el honeypot y el time-trap. La Secret Key se conserva si dejas el campo en blanco.</small>
+            <div class="crm-toolbar" style="justify-content:flex-end">
+                <button class="crm-primary-btn" type="submit" <?= $dis ?>><i data-lucide="save" class="h-4 w-4"></i>Guardar anti-spam</button>
+            </div>
+        </div>
+    </form>
 
     <div class="cfg-grid">
         <!-- Preferencias comerciales + mantenimiento -->

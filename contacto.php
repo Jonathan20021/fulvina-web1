@@ -3,20 +3,28 @@ require_once __DIR__ . '/includes/bootstrap.php';
 verify_csrf();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Honeypot: bots fill the hidden "website" field; silently drop them.
-    if (trim((string) ($_POST['website'] ?? '')) !== '') {
-        redirect('contacto.php#cotizar');
-    }
     $name = trim((string) ($_POST['name'] ?? ''));
     $email = trim((string) ($_POST['email'] ?? ''));
     $phone = trim((string) ($_POST['phone'] ?? ''));
     $company = trim((string) ($_POST['company'] ?? ''));
     $message = trim((string) ($_POST['message'] ?? ''));
     $type = trim((string) ($_POST['type'] ?? 'Cotizacion'));
+    $allowedTypes = ['Cotizacion', 'Soporte tecnico', 'Proyecto hospitalario', 'Mantenimiento'];
+    if (!in_array($type, $allowedTypes, true)) { $type = 'Cotizacion'; }
+
+    // Silently drop obvious bot spam: honeypot filled, submitted too fast, or
+    // content no real lead would contain (non-Latin scripts, links in the name…).
+    if (trim((string) ($_POST['website'] ?? '')) !== ''
+        || !form_time_ok()
+        || looks_like_spam([$name, $company, $phone], $message)) {
+        redirect('contacto.php#cotizar');
+    }
 
     if (!form_throttle_ok('contacto')) {
         flash('warning', 'Recibimos varias solicitudes desde tu conexión. Intenta de nuevo en unos minutos.');
         redirect('contacto.php#cotizar');
+    } elseif (!turnstile_verify()) {
+        flash('warning', 'No pudimos verificar que no eres un robot. Intenta de nuevo.');
     } elseif ($name === '' || $email === '' || $message === '') {
         flash('warning', 'Completa nombre, correo y mensaje.');
     } elseif (db(false) && table_exists('leads')) {
@@ -116,6 +124,7 @@ require_once __DIR__ . '/includes/public_header.php';
 
         <form id="cotizar" method="post" class="sch-public-form" data-reveal="right" data-reveal-delay="100">
             <?= csrf_field() ?>
+            <?= form_time_field() ?>
             <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
             <h2 class="sx-h2" style="font-size:1.4rem;margin-bottom:1.2rem">Cuentanos que necesitas</h2>
             <div class="sch-form-grid">
@@ -149,6 +158,7 @@ require_once __DIR__ . '/includes/public_header.php';
                     <textarea name="message" required rows="6" placeholder="Describe equipos, cantidades, area clinica, ubicacion, urgencia o alcance tecnico."></textarea>
                 </label>
             </div>
+            <?php if (turnstile_enabled()): ?><div style="margin-top:1rem"><?= turnstile_widget() ?></div><?php endif; ?>
             <div class="sch-form-actions">
                 <p>La solicitud queda disponible en reportes y seguimiento comercial.</p>
                 <button type="submit" class="sch-btn-primary"><i data-lucide="send" class="h-4 w-4"></i>Enviar solicitud</button>
