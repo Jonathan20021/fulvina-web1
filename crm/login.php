@@ -13,30 +13,73 @@ verify_csrf();
 
 $isLocal = is_local_env();
 $ipKey = login_ip_key();
-$emailRaw = strtolower(trim((string) ($_POST['email'] ?? '')));
-$emailHash = $emailRaw !== '' ? login_email_key($emailRaw) : null;
+
+$step = otp_pending() !== null ? 'otp' : 'credentials';
+$action = (string) ($_POST['action'] ?? '');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $tooMany = login_recent_failures($ipKey) >= 8
-        || ($emailHash !== null && login_recent_failures_for_email($emailHash) >= 10);
-
-    if ($tooMany) {
-        flash('warning', 'Demasiados intentos fallidos. Espera unos minutos antes de volver a intentar.');
-    } else {
-        usleep(300000); // constant ~0.3s cost: slows brute force and timing analysis
-        $email = trim((string) ($_POST['email'] ?? ''));
-        $password = (string) ($_POST['password'] ?? '');
-
-        if ($email !== '' && $password !== '' && login_user($email, $password)) {
-            login_clear_failures($ipKey, $emailHash);
+    if ($action === 'otp_cancel') {
+        otp_clear();
+        redirect('crm/login.php');
+    } elseif ($action === 'otp_resend' && otp_pending() !== null) {
+        $r = otp_resend();
+        flash($r['ok'] ? 'success' : 'warning', $r['ok'] ? 'Te enviamos un nuevo código.' : $r['error']);
+        redirect('crm/login.php');
+    } elseif ($action === 'otp_verify' && otp_pending() !== null) {
+        $res = otp_verify((string) ($_POST['code'] ?? ''));
+        if ($res['ok']) {
+            establish_session($res['user']);
+            login_clear_failures($ipKey, login_email_key((string) ($res['user']['email'] ?? '')));
             flash('success', 'Sesion iniciada.');
             redirect('crm/index.php');
         }
+        flash('warning', $res['error']);
+        redirect('crm/login.php');
+    } else {
+        // ---- Credentials step ----
+        $emailRaw = strtolower(trim((string) ($_POST['email'] ?? '')));
+        $emailHash = $emailRaw !== '' ? login_email_key($emailRaw) : null;
+        $tooMany = login_recent_failures($ipKey) >= 8
+            || ($emailHash !== null && login_recent_failures_for_email($emailHash) >= 10);
 
-        login_record_failure($ipKey, $emailHash);
-        flash('warning', 'Credenciales invalidas.');
+        if ($tooMany) {
+            flash('warning', 'Demasiados intentos fallidos. Espera unos minutos antes de volver a intentar.');
+        } else {
+            usleep(300000); // constant ~0.3s cost: slows brute force and timing analysis
+            $email = trim((string) ($_POST['email'] ?? ''));
+            $password = (string) ($_POST['password'] ?? '');
+            $user = ($email !== '' && $password !== '') ? authenticate_user($email, $password) : null;
+
+            if ($user !== null) {
+                // OTP off, or local demo admin (no real inbox) → straight in.
+                if (!otp_active() || !empty($user['demo'])) {
+                    establish_session($user);
+                    login_clear_failures($ipKey, $emailHash);
+                    flash('success', 'Sesion iniciada.');
+                    redirect('crm/index.php');
+                }
+                // OTP required: email the code, then move to the verify step (PRG).
+                $start = otp_start($user);
+                if ($start['ok']) {
+                    login_clear_failures($ipKey, $emailHash); // password was correct
+                    flash('success', 'Te enviamos un código de verificación a tu correo.');
+                } else {
+                    flash('warning', 'No se pudo enviar el código: ' . $start['error']);
+                }
+            } else {
+                login_record_failure($ipKey, $emailHash);
+                flash('warning', 'Credenciales invalidas.');
+            }
+        }
+        redirect('crm/login.php');
     }
 }
+
+$pending = otp_pending();
+if ($pending === null && $step === 'otp') {
+    $step = 'credentials';
+}
+$pendingEmailMask = $pending !== null ? otp_mask_email((string) ($pending['email'] ?? '')) : '';
 ?>
 <!doctype html>
 <html lang="es">
@@ -83,9 +126,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 <a href="<?= url('index.php') ?>" class="sxl-back"><i data-lucide="arrow-left"></i>Volver al sitio</a>
 
-                <span class="sx-kicker" style="margin-top:1.4rem">Panel interno</span>
-                <h1>Entrar al CRM</h1>
-                <p class="sxl-sub">Acceso para ventas, soporte e ingenieria de SCH MEDICOS.</p>
+                <?php if ($step === 'otp'): ?>
+                    <span class="sx-kicker" style="margin-top:1.4rem">Verificacion en dos pasos</span>
+                    <h1>Ingresa el codigo</h1>
+                    <p class="sxl-sub">Enviamos un codigo de 6 digitos a <strong><?= e($pendingEmailMask) ?></strong>. Vence en 10 minutos.</p>
+                <?php else: ?>
+                    <span class="sx-kicker" style="margin-top:1.4rem">Panel interno</span>
+                    <h1>Entrar al CRM</h1>
+                    <p class="sxl-sub">Acceso para ventas, soporte e ingenieria de SCH MEDICOS.</p>
+                <?php endif; ?>
 
                 <?php foreach (flashes() as $item): ?>
                     <div class="sxl-alert <?= $item['type'] === 'success' ? 'is-ok' : 'is-warn' ?>">
@@ -93,6 +142,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 <?php endforeach; ?>
 
+                <?php if ($step === 'otp'): ?>
+                <form method="post" class="sxl-form">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="otp_verify">
+                    <label class="sxl-field">
+                        <span>Codigo de verificacion</span>
+                        <div class="sxl-input">
+                            <i data-lucide="shield-check"></i>
+                            <input type="text" name="code" required autofocus inputmode="numeric" pattern="[0-9 ]*" maxlength="7" autocomplete="one-time-code" placeholder="123 456" style="letter-spacing:.3em;font-weight:600">
+                        </div>
+                    </label>
+                    <button class="sxl-submit" type="submit">Verificar y entrar <i data-lucide="arrow-right"></i></button>
+                </form>
+                <div class="sxl-otp-actions" style="display:flex;gap:.75rem;justify-content:space-between;margin-top:.9rem;font-size:.85rem">
+                    <form method="post" style="margin:0">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="otp_resend">
+                        <button type="submit" class="sxl-link" style="background:none;border:0;color:var(--accent,#2563eb);cursor:pointer;padding:0">Reenviar codigo</button>
+                    </form>
+                    <form method="post" style="margin:0">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="otp_cancel">
+                        <button type="submit" class="sxl-link" style="background:none;border:0;color:#64748b;cursor:pointer;padding:0">Cancelar</button>
+                    </form>
+                </div>
+                <?php else: ?>
                 <form method="post" class="sxl-form">
                     <?= csrf_field() ?>
                     <label class="sxl-field">
@@ -118,6 +193,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <i data-lucide="info"></i>
                     <span>Demo local: <code>admin@sch.local</code> / <code>admin123</code></span>
                 </div>
+                <?php endif; ?>
                 <?php endif; ?>
 
                 <p class="sxl-secure"><i data-lucide="shield-check"></i>Conexion segura &middot; SCH MEDICOS, SRL</p>

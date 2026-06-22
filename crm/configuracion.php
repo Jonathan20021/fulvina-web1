@@ -73,6 +73,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '')
     redirect('crm/configuracion.php');
 }
 
+/* ---- Save email (Resend) + login OTP preferences ------------------------ */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '') === 'mail_settings') {
+    // Only overwrite the API key when a new value is typed (blank = keep current).
+    $postedKey = trim((string) ($_POST['resend_api_key'] ?? ''));
+    if ($postedKey !== '') { setting_set('resend_api_key', $postedKey); }
+    setting_set('mail_from_email', trim((string) ($_POST['mail_from_email'] ?? '')));
+    setting_set('mail_from_name', trim((string) ($_POST['mail_from_name'] ?? '')));
+    $otpOn = ($_POST['otp_enabled'] ?? '') === '1';
+    if ($otpOn && resend_api_key() === '') {
+        setting_set('otp_enabled', '0');
+        flash('warning', 'Para activar el código OTP primero guarda una API key de Resend.');
+    } else {
+        setting_set('otp_enabled', $otpOn ? '1' : '0');
+        flash('success', 'Configuración de correo guardada.');
+    }
+    log_activity('config', null, 'correo_otp_actualizado', null);
+    redirect('crm/configuracion.php');
+}
+
+/* ---- Send a test email to the current user ------------------------------ */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '') === 'mail_test') {
+    $me = current_user();
+    $to = (string) ($me['email'] ?? '');
+    if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
+        flash('warning', 'Tu usuario no tiene un correo válido para la prueba.');
+    } else {
+        $r = mailer_send($to, (string) ($me['name'] ?? ''), 'Prueba de correo · ' . APP_NAME,
+            '<p style="font-family:Segoe UI,Arial,sans-serif">Correo de prueba desde el CRM de <strong>' . e(APP_NAME) . '</strong>. La configuración de Resend funciona. ✅</p>');
+        flash($r['ok'] ? 'success' : 'warning', $r['ok'] ? ('Correo de prueba enviado a ' . $to . '.') : ('No se pudo enviar: ' . $r['error']));
+    }
+    redirect('crm/configuracion.php');
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !db(false)) {
     flash('warning', 'Ejecuta install.php para guardar la configuración en MySQL.');
 }
@@ -89,6 +122,11 @@ $invoiceDueSetting = setting_get('invoice_due_days', '30');
 $companyDefs = company_field_defs();
 $cv = fn (string $k) => company_value($k);
 $dis = db(false) ? '' : 'disabled';
+
+$resendKeySet = setting_get('resend_api_key', '') !== '';
+$mailFromEmailSetting = (string) setting_get('mail_from_email', '');
+$mailFromNameSetting = (string) setting_get('mail_from_name', (string) (defined('APP_NAME') ? APP_NAME : ''));
+$otpEnabledSetting = setting_get('otp_enabled', '0') === '1';
 
 $crmTitle = 'Configuración';
 require_once __DIR__ . '/../includes/crm_header.php';
@@ -163,6 +201,36 @@ require_once __DIR__ . '/../includes/crm_header.php';
             </div>
         </div>
     </form>
+
+    <!-- Correo (Resend) + verificación en dos pasos (OTP) -->
+    <form method="post" class="crm-card cfg-card" style="margin-bottom:1rem">
+        <?= csrf_field() ?>
+        <input type="hidden" name="form" value="mail_settings">
+        <div class="crm-card__head">
+            <div><h2><i data-lucide="shield-check" class="cfg-ic"></i> Correo y acceso seguro (OTP)</h2><p>Envía un código de un solo uso al correo del usuario al iniciar sesión, vía Resend.</p></div>
+        </div>
+        <div class="crm-card__body" style="display:grid;gap:1rem">
+            <label class="crm-field">
+                <span>API key de Resend</span>
+                <input type="password" name="resend_api_key" class="crm-input" autocomplete="off" placeholder="<?= $resendKeySet ? '•••••••• (ya configurada — escribe para reemplazar)' : 're_xxxxxxxxxxxxxxxx' ?>" <?= $dis ?>>
+                <small class="cfg-hint">Se obtiene en <a class="underline" href="https://resend.com/api-keys" target="_blank" rel="noopener">resend.com/api-keys</a>. Déjala vacía para conservar la actual.</small>
+            </label>
+            <div class="crm-form-grid">
+                <label class="crm-field"><span>Remitente (correo verificado en Resend)</span><input type="email" name="mail_from_email" value="<?= e($mailFromEmailSetting) ?>" class="crm-input" placeholder="no-reply@schmedicos.com" <?= $dis ?>></label>
+                <label class="crm-field"><span>Nombre del remitente</span><input name="mail_from_name" value="<?= e($mailFromNameSetting) ?>" class="crm-input" placeholder="SCH MEDICOS" <?= $dis ?>></label>
+            </div>
+            <label class="crm-field" style="flex-direction:row;align-items:center;gap:.6rem">
+                <input type="checkbox" name="otp_enabled" value="1" <?= $otpEnabledSetting ? 'checked' : '' ?> <?= $dis ?> style="width:auto">
+                <span style="margin:0">Exigir código de verificación (OTP) por correo al iniciar sesión</span>
+            </label>
+            <small class="cfg-hint"><i data-lucide="info" class="h-3.5 w-3.5" style="display:inline;vertical-align:-2px"></i> El dominio del remitente debe estar verificado en Resend (registros DNS). El admin de demo local nunca pide OTP. Si activas el OTP sin API key, no se guardará activo para evitar bloqueos.</small>
+            <div class="crm-toolbar" style="justify-content:space-between">
+                <button class="crm-secondary-btn" type="submit" form="mail-test-form" <?= $dis ?>><i data-lucide="send" class="h-4 w-4"></i>Enviar correo de prueba</button>
+                <button class="crm-primary-btn" type="submit" <?= $dis ?>><i data-lucide="save" class="h-4 w-4"></i>Guardar correo y OTP</button>
+            </div>
+        </div>
+    </form>
+    <form method="post" id="mail-test-form" style="display:none"><?= csrf_field() ?><input type="hidden" name="form" value="mail_test"></form>
 
     <div class="cfg-grid">
         <!-- Preferencias comerciales + mantenimiento -->

@@ -171,7 +171,12 @@ function form_throttle_ok(string $tag, int $max = 6): bool
    Authentication
    ============================================================ */
 
-function login_user(string $email, string $password): bool
+/**
+ * Validate credentials WITHOUT creating a session. Returns the user payload
+ * (id, name, email, role, [demo]) on success, or null. The login flow uses this
+ * so an email OTP step can run between the password check and session creation.
+ */
+function authenticate_user(string $email, string $password): ?array
 {
     $pdo = db(false);
 
@@ -190,36 +195,59 @@ function login_user(string $email, string $password): bool
                     /* non-fatal */
                 }
             }
-            session_regenerate_id(true); // prevent session fixation
-            $_SESSION['user'] = [
+            return [
                 'id' => (int) $user['id'],
                 'name' => $user['name'],
                 'email' => $user['email'],
                 'role' => $user['role'],
             ];
-            return true;
         }
 
         // Database reachable: ONLY a real, verified, active user may enter.
-        return false;
+        return null;
     }
 
     // No database. Allow the seed admin ONLY on a genuine local host: is_local_env()
     // now also requires a loopback REMOTE_ADDR, so a public host can never reach this
     // branch by spoofing the Host header.
     if (is_local_env() && $email === 'admin@sch.local' && hash_equals('admin123', $password)) {
-        session_regenerate_id(true);
-        $_SESSION['user'] = [
+        return [
             'id' => 0,
             'name' => 'Administrador SCH',
             'email' => 'admin@sch.local',
             'role' => 'admin',
             'demo' => true,
         ];
-        return true;
     }
 
-    return false;
+    return null;
+}
+
+/** Establish the authenticated session for a user payload (rotates the id). */
+function establish_session(array $user): void
+{
+    session_regenerate_id(true); // prevent session fixation
+    $_SESSION['user'] = [
+        'id' => (int) ($user['id'] ?? 0),
+        'name' => $user['name'] ?? '',
+        'email' => $user['email'] ?? '',
+        'role' => $user['role'] ?? '',
+    ];
+    if (!empty($user['demo'])) {
+        $_SESSION['user']['demo'] = true;
+    }
+}
+
+/** Validate credentials and log the user in directly (no OTP). Kept for callers
+ *  that don't run the two-step flow. */
+function login_user(string $email, string $password): bool
+{
+    $user = authenticate_user($email, $password);
+    if ($user === null) {
+        return false;
+    }
+    establish_session($user);
+    return true;
 }
 
 function logout_user(): void
