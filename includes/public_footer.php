@@ -4,7 +4,7 @@
     <div class="sch-footer__grid">
         <div class="sch-footer__brand">
             <?= brand_lock('footer') ?>
-            <p>Equipos medicos, gases medicinales, diseno, instalacion y soporte tecnico para instituciones de salud publicas y privadas desde <?= e(APP_FOUNDED) ?>.</p>
+            <p>Equipos medicos, gases medicinales, diseño, instalacion y soporte tecnico para instituciones de salud publicas y privadas desde <?= e(APP_FOUNDED) ?>.</p>
             <div class="sch-footer__social">
                 <a href="mailto:<?= e(APP_EMAIL) ?>" class="is-mail"><i data-lucide="mail" class="h-4 w-4"></i>Enviar correo</a>
                 <a href="https://wa.me/<?= APP_WHATSAPP ?>" class="is-wa"><i data-lucide="message-circle" class="h-4 w-4"></i>WhatsApp</a>
