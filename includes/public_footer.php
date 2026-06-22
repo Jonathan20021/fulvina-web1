@@ -34,7 +34,7 @@
                 <p><i data-lucide="map-pin" class="inline h-4 w-4 text-sch-cyan"></i> <?= e(APP_ADDRESS) ?></p>
                 <p><i data-lucide="warehouse" class="inline h-4 w-4 text-sch-cyan"></i> <?= e(APP_SECONDARY_ADDRESS) ?></p>
                 <p><a href="tel:+18095675559"><?= e(APP_PHONE) ?></a> &middot; <a href="tel:+13055974090"><?= e(APP_PHONE_US) ?></a></p>
-                <p><a href="mailto:<?= e(APP_EMAIL) ?>"><?= e(APP_EMAIL) ?></a></p>
+                <p><a href="mailto:<?= e(APP_EMAIL) ?>"><?= e(APP_EMAIL) ?></a> &middot; <a href="mailto:<?= e(APP_INFO_EMAIL) ?>"><?= e(APP_INFO_EMAIL) ?></a></p>
             </address>
         </div>
     </div>
