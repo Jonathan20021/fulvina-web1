@@ -2,8 +2,8 @@
 require_once __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/data/sch.php';
 
-$pageTitle = 'Productos y servicios SCH MEDICOS | Gases medicinales, equipos e ingenieria hospitalaria';
-$pageDescription = 'Servicios de SCH MEDICOS para hospitales y clinicas: gases medicinales, equipos medicos, paredes modulares, proteccion hospitalaria, mantenimiento y certificacion.';
+$pageTitle = 'Productos y servicios SCH MEDICOS | Gases medicinales, equipos e ingeniería hospitalaria';
+$pageDescription = 'Servicios de SCH MEDICOS para hospitales y clínicas: gases medicinales, equipos médicos, paredes modulares, protección hospitalaria, mantenimiento y certificación.';
 $pageImage = asset('assets/media/og-cover.png');
 $bodyClass = 'sx';
 $pageStyles = ['assets/css/site-v2.css'];
@@ -11,9 +11,9 @@ $pageFontsGeist = true;
 
 $sheetCodes = ['G-01', 'E-02', 'P-03'];
 $steps = [
-    ['Fase 01', 'Diseño y calculo', 'Levantamiento tecnico, planos, dimensionamiento y seleccion de componentes.'],
-    ['Fase 02', 'Instalacion', 'Montaje de sistemas, equipos, redes, cabeceros, manifolds y areas criticas.'],
-    ['Fase 03', 'Certificacion', 'Pruebas, puesta en marcha y documentacion para entrega institucional.'],
+    ['Fase 01', 'Diseño y calculo', 'Levantamiento técnico, planos, dimensionamiento y selección de componentes.'],
+    ['Fase 02', 'Instalación', 'Montaje de sistemas, equipos, redes, cabeceros, manifolds y áreas críticas.'],
+    ['Fase 03', 'Certificación', 'Pruebas, puesta en marcha y documentacion para entrega institucional.'],
     ['Fase 04', 'Soporte continuo', 'Mantenimiento preventivo, correctivo y seguimiento por ticket.'],
 ];
 
@@ -25,10 +25,10 @@ require_once __DIR__ . '/includes/public_header.php';
     <div class="sx-container sx-cover__grid">
         <div data-reveal>
             <span class="sx-label">Productos y servicios</span>
-            <h1 class="sx-cover__title">Sistemas tecnicos para areas clinicas y gases medicinales.</h1>
-            <p class="sx-cover__lead">SCH integra diseño, suministro, instalacion, certificacion y soporte para que la infraestructura hospitalaria opere con trazabilidad y respuesta tecnica.</p>
+            <h1 class="sx-cover__title">Sistemas técnicos para áreas clínicas y gases medicinales.</h1>
+            <p class="sx-cover__lead">SCH integra diseño, suministro, instalación, certificación y soporte para que la infraestructura hospitalaria opere con trazabilidad y respuesta técnica.</p>
             <div class="sx-cover__actions">
-                <a href="<?= url('contacto.php#cotizar') ?>" class="sx-btn"><i data-lucide="clipboard-pen-line"></i>Solicitar cotizacion</a>
+                <a href="<?= url('contacto.php#cotizar') ?>" class="sx-btn"><i data-lucide="clipboard-pen-line"></i>Solicitar cotización</a>
                 <a href="<?= url('soporte.php') ?>" class="sx-link">Reportar soporte<i data-lucide="arrow-right"></i></a>
             </div>
         </div>
@@ -98,9 +98,9 @@ require_once __DIR__ . '/includes/public_header.php';
 <section class="sx-signoff sx-sec sx-sec--tight" aria-label="Contacto">
     <div class="sx-container">
         <div class="sx-signoff__inner">
-            <h2 class="sx-signoff__h">Dimensionemos tu proximo proyecto hospitalario.</h2>
+            <h2 class="sx-signoff__h">Dimensionemos tu próximo proyecto hospitalario.</h2>
             <div class="sx-signoff__actions">
-                <a href="<?= url('contacto.php#cotizar') ?>" class="sx-btn sx-btn--ondark"><i data-lucide="clipboard-pen-line"></i>Solicitar cotizacion</a>
+                <a href="<?= url('contacto.php#cotizar') ?>" class="sx-btn sx-btn--ondark"><i data-lucide="clipboard-pen-line"></i>Solicitar cotización</a>
                 <a href="tel:+18095675559" class="sx-tel"><i data-lucide="phone"></i><?= e(APP_PHONE) ?></a>
             </div>
         </div>

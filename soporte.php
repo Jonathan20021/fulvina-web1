@@ -11,7 +11,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $equipment = trim((string) ($_POST['equipment'] ?? ''));
     $serial = trim((string) ($_POST['serial'] ?? ''));
     $priority = trim((string) ($_POST['priority'] ?? 'Media'));
-    if (!in_array($priority, ['Baja', 'Media', 'Alta', 'Critica'], true)) { $priority = 'Media'; }
+    if (!in_array($priority, ['Baja', 'Media', 'Alta', 'Crítica'], true)) { $priority = 'Media'; }
     $description = trim((string) ($_POST['description'] ?? ''));
 
     // Silently drop obvious bot spam: honeypot filled, submitted too fast, or
@@ -28,7 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!turnstile_verify()) {
         flash('warning', 'No pudimos verificar que no eres un robot. Intenta de nuevo.');
     } elseif ($company === '' || $contact === '' || $email === '' || $description === '') {
-        flash('warning', 'Completa empresa, contacto, correo y descripcion del problema.');
+        flash('warning', 'Completa empresa, contacto, correo y descripción del problema.');
     } elseif ($pdo && table_exists('tickets')) {
         $pdo->beginTransaction();
         $client = fetch_one('SELECT * FROM clients WHERE name = ? OR email = ? LIMIT 1', [$company, $email]);
@@ -46,7 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($found) {
                 $equipmentId = (int) $found['id'];
             } else {
-                $stmt = $pdo->prepare('INSERT INTO equipment (client_id, name, serial, status, created_at) VALUES (?, ?, ?, "requiere revision", NOW())');
+                $stmt = $pdo->prepare('INSERT INTO equipment (client_id, name, serial, status, created_at) VALUES (?, ?, ?, "requiere revisión", NOW())');
                 $stmt->execute([$clientId, $equipment ?: 'Equipo reportado', $serial]);
                 $equipmentId = (int) $pdo->lastInsertId();
             }
@@ -63,29 +63,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$pageTitle = 'Soporte tecnico SCH MEDICOS | Reportar fallas en equipos medicos';
-$pageDescription = 'Formulario de soporte para reportar problemas en equipos medicos, sistemas de gases medicinales o instalaciones hospitalarias atendidas por SCH MEDICOS.';
+$pageTitle = 'Soporte técnico SCH MEDICOS | Reportar fallas en equipos médicos';
+$pageDescription = 'Formulario de soporte para reportar problemas en equipos médicos, sistemas de gases medicinales o instalaciones hospitalarias atendidas por SCH MEDICOS.';
 $pageImage = asset('assets/media/og-cover.png');
 $bodyClass = 'sx';
 $pageStyles = ['assets/css/site-v2.css'];
 $pageFontsGeist = true;
 
 $steps = [
-    ['Paso 01', 'Empresa y contacto', 'Ubica responsable, telefono y correo para dar seguimiento.'],
-    ['Paso 02', 'Serie o ubicacion', 'Relaciona historial, garantia y mantenimientos previos.'],
-    ['Paso 03', 'Prioridad', 'El caso entra al panel con estado, tecnico y vencimiento.'],
-    ['Paso 04', 'Seguimiento', 'Ventas, soporte e ingenieria comparten el mismo registro.'],
+    ['Paso 01', 'Empresa y contacto', 'Ubica responsable, teléfono y correo para dar seguimiento.'],
+    ['Paso 02', 'Serie o ubicación', 'Relaciona historial, garantía y mantenimientos previos.'],
+    ['Paso 03', 'Prioridad', 'El caso entra al panel con estado, técnico y vencimiento.'],
+    ['Paso 04', 'Seguimiento', 'Ventas, soporte e ingeniería comparten el mismo registro.'],
 ];
 
 require_once __DIR__ . '/includes/public_header.php';
 ?>
 
 <!-- COVER (graphite sign-off band) -->
-<section class="sx-cover sx-cover--graphite sx-sec sx-sec--tight" aria-label="Soporte tecnico">
+<section class="sx-cover sx-cover--graphite sx-sec sx-sec--tight" aria-label="Soporte técnico">
     <div class="sx-container">
-        <span class="sx-kicker sx-kicker--light">Soporte tecnico 24/7</span>
-        <h1 class="sx-cover__title">Reporta fallas en equipos, gases o infraestructura medica.</h1>
-        <p class="sx-cover__lead">El formulario crea un ticket, relaciona la empresa, registra el equipo y deja el caso listo para seguimiento tecnico dentro del CRM.</p>
+        <span class="sx-kicker sx-kicker--light">Soporte técnico 24/7</span>
+        <h1 class="sx-cover__title">Reporta fallas en equipos, gases o infraestructura médica.</h1>
+        <p class="sx-cover__lead">El formulario crea un ticket, relaciona la empresa, registra el equipo y deja el caso listo para seguimiento técnico dentro del CRM.</p>
         <div class="sx-cover__actions">
             <a href="#reporte" class="sx-btn sx-btn--ondark"><i data-lucide="ticket-plus"></i>Crear ticket</a>
             <a href="https://wa.me/<?= APP_WHATSAPP ?>" class="sx-link sx-link--light">WhatsApp soporte<i data-lucide="message-circle"></i></a>
@@ -116,21 +116,21 @@ require_once __DIR__ . '/includes/public_header.php';
             <div class="sx-channels" style="margin-top:1.4rem">
                 <div class="sx-channel">
                     <i data-lucide="timer"></i>
-                    <div><h3>Clasificacion rapida</h3><p>Selecciona prioridad segun impacto operativo: baja, media, alta o critica.</p></div>
+                    <div><h3>Clasificacion rápida</h3><p>Selecciona prioridad según impacto operativo: baja, media, alta o crítica.</p></div>
                 </div>
                 <div class="sx-channel">
                     <i data-lucide="scan-line"></i>
-                    <div><h3>Identificacion del activo</h3><p>Incluye equipo, sistema, serie, area clinica o ubicacion exacta.</p></div>
+                    <div><h3>Identificacion del activo</h3><p>Incluye equipo, sistema, serie, área clínica o ubicación exacta.</p></div>
                 </div>
                 <div class="sx-channel">
                     <i data-lucide="activity"></i>
-                    <div><h3>Descripcion util</h3><p>Describe sintomas, alarmas, codigos de error y si la falla es intermitente.</p></div>
+                    <div><h3>Descripción util</h3><p>Describe síntomas, alarmas, códigos de error y si la falla es intermitente.</p></div>
                 </div>
                 <div class="sx-channel">
                     <i data-lucide="headset"></i>
                     <div>
-                        <h3>Emergencia critica 24/7</h3>
-                        <p>Si una falla detiene un area clinica, llama directo.</p>
+                        <h3>Emergencia crítica 24/7</h3>
+                        <p>Si una falla detiene un área clínica, llama directo.</p>
                         <a href="tel:+18095675559"><?= e(APP_PHONE) ?></a>
                     </div>
                 </div>
@@ -156,7 +156,7 @@ require_once __DIR__ . '/includes/public_header.php';
                     <input type="email" name="email" required autocomplete="email">
                 </label>
                 <label class="sch-field">
-                    <span>Telefono</span>
+                    <span>Teléfono</span>
                     <input name="phone" autocomplete="tel">
                 </label>
                 <label class="sch-field">
@@ -164,8 +164,8 @@ require_once __DIR__ . '/includes/public_header.php';
                     <input name="equipment" placeholder="Ej. manifold, lampara, red de gases">
                 </label>
                 <label class="sch-field">
-                    <span>Serie o ubicacion</span>
-                    <input name="serial" placeholder="Serie, sala, piso o area">
+                    <span>Serie o ubicación</span>
+                    <input name="serial" placeholder="Serie, sala, piso o área">
                 </label>
                 <label class="sch-field sch-field--full">
                     <span>Prioridad</span>
@@ -173,12 +173,12 @@ require_once __DIR__ . '/includes/public_header.php';
                         <option>Baja</option>
                         <option selected>Media</option>
                         <option>Alta</option>
-                        <option>Critica</option>
+                        <option>Crítica</option>
                     </select>
                 </label>
                 <label class="sch-field sch-field--full">
-                    <span class="required">Descripcion del problema</span>
-                    <textarea name="description" required rows="6" placeholder="Describe sintomas, hora aproximada, alarmas, codigos y acciones realizadas."></textarea>
+                    <span class="required">Descripción del problema</span>
+                    <textarea name="description" required rows="6" placeholder="Describe síntomas, hora aproximada, alarmas, códigos y acciones realizadas."></textarea>
                 </label>
             </div>
             <?php if (turnstile_enabled()): ?><div style="margin-top:1rem"><?= turnstile_widget() ?></div><?php endif; ?>

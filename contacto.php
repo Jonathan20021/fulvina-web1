@@ -8,9 +8,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $phone = trim((string) ($_POST['phone'] ?? ''));
     $company = trim((string) ($_POST['company'] ?? ''));
     $message = trim((string) ($_POST['message'] ?? ''));
-    $type = trim((string) ($_POST['type'] ?? 'Cotizacion'));
-    $allowedTypes = ['Cotizacion', 'Soporte tecnico', 'Proyecto hospitalario', 'Mantenimiento'];
-    if (!in_array($type, $allowedTypes, true)) { $type = 'Cotizacion'; }
+    $type = trim((string) ($_POST['type'] ?? 'Cotización'));
+    $allowedTypes = ['Cotización', 'Soporte técnico', 'Proyecto hospitalario', 'Mantenimiento'];
+    if (!in_array($type, $allowedTypes, true)) { $type = 'Cotización'; }
 
     // Silently drop obvious bot spam: honeypot filled, submitted too fast, or
     // content no real lead would contain (non-Latin scripts, links in the name…).
@@ -37,8 +37,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$pageTitle = 'Contacto SCH MEDICOS | Solicitar cotizacion de equipos medicos';
-$pageDescription = 'Contacta a SCH MEDICOS en Santo Domingo o Miami para cotizar equipos medicos, gases medicinales, instalaciones hospitalarias y soporte tecnico.';
+$pageTitle = 'Contacto SCH MEDICOS | Solicitar cotización de equipos médicos';
+$pageDescription = 'Contacta a SCH MEDICOS en Santo Domingo o Miami para cotizar equipos médicos, gases medicinales, instalaciones hospitalarias y soporte técnico.';
 $pageImage = asset('assets/media/og-cover.png');
 $bodyClass = 'sx';
 $pageStyles = ['assets/css/site-v2.css'];
@@ -46,8 +46,8 @@ $pageFontsGeist = true;
 
 $steps = [
     ['Paso 01', 'Recibimos la solicitud', 'Tu mensaje entra al CRM como lead comercial con datos de contacto.'],
-    ['Paso 02', 'Clasificacion', 'Ventas la convierte en cotizacion, ticket o proyecto segun el tipo.'],
-    ['Paso 03', 'Respuesta tecnica', 'Asignamos responsable y preparamos alcance, equipos y tiempos.'],
+    ['Paso 02', 'Clasificacion', 'Ventas la convierte en cotización, ticket o proyecto según el tipo.'],
+    ['Paso 03', 'Respuesta técnica', 'Asignamos responsable y preparamos alcance, equipos y tiempos.'],
     ['Paso 04', 'Seguimiento', 'El caso queda trazable en reportes y seguimiento comercial.'],
 ];
 
@@ -58,11 +58,11 @@ require_once __DIR__ . '/includes/public_header.php';
 <section class="sx-cover sx-cover--graphite sx-sec sx-sec--tight" aria-label="Contacto">
     <div class="sx-container">
         <span class="sx-kicker sx-kicker--light">Contacto comercial</span>
-        <h1 class="sx-cover__title">Solicita cotizacion, soporte o alcance tecnico.</h1>
-        <p class="sx-cover__lead">El equipo de SCH recibe la solicitud como lead comercial y puede convertirla en cotizacion, ticket o seguimiento interno desde el CRM.</p>
+        <h1 class="sx-cover__title">Solicita cotización, soporte o alcance técnico.</h1>
+        <p class="sx-cover__lead">El equipo de SCH recibe la solicitud como lead comercial y puede convertirla en cotización, ticket o seguimiento interno desde el CRM.</p>
         <div class="sx-cover__actions">
-            <a href="#cotizar" class="sx-btn sx-btn--ondark"><i data-lucide="file-plus-2"></i>Solicitar cotizacion</a>
-            <a href="<?= url('soporte.php') ?>" class="sx-link sx-link--light">Soporte tecnico<i data-lucide="arrow-right"></i></a>
+            <a href="#cotizar" class="sx-btn sx-btn--ondark"><i data-lucide="file-plus-2"></i>Solicitar cotización</a>
+            <a href="<?= url('soporte.php') ?>" class="sx-link sx-link--light">Soporte técnico<i data-lucide="arrow-right"></i></a>
         </div>
     </div>
 </section>
@@ -108,7 +108,7 @@ require_once __DIR__ . '/includes/public_header.php';
                     <i data-lucide="mail"></i>
                     <div>
                         <h3>Correo comercial</h3>
-                        <p>Solicitudes de cotizacion, soporte y proyectos.</p>
+                        <p>Solicitudes de cotización, soporte y proyectos.</p>
                         <a href="mailto:<?= e(APP_EMAIL) ?>"><?= e(APP_EMAIL) ?></a>
                     </div>
                 </div>
@@ -116,7 +116,7 @@ require_once __DIR__ . '/includes/public_header.php';
                     <i data-lucide="clock-3"></i>
                     <div>
                         <h3>Horario</h3>
-                        <p>Lunes a viernes, 8:00 am a 6:00 pm. Soporte critico por canal directo.</p>
+                        <p>Lunes a viernes, 8:00 am a 6:00 pm. Soporte crítico por canal directo.</p>
                     </div>
                 </div>
             </div>
@@ -141,21 +141,21 @@ require_once __DIR__ . '/includes/public_header.php';
                     <input type="email" name="email" required autocomplete="email">
                 </label>
                 <label class="sch-field">
-                    <span>Telefono</span>
+                    <span>Teléfono</span>
                     <input name="phone" autocomplete="tel">
                 </label>
                 <label class="sch-field sch-field--full">
                     <span>Tipo de solicitud</span>
                     <select name="type">
-                        <option>Cotizacion</option>
-                        <option>Soporte tecnico</option>
+                        <option>Cotización</option>
+                        <option>Soporte técnico</option>
                         <option>Proyecto hospitalario</option>
                         <option>Mantenimiento</option>
                     </select>
                 </label>
                 <label class="sch-field sch-field--full">
                     <span class="required">Mensaje</span>
-                    <textarea name="message" required rows="6" placeholder="Describe equipos, cantidades, area clinica, ubicacion, urgencia o alcance tecnico."></textarea>
+                    <textarea name="message" required rows="6" placeholder="Describe equipos, cantidades, área clínica, ubicación, urgencia o alcance técnico."></textarea>
                 </label>
             </div>
             <?php if (turnstile_enabled()): ?><div style="margin-top:1rem"><?= turnstile_widget() ?></div><?php endif; ?>

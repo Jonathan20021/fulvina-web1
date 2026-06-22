@@ -1,6 +1,6 @@
 <?php
 
-$pageTitle = $pageTitle ?? APP_NAME . ' | Equipos medicos, gases medicinales y soporte hospitalario';
+$pageTitle = $pageTitle ?? APP_NAME . ' | Equipos médicos, gases medicinales y soporte hospitalario';
 $pageDescription = $pageDescription ?? SEO_DEFAULT_DESCRIPTION;
 $pageImage = $pageImage ?? asset('assets/media/og-cover.png');
 $canonical = $canonical ?? current_url();
@@ -128,7 +128,7 @@ $schema = $schema ?? [
                 </a>
             <?php endforeach; ?>
             <a href="<?= url('crm/login.php') ?>">Acceso CRM<i data-lucide="lock-keyhole" class="h-4 w-4"></i></a>
-            <a href="<?= url('contacto.php#cotizar') ?>" class="is-primary">Solicitar cotizacion</a>
+            <a href="<?= url('contacto.php#cotizar') ?>" class="is-primary">Solicitar cotización</a>
         </nav>
     </div>
 </header>

@@ -18,7 +18,7 @@ $equipmentList = [];
 if ($hasPortal && $slug !== '' && $key !== '') {
     $client = fetch_one('SELECT * FROM clients WHERE support_slug=? AND support_token=? AND support_enabled=1 LIMIT 1', [$slug, $key]);
     if ($client) {
-        $equipmentList = fetch_all('SELECT id, name, brand, model, serial, area, location FROM equipment WHERE client_id=? ORDER BY name ASC', [(int) $client['id']]);
+        $equipmentList = fetch_all('SELECT id, name, brand, model, serial, área, location FROM equipment WHERE client_id=? ORDER BY name ASC', [(int) $client['id']]);
     }
 }
 
@@ -30,14 +30,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $client && $hasPortal) {
     $equipmentId = (int) ($_POST['equipment_id'] ?? 0) ?: null;
     $equipmentName = trim((string) ($_POST['equipment_name'] ?? ''));
     $serial = trim((string) ($_POST['serial'] ?? ''));
-    $area = trim((string) ($_POST['area'] ?? ''));
+    $área = trim((string) ($_POST['área'] ?? ''));
     $impact = trim((string) ($_POST['impact'] ?? 'Media'));
     $subject = trim((string) ($_POST['subject'] ?? ''));
     $description = trim((string) ($_POST['description'] ?? ''));
     $availability = trim((string) ($_POST['availability'] ?? ''));
 
     if ($contact === '' || $email === '' || $subject === '' || $description === '') {
-        flash('warning', 'Completa contacto, correo, asunto y descripcion del caso.');
+        flash('warning', 'Completa contacto, correo, asunto y descripción del caso.');
         redirect('helpdesk.php?cliente=' . rawurlencode($slug) . '&key=' . rawurlencode($key));
     }
 
@@ -46,13 +46,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $client && $hasPortal) {
         redirect('helpdesk.php?cliente=' . rawurlencode($slug) . '&key=' . rawurlencode($key));
     }
 
-    if (!$equipmentId && ($equipmentName !== '' || $serial !== '' || $area !== '')) {
-        $stmt = $pdo->prepare('INSERT INTO equipment (client_id, name, serial, area, location, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, "requiere revision", NOW(), NOW())');
-        $stmt->execute([(int) $client['id'], $equipmentName ?: 'Equipo reportado por portal', $serial, $area, $area]);
+    if (!$equipmentId && ($equipmentName !== '' || $serial !== '' || $área !== '')) {
+        $stmt = $pdo->prepare('INSERT INTO equipment (client_id, name, serial, área, location, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, "requiere revisión", NOW(), NOW())');
+        $stmt->execute([(int) $client['id'], $equipmentName ?: 'Equipo reportado por portal', $serial, $área, $área]);
         $equipmentId = (int) $pdo->lastInsertId();
     }
 
-    $priority = in_array($impact, ['Baja', 'Media', 'Alta', 'Critica'], true) ? $impact : 'Media';
+    $priority = in_array($impact, ['Baja', 'Media', 'Alta', 'Crítica'], true) ? $impact : 'Media';
     $reference = 'WEB-' . date('Ymd-His') . '-' . strtoupper(substr(bin2hex(random_bytes(2)), 0, 4));
     $detail = trim($description . "\n\nArea o departamento: " . ($department ?: 'No indicado') . "\nDisponibilidad: " . ($availability ?: 'No indicada'));
 
@@ -70,7 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $client && $hasPortal) {
     $stmt->execute($params);
     $ticketId = (int) $pdo->lastInsertId();
 
-    $comment = 'Ticket recibido desde portal publico de ' . ($client['name'] ?? 'cliente') . '. Referencia ' . $reference . '.';
+    $comment = 'Ticket recibido desde portal público de ' . ($client['name'] ?? 'cliente') . '. Referencia ' . $reference . '.';
     $stmt = $pdo->prepare('INSERT INTO ticket_comments (ticket_id, user_id, author_name, body, is_internal, created_at) VALUES (?, NULL, "Portal cliente", ?, 1, NOW())');
     $stmt->execute([$ticketId, $comment]);
 
@@ -79,7 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $client && $hasPortal) {
 }
 
 $pageTitle = $client ? 'Centro de soporte ' . $client['name'] . ' | SCH MEDICOS' : 'Centro de soporte por cliente | SCH MEDICOS';
-$pageDescription = 'Portal publico de tickets para clientes institucionales SCH MEDICOS.';
+$pageDescription = 'Portal público de tickets para clientes institucionales SCH MEDICOS.';
 $pageImage = asset('assets/media/Gases-2.png');
 $canonical = current_url();
 $bodyClass = 'helpdesk-public';
@@ -111,7 +111,7 @@ require_once __DIR__ . '/includes/public_header.php';
                 <span>Este canal crea tickets directos en la bandeja de soporte SCH MEDICOS con trazabilidad por empresa.</span>
                 <div class="helpdesk-rail__meta">
                     <article><i data-lucide="building-2"></i><b><?= e($client['sector'] ?: 'Institucional') ?></b><small>Tipo de cliente</small></article>
-                    <article><i data-lucide="map-pin"></i><b><?= e($client['city'] ?: 'Republica Dominicana') ?></b><small>Ubicacion</small></article>
+                    <article><i data-lucide="map-pin"></i><b><?= e($client['city'] ?: 'República Dominicana') ?></b><small>Ubicación</small></article>
                     <article><i data-lucide="timer"></i><b>24/7</b><small>Entrada de reportes</small></article>
                 </div>
                 <div class="helpdesk-rail__contact">
@@ -148,12 +148,12 @@ require_once __DIR__ . '/includes/public_header.php';
                             <input type="email" name="email" x-model="fields.email" autocomplete="email" placeholder="correo@empresa.com">
                         </label>
                         <label class="sch-field">
-                            <span>Telefono directo</span>
+                            <span>Teléfono directo</span>
                             <input name="phone" x-model="fields.phone" autocomplete="tel" placeholder="Extension, movil o WhatsApp">
                         </label>
                         <label class="sch-field">
-                            <span>Area o departamento</span>
-                            <input name="department" x-model="fields.department" placeholder="Emergencia, quirofano, biomédica">
+                            <span>Área o departamento</span>
+                            <input name="department" x-model="fields.department" placeholder="Emergencia, quirófano, biomédica">
                         </label>
                     </div>
                 </div>
@@ -165,7 +165,7 @@ require_once __DIR__ . '/includes/public_header.php';
                             <select name="equipment_id" x-model="fields.equipment_id">
                                 <option value="">No estoy seguro o no aparece</option>
                                 <?php foreach ($equipmentList as $item): ?>
-                                    <option value="<?= (int) $item['id'] ?>"><?= e($item['name'] . ' - ' . ($item['serial'] ?: $item['area'] ?: 'sin serie')) ?></option>
+                                    <option value="<?= (int) $item['id'] ?>"><?= e($item['name'] . ' - ' . ($item['serial'] ?: $item['área'] ?: 'sin serie')) ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </label>
@@ -174,26 +174,26 @@ require_once __DIR__ . '/includes/public_header.php';
                             <input name="equipment_name" x-model="fields.equipment_name" placeholder="Manifold, lampara, red de gases">
                         </label>
                         <label class="sch-field">
-                            <span>Serie, sala o ubicacion</span>
-                            <input name="serial" x-model="fields.serial" placeholder="Serie, piso, sala o codigo interno">
+                            <span>Serie, sala o ubicación</span>
+                            <input name="serial" x-model="fields.serial" placeholder="Serie, piso, sala o código interno">
                         </label>
                         <label class="sch-field sch-field--full">
-                            <span>Area afectada</span>
-                            <input name="area" x-model="fields.area" placeholder="Ej. Emergencia, quirofano 2, central de gases">
+                            <span>Área afectada</span>
+                            <input name="área" x-model="fields.área" placeholder="Ej. Emergencia, quirófano 2, central de gases">
                         </label>
                     </div>
                 </div>
 
                 <div class="helpdesk-step" x-show="step === 3" x-transition.opacity>
                     <div class="helpdesk-impact">
-                        <?php foreach (['Baja', 'Media', 'Alta', 'Critica'] as $impact): ?>
+                        <?php foreach (['Baja', 'Media', 'Alta', 'Crítica'] as $impact): ?>
                             <label :class="fields.impact === '<?= e($impact) ?>' ? 'is-selected' : ''">
                                 <input type="radio" name="impact" value="<?= e($impact) ?>" x-model="fields.impact">
                                 <span><?= e($impact) ?></span>
                                 <small><?= e(match ($impact) {
                                     'Baja' => 'Consulta o ajuste menor',
                                     'Media' => 'Afecta el flujo normal',
-                                    'Alta' => 'Area clinica limitada',
+                                    'Alta' => 'Área clínica limitada',
                                     default => 'Servicio detenido o riesgo',
                                 }) ?></small>
                             </label>
@@ -201,15 +201,15 @@ require_once __DIR__ . '/includes/public_header.php';
                     </div>
                     <label class="sch-field">
                         <span>Asunto del ticket *</span>
-                        <input name="subject" x-model="fields.subject" placeholder="Ej. Presion irregular en linea O2">
+                        <input name="subject" x-model="fields.subject" placeholder="Ej. Presión irregular en linea O2">
                     </label>
                     <label class="sch-field">
-                        <span>Descripcion tecnica *</span>
-                        <textarea name="description" rows="6" x-model="fields.description" placeholder="Describe sintomas, alarmas, hora aproximada, area afectada y acciones realizadas."></textarea>
+                        <span>Descripción técnica *</span>
+                        <textarea name="description" rows="6" x-model="fields.description" placeholder="Describe síntomas, alarmas, hora aproximada, área afectada y acciones realizadas."></textarea>
                     </label>
                     <label class="sch-field">
                         <span>Disponibilidad para visita</span>
-                        <input name="availability" x-model="fields.availability" placeholder="Hoy despues de las 2:00 p.m., mañana en la mañana, etc.">
+                        <input name="availability" x-model="fields.availability" placeholder="Hoy después de las 2:00 p.m., mañana en la mañana, etc.">
                     </label>
                 </div>
 

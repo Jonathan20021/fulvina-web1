@@ -2,8 +2,8 @@
 require_once __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/data/sch.php';
 
-$pageTitle = 'SCH MEDICOS | Ingenieria hospitalaria, gases medicinales y equipos medicos';
-$pageDescription = 'SCH MEDICOS: diseño, instalacion, certificacion y soporte tecnico de gases medicinales, equipos medicos e ingenieria hospitalaria para clinicas y hospitales desde 1995.';
+$pageTitle = 'SCH MEDICOS | Ingeniería hospitalaria, gases medicinales y equipos médicos';
+$pageDescription = 'SCH MEDICOS: diseño, instalación, certificación y soporte técnico de gases medicinales, equipos médicos e ingeniería hospitalaria para clínicas y hospitales desde 1995.';
 $pageImage = asset('assets/media/og-cover.png');
 $bodyClass = 'sx';
 $pageStyles = ['assets/css/site-v2.css'];
@@ -30,7 +30,7 @@ $schema = [
 $yearsActive = max(1, (int) date('Y') - (int) APP_FOUNDED);
 
 $capCodes = ['G-01', 'E-02', 'P-03'];
-$capLabels = ['Gases medicinales', 'Equipamiento medico', 'Paredes y proteccion'];
+$capLabels = ['Gases medicinales', 'Equipamiento médico', 'Paredes y protección'];
 
 // Project register: two featured + the rest as a hairline-ruled list.
 $featuredIdx = [0, 5];
@@ -49,22 +49,22 @@ require_once __DIR__ . '/includes/public_header.php';
     <div class="sx-hero__grid">
         <div class="sx-hero__copy">
             <h1 class="sx-hero__title">
-                <span class="ln"><span>Ingenieria hospitalaria,</span></span>
+                <span class="ln"><span>Ingeniería hospitalaria,</span></span>
                 <span class="ln"><span>gases medicinales y equipos.</span></span>
             </h1>
-            <p class="sx-hero__qual">Diseño, instalacion, certificacion y soporte tecnico para clinicas y hospitales del sector publico y privado en el Caribe.</p>
+            <p class="sx-hero__qual">Diseño, instalación, certificación y soporte técnico para clínicas y hospitales del sector público y privado en el Caribe.</p>
             <div class="sx-hero__actions">
-                <a href="<?= url('contacto.php#cotizar') ?>" class="sx-btn"><i data-lucide="clipboard-pen-line"></i>Solicitar cotizacion</a>
+                <a href="<?= url('contacto.php#cotizar') ?>" class="sx-btn"><i data-lucide="clipboard-pen-line"></i>Solicitar cotización</a>
                 <a href="<?= url('proyectos.php') ?>" class="sx-link">Ver proyectos<i data-lucide="arrow-right"></i></a>
             </div>
             <div class="sx-hero__ledger">
-                <div class="sx-hero__lcell"><span class="sx-hero__lnum"><?= $yearsActive ?></span><span class="sx-hero__llabel">Anos</span></div>
+                <div class="sx-hero__lcell"><span class="sx-hero__lnum"><?= $yearsActive ?></span><span class="sx-hero__llabel">Años</span></div>
                 <div class="sx-hero__lcell"><span class="sx-hero__lnum">600+</span><span class="sx-hero__llabel">Proyectos</span></div>
                 <div class="sx-hero__lcell"><span class="sx-hero__lnum sx-hero__lnum--spec">NFPA 99<br>ISO 7396-1</span><span class="sx-hero__llabel">Cumplimiento</span></div>
             </div>
         </div>
         <div class="sx-hero__media">
-            <img class="sx-hero__photo" src="<?= asset('assets/media/2-1.png') ?>" alt="Area hospitalaria equipada y certificada por SCH MEDICOS" width="900" height="600" fetchpriority="high" decoding="async">
+            <img class="sx-hero__photo" src="<?= asset('assets/media/2-1.png') ?>" alt="Área hospitalaria equipada y certificada por SCH MEDICOS" width="900" height="600" fetchpriority="high" decoding="async">
             <div class="sx-hero__cap"><b>REGISTRO</b> Sistema central de gases, Santo Domingo</div>
         </div>
     </div>
@@ -76,13 +76,13 @@ require_once __DIR__ . '/includes/public_header.php';
         <div class="sx-ledger__grid">
             <div class="sx-ledger__anchorwrap">
                 <div class="sx-ledger__anchor"><?= $yearsActive ?></div>
-                <div class="sx-ledger__anchorlabel">Anos &middot; Desde <?= e(APP_FOUNDED) ?></div>
+                <div class="sx-ledger__anchorlabel">Años &middot; Desde <?= e(APP_FOUNDED) ?></div>
             </div>
             <div data-reveal="fade">
                 <div class="sx-ledger__facts">
                     <div class="sx-fact"><div class="sx-fact__num">600+</div><div class="sx-fact__label">Proyectos ejecutados</div></div>
                     <div class="sx-fact"><div class="sx-fact__num">2</div><div class="sx-fact__label">Sedes: Sto. Dgo. y Miami</div></div>
-                    <div class="sx-fact"><div class="sx-fact__num">24/7</div><div class="sx-fact__label">Soporte tecnico</div></div>
+                    <div class="sx-fact"><div class="sx-fact__num">24/7</div><div class="sx-fact__label">Soporte técnico</div></div>
                     <div class="sx-fact sx-fact--std"><div class="sx-fact__std">NFPA 99 / ISO 7396-1</div><div class="sx-fact__label">Cumplimiento</div></div>
                 </div>
                 <div class="sx-ledger__measure" aria-hidden="true"><div class="sx-measure"></div></div>
@@ -101,7 +101,7 @@ require_once __DIR__ . '/includes/public_header.php';
         <div class="sx-sechead" data-reveal>
             <span class="sx-kicker">Capacidades</span>
             <h2 class="sx-h2">Gases medicinales, equipos y paredes modulares.</h2>
-            <p class="sx-lead">Redes de oxigeno, vacio y aire medicinal certificadas NFPA 99 e ISO 7396-1, instaladas y mantenidas por equipo tecnico propio.</p>
+            <p class="sx-lead">Redes de oxígeno, vacío y aire medicinal certificadas NFPA 99 e ISO 7396-1, instaladas y mantenidas por equipo técnico propio.</p>
         </div>
         <div class="sx-caps">
             <?php foreach ($services as $i => $service): ?>
@@ -128,7 +128,7 @@ require_once __DIR__ . '/includes/public_header.php';
     <div class="sx-container">
         <div class="sx-sechead" data-reveal>
             <h2 class="sx-h2">Registro de proyectos hospitalarios.</h2>
-            <p class="sx-lead">Instalaciones, suministros y sistemas centrales entregados para instituciones de salud publicas y privadas en toda la Republica Dominicana.</p>
+            <p class="sx-lead">Instalaciones, suministros y sistemas centrales entregados para instituciones de salud públicas y privadas en toda la República Dominicana.</p>
         </div>
 
         <div class="sx-feat" data-reveal>
@@ -165,15 +165,15 @@ require_once __DIR__ . '/includes/public_header.php';
     <div class="sx-container sx-heritage__grid">
         <h2 class="sx-sr">Sobre SCH MEDICOS</h2>
         <div class="sx-heritage__statement" data-reveal>
-            Fundada en enero de 1995 por Fulvio Montisano, SCH conceptualiza, diseña e instala sistemas centrales de gases medicinales e ingenieria hospitalaria.
+            Fundada en enero de 1995 por Fulvio Montisano, SCH conceptualiza, diseña e instala sistemas centrales de gases medicinales e ingeniería hospitalaria.
         </div>
         <figure class="sx-heritage__media" data-reveal>
-            <img src="<?= asset('assets/media/6.png') ?>" alt="Instalacion hospitalaria ejecutada por SCH MEDICOS" loading="lazy" decoding="async">
+            <img src="<?= asset('assets/media/6.png') ?>" alt="Instalación hospitalaria ejecutada por SCH MEDICOS" loading="lazy" decoding="async">
         </figure>
         <div class="sx-heritage__facts" data-reveal>
-            <span class="sx-hfact"><?= $yearsActive ?> anos en el sector salud</span>
+            <span class="sx-hfact"><?= $yearsActive ?> años en el sector salud</span>
             <span class="sx-hfact">Representacion oficial de marcas certificadas</span>
-            <span class="sx-hfact">Equipo tecnico propio</span>
+            <span class="sx-hfact">Equipo técnico propio</span>
         </div>
     </div>
 </section>
@@ -209,7 +209,7 @@ require_once __DIR__ . '/includes/public_header.php';
                         <li>Liderazgo empresarial</li>
                         <li>Calidad en productos y servicios</li>
                         <li>Innovacion</li>
-                        <li>Sistemas de gestion para el mercado global</li>
+                        <li>Sistemas de gestión para el mercado global</li>
                         <li>Creatividad empresarial</li>
                         <li>Apoyo social</li>
                     </ul>
@@ -220,7 +220,7 @@ require_once __DIR__ . '/includes/public_header.php';
                 <div class="sx-award__body">
                     <span class="sx-award__meta">Miembro &middot; WCB</span>
                     <h3 class="sx-award__title">World Confederation of Businesses</h3>
-                    <p class="sx-award__desc">Pertenecemos a la World Confederation of Businesses, organizacion global que impulsa el crecimiento de las empresas y empresarios lideres a nivel mundial.</p>
+                    <p class="sx-award__desc">Pertenecemos a la World Confederation of Businesses, organización global que impulsa el crecimiento de las empresas y empresarios lideres a nivel mundial.</p>
                 </div>
             </article>
         </div>
@@ -231,9 +231,9 @@ require_once __DIR__ . '/includes/public_header.php';
 <section class="sx-signoff sx-sec sx-sec--tight" aria-label="Contacto">
     <div class="sx-container">
         <div class="sx-signoff__inner">
-            <h2 class="sx-signoff__h">Dimensionemos tu proximo proyecto hospitalario.</h2>
+            <h2 class="sx-signoff__h">Dimensionemos tu próximo proyecto hospitalario.</h2>
             <div class="sx-signoff__actions">
-                <a href="<?= url('contacto.php#cotizar') ?>" class="sx-btn sx-btn--ondark"><i data-lucide="clipboard-pen-line"></i>Solicitar cotizacion</a>
+                <a href="<?= url('contacto.php#cotizar') ?>" class="sx-btn sx-btn--ondark"><i data-lucide="clipboard-pen-line"></i>Solicitar cotización</a>
                 <a href="tel:+18095675559" class="sx-tel"><i data-lucide="phone"></i><?= e(APP_PHONE) ?></a>
             </div>
         </div>

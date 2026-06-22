@@ -3,7 +3,7 @@ require_once __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/data/sch.php';
 
 $pageTitle = 'Proyectos SCH MEDICOS | Hospitales, emergencias y centros de salud';
-$pageDescription = 'Proyectos de SCH MEDICOS en Republica Dominicana: hospitales, emergencias, gases medicinales, equipamiento medico, paredes modulares e ingenieria hospitalaria.';
+$pageDescription = 'Proyectos de SCH MEDICOS en República Dominicana: hospitales, emergencias, gases medicinales, equipamiento médico, paredes modulares e ingeniería hospitalaria.';
 $pageImage = asset('assets/media/og-cover.png');
 $bodyClass = 'sx';
 $pageStyles = ['assets/css/site-v2.css'];
@@ -25,10 +25,10 @@ require_once __DIR__ . '/includes/public_header.php';
     <div class="sx-container sx-cover__grid">
         <div data-reveal>
             <span class="sx-label">Portafolio &middot; Desde 1995</span>
-            <h1 class="sx-cover__title">Proyectos hospitalarios con control tecnico y evidencia real.</h1>
-            <p class="sx-cover__lead">Una seleccion de instalaciones, suministros y sistemas ejecutados para instituciones publicas y privadas en Republica Dominicana.</p>
+            <h1 class="sx-cover__title">Proyectos hospitalarios con control técnico y evidencia real.</h1>
+            <p class="sx-cover__lead">Una selección de instalaciones, suministros y sistemas ejecutados para instituciones públicas y privadas en República Dominicana.</p>
             <div class="sx-cover__actions">
-                <a href="<?= url('contacto.php#cotizar') ?>" class="sx-btn"><i data-lucide="clipboard-pen-line"></i>Solicitar cotizacion</a>
+                <a href="<?= url('contacto.php#cotizar') ?>" class="sx-btn"><i data-lucide="clipboard-pen-line"></i>Solicitar cotización</a>
                 <a href="<?= url('servicios.php') ?>" class="sx-link">Ver servicios<i data-lucide="arrow-right"></i></a>
             </div>
         </div>
@@ -44,7 +44,7 @@ require_once __DIR__ . '/includes/public_header.php';
         <div class="sx-sechead" data-reveal>
             <span class="sx-kicker">Instituciones</span>
             <h2 class="sx-h2">Registro de trabajos entregados.</h2>
-            <p class="sx-lead">Cada proyecto prioriza instalaciones reales con ubicacion, periodo de ejecucion y alcance tecnico.</p>
+            <p class="sx-lead">Cada proyecto prioriza instalaciones reales con ubicación, periodo de ejecucion y alcance técnico.</p>
         </div>
 
         <div class="sx-feat" data-reveal>
@@ -87,9 +87,9 @@ require_once __DIR__ . '/includes/public_header.php';
 <section class="sx-signoff sx-sec sx-sec--tight" aria-label="Contacto">
     <div class="sx-container">
         <div class="sx-signoff__inner">
-            <h2 class="sx-signoff__h">Tu institucion es la proxima. Dimensionemos el alcance.</h2>
+            <h2 class="sx-signoff__h">Tu institucion es la próxima. Dimensionemos el alcance.</h2>
             <div class="sx-signoff__actions">
-                <a href="<?= url('contacto.php#cotizar') ?>" class="sx-btn sx-btn--ondark"><i data-lucide="clipboard-pen-line"></i>Solicitar cotizacion</a>
+                <a href="<?= url('contacto.php#cotizar') ?>" class="sx-btn sx-btn--ondark"><i data-lucide="clipboard-pen-line"></i>Solicitar cotización</a>
                 <a href="tel:+18095675559" class="sx-tel"><i data-lucide="phone"></i><?= e(APP_PHONE) ?></a>
             </div>
         </div>
