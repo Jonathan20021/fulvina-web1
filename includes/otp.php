@@ -34,6 +34,87 @@ function mail_from_name(): string
 }
 
 /**
+ * Absolute public base URL for links/images in emails. Prefers an explicit
+ * `public_url` setting, then the current (non-local) request host, and finally
+ * the canonical production domain — never a localhost host, which would break
+ * images in a recipient's inbox.
+ */
+function public_base_url(): string
+{
+    $configured = trim((string) setting_get('public_url', ''));
+    if ($configured !== '') {
+        return rtrim($configured, '/');
+    }
+    $host = (string) ($_SERVER['HTTP_HOST'] ?? '');
+    if ($host !== '' && !preg_match('/^(localhost|127\.|\[?::1)/i', $host)) {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        return $scheme . '://' . $host;
+    }
+    return 'https://schmedicos.com';
+}
+
+/** Absolute URL of the logo used in emails (DB override → company logo). */
+function mail_logo_url(): string
+{
+    $custom = trim((string) setting_get('mail_logo_url', ''));
+    if ($custom !== '') {
+        return $custom;
+    }
+    $logo = defined('APP_LOGO') ? (string) APP_LOGO : 'assets/media/logo_SCH_-removebg-preview.png';
+    if (preg_match('#^https?://#i', $logo)) {
+        return $logo;
+    }
+    return public_base_url() . '/' . ltrim($logo, '/');
+}
+
+/**
+ * Branded, email-client-safe HTML shell (table layout + inline CSS). Wraps the
+ * given content with the logo header and a company footer. Reused by every CRM
+ * email so they all look consistent.
+ */
+function mail_layout(string $preheader, string $content): string
+{
+    $brand = e(defined('APP_NAME') ? (string) APP_NAME : 'CRM');
+    $legal = e(defined('APP_LEGAL') && APP_LEGAL !== '' ? (string) APP_LEGAL : (defined('APP_NAME') ? (string) APP_NAME : ''));
+    $addr = e(defined('APP_ADDRESS') ? (string) APP_ADDRESS : '');
+    $logo = e(mail_logo_url());
+    $pre = e($preheader);
+    $year = date('Y');
+    $sans = "'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+
+    return '<!doctype html><html lang="es"><head>'
+        . '<meta charset="utf-8">'
+        . '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        . '<meta name="color-scheme" content="light only">'
+        . '<meta name="x-apple-disable-message-reformatting">'
+        . '<title>' . $brand . '</title></head>'
+        . '<body style="margin:0;padding:0;background:#eef2f7;-webkit-font-smoothing:antialiased;">'
+        . '<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">' . $pre . '</div>'
+        . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#eef2f7;">'
+        . '<tr><td align="center" style="padding:32px 16px;">'
+        . '<table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0" style="width:480px;max-width:480px;background:#ffffff;border:1px solid #e4ebf3;border-radius:14px;overflow:hidden;">'
+        . '<tr><td style="height:4px;line-height:4px;font-size:0;background:#0666b3;">&nbsp;</td></tr>'
+        . '<tr><td align="center" style="padding:28px 28px 4px;">'
+        . '<img src="' . $logo . '" alt="' . $brand . '" height="46" style="height:46px;width:auto;border:0;outline:none;text-decoration:none;display:block;">'
+        . '</td></tr>'
+        . '<tr><td align="center" style="padding:6px 28px 20px;font-family:' . $sans . ';">'
+        . '<div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8aa0b6;font-weight:600;">Acceso seguro</div>'
+        . '</td></tr>'
+        . '<tr><td style="padding:0 32px 8px;font-family:' . $sans . ';color:#0a1a2b;font-size:15px;line-height:1.55;">'
+        . $content
+        . '</td></tr>'
+        . '<tr><td style="padding:22px 32px 28px;">'
+        . '<div style="border-top:1px solid #eef2f7;padding-top:16px;font-family:' . $sans . ';color:#9bafc4;font-size:11.5px;line-height:1.55;">'
+        . '<strong style="color:#56697e;">' . $legal . '</strong>'
+        . ($addr !== '' ? '<br>' . $addr : '')
+        . '<br>Este es un correo automático, por favor no respondas.'
+        . '<br>&copy; ' . $year . ' ' . $brand . '. Todos los derechos reservados.'
+        . '</div></td></tr>'
+        . '</table>'
+        . '</td></tr></table></body></html>';
+}
+
+/**
  * Send an email through the Resend API.
  * Returns ['ok' => bool, 'error' => string].
  */
@@ -105,14 +186,22 @@ function otp_email_html(string $name, string $code): string
     $brand = e(defined('APP_NAME') ? (string) APP_NAME : 'CRM');
     $hi = $name !== '' ? 'Hola ' . e($name) . ',' : 'Hola,';
     $codeFmt = e(trim(chunk_split($code, 3, ' ')));
-    return '<div style="font-family:Segoe UI,Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#0f172a">'
-        . '<h2 style="margin:0 0 4px;font-size:18px">' . $brand . '</h2>'
-        . '<p style="margin:0 0 18px;color:#64748b;font-size:13px">Código de verificación</p>'
-        . '<p style="margin:0 0 8px">' . $hi . '</p>'
-        . '<p style="margin:0 0 16px;color:#475569">Usa este código para entrar al CRM. Vence en 10 minutos.</p>'
-        . '<div style="font-size:30px;font-weight:700;letter-spacing:6px;background:#f1f5f9;border-radius:10px;padding:16px;text-align:center;margin:0 0 18px">' . $codeFmt . '</div>'
-        . '<p style="margin:0;color:#94a3b8;font-size:12px">Si no intentaste iniciar sesión, ignora este correo y cambia tu contraseña.</p>'
-        . '</div>';
+
+    $content =
+          '<p style="margin:6px 0 8px;font-size:19px;font-weight:700;color:#06243f;">Tu código de verificación</p>'
+        . '<p style="margin:0 0 4px;">' . $hi . '</p>'
+        . '<p style="margin:0 0 20px;color:#56697e;">Ingresa este código para completar tu inicio de sesión en el panel de <strong>' . $brand . '</strong>.</p>'
+        . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px;">'
+        . '<tr><td align="center" style="background:#f1f7fd;border:1px solid #cfe0f0;border-radius:12px;padding:22px 12px;">'
+        . '<div style="font-family:\'Courier New\',Consolas,monospace;font-size:36px;font-weight:700;letter-spacing:12px;color:#04365f;padding-left:12px;">' . $codeFmt . '</div>'
+        . '</td></tr></table>'
+        . '<p style="margin:0 0 20px;text-align:center;color:#7c8ea1;font-size:13px;">Este código vence en <strong style="color:#56697e;">10 minutos</strong>.</p>'
+        . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">'
+        . '<tr><td style="background:#fbfcfe;border:1px solid #eef2f7;border-radius:10px;padding:13px 15px;color:#7c8ea1;font-size:12.5px;line-height:1.55;">'
+        . '<strong style="color:#56697e;">¿No fuiste tú?</strong> Si no intentaste iniciar sesión, ignora este correo y considera cambiar tu contraseña.'
+        . '</td></tr></table>';
+
+    return mail_layout('Código de verificación para entrar al panel de ' . $brand . '.', $content);
 }
 
 /**

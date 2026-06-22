@@ -80,6 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '')
     if ($postedKey !== '') { setting_set('resend_api_key', $postedKey); }
     setting_set('mail_from_email', trim((string) ($_POST['mail_from_email'] ?? '')));
     setting_set('mail_from_name', trim((string) ($_POST['mail_from_name'] ?? '')));
+    setting_set('mail_logo_url', trim((string) ($_POST['mail_logo_url'] ?? '')));
     $otpOn = ($_POST['otp_enabled'] ?? '') === '1';
     if ($otpOn && resend_api_key() === '') {
         setting_set('otp_enabled', '0');
@@ -99,8 +100,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '')
     if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
         flash('warning', 'Tu usuario no tiene un correo válido para la prueba.');
     } else {
-        $r = mailer_send($to, (string) ($me['name'] ?? ''), 'Prueba de correo · ' . APP_NAME,
-            '<p style="font-family:Segoe UI,Arial,sans-serif">Correo de prueba desde el CRM de <strong>' . e(APP_NAME) . '</strong>. La configuración de Resend funciona. ✅</p>');
+        $testBody = mail_layout('Correo de prueba de ' . APP_NAME . '.',
+            '<p style="margin:6px 0 8px;font-size:19px;font-weight:700;color:#06243f;">Prueba de correo ✅</p>'
+            . '<p style="margin:0 0 4px;">Hola ' . e((string) ($me['name'] ?? '')) . ',</p>'
+            . '<p style="margin:0 0 8px;color:#56697e;">Este es un correo de prueba enviado desde la configuración del CRM de <strong>' . e(APP_NAME) . '</strong>. Si lo recibiste con su logo y formato, la integración con Resend quedó funcionando correctamente.</p>');
+        $r = mailer_send($to, (string) ($me['name'] ?? ''), 'Prueba de correo · ' . APP_NAME, $testBody);
         flash($r['ok'] ? 'success' : 'warning', $r['ok'] ? ('Correo de prueba enviado a ' . $to . '.') : ('No se pudo enviar: ' . $r['error']));
     }
     redirect('crm/configuracion.php');
@@ -126,6 +130,7 @@ $dis = db(false) ? '' : 'disabled';
 $resendKeySet = setting_get('resend_api_key', '') !== '';
 $mailFromEmailSetting = (string) setting_get('mail_from_email', '');
 $mailFromNameSetting = (string) setting_get('mail_from_name', (string) (defined('APP_NAME') ? APP_NAME : ''));
+$mailLogoSetting = (string) setting_get('mail_logo_url', '');
 $otpEnabledSetting = setting_get('otp_enabled', '0') === '1';
 
 $crmTitle = 'Configuración';
@@ -219,6 +224,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <label class="crm-field"><span>Remitente (correo verificado en Resend)</span><input type="email" name="mail_from_email" value="<?= e($mailFromEmailSetting) ?>" class="crm-input" placeholder="no-reply@schmedicos.com" <?= $dis ?>></label>
                 <label class="crm-field"><span>Nombre del remitente</span><input name="mail_from_name" value="<?= e($mailFromNameSetting) ?>" class="crm-input" placeholder="SCH MEDICOS" <?= $dis ?>></label>
             </div>
+            <label class="crm-field"><span>Logo del correo (URL absoluta · opcional)</span><input type="url" name="mail_logo_url" value="<?= e($mailLogoSetting) ?>" class="crm-input" placeholder="https://schmedicos.com/assets/media/logo_SCH_-removebg-preview.png" <?= $dis ?>><small class="cfg-hint">Déjalo vacío para usar el logo del sitio automáticamente. Útil si quieres una versión específica del logo para los correos.</small></label>
             <label class="crm-field" style="flex-direction:row;align-items:center;gap:.6rem">
                 <input type="checkbox" name="otp_enabled" value="1" <?= $otpEnabledSetting ? 'checked' : '' ?> <?= $dis ?> style="width:auto">
                 <span style="margin:0">Exigir código de verificación (OTP) por correo al iniciar sesión</span>
