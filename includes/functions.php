@@ -358,6 +358,288 @@ function quote_default_terms(): string
         . "6. Instalación y puesta en marcha por personal certificado de SCH MEDICOS.";
 }
 
+/* =========================================================================
+   FACTURACIÓN — Comprobantes Fiscales (DGII República Dominicana)
+   Numeración NCF, tipos de comprobante, retenciones e ITBIS.
+   ========================================================================= */
+
+/**
+ * Catálogo oficial de Tipos de Comprobante Fiscal de la DGII.
+ * code(2) => [etiqueta, encabezado del documento, exige RNC del cliente, serie].
+ * Serie B = comprobante fiscal vigente (códigos 01–17).
+ * Serie E = comprobante fiscal electrónico / e-CF (códigos 31–47), disponibles
+ *           para registro MANUAL hasta que se conecte la transmisión a la DGII.
+ */
+function ncf_types(): array
+{
+    return [
+        // ---- Serie B — Comprobante Fiscal (vigente) ----
+        '01' => ['Factura de Crédito Fiscal',            'FACTURA DE CRÉDITO FISCAL', true,  'B'],
+        '02' => ['Factura de Consumo',                   'FACTURA DE CONSUMO',        false, 'B'],
+        '03' => ['Nota de Débito',                       'NOTA DE DÉBITO',            true,  'B'],
+        '04' => ['Nota de Crédito',                      'NOTA DE CRÉDITO',           true,  'B'],
+        '11' => ['Comprobante de Compras',               'COMPROBANTE DE COMPRAS',    true,  'B'],
+        '12' => ['Registro Único de Ingresos',           'REGISTRO ÚNICO DE INGRESOS', false, 'B'],
+        '13' => ['Comprobante para Gastos Menores',      'COMPROBANTE PARA GASTOS MENORES', false, 'B'],
+        '14' => ['Comprobante de Regímenes Especiales',  'FACTURA — RÉGIMEN ESPECIAL', true,  'B'],
+        '15' => ['Comprobante Gubernamental',            'FACTURA GUBERNAMENTAL',     true,  'B'],
+        '16' => ['Comprobante para Exportaciones',       'FACTURA DE EXPORTACIÓN',    true,  'B'],
+        '17' => ['Comprobante para Pagos al Exterior',   'COMPROBANTE PAGOS AL EXTERIOR', true, 'B'],
+        // ---- Serie E — Comprobante Fiscal Electrónico (e-CF) ----
+        '31' => ['Factura de Crédito Fiscal Electrónica', 'FACTURA DE CRÉDITO FISCAL ELECTRÓNICA', true,  'E'],
+        '32' => ['Factura de Consumo Electrónica',        'FACTURA DE CONSUMO ELECTRÓNICA',        false, 'E'],
+        '33' => ['Nota de Débito Electrónica',            'NOTA DE DÉBITO ELECTRÓNICA',            true,  'E'],
+        '34' => ['Nota de Crédito Electrónica',           'NOTA DE CRÉDITO ELECTRÓNICA',           true,  'E'],
+        '41' => ['Compras Electrónico',                   'COMPROBANTE DE COMPRAS ELECTRÓNICO',    true,  'E'],
+        '43' => ['Gastos Menores Electrónico',            'COMPROBANTE GASTOS MENORES ELECTRÓNICO', false, 'E'],
+        '44' => ['Regímenes Especiales Electrónico',      'FACTURA RÉGIMEN ESPECIAL ELECTRÓNICA',  true,  'E'],
+        '45' => ['Gubernamental Electrónico',             'FACTURA GUBERNAMENTAL ELECTRÓNICA',     true,  'E'],
+        '46' => ['Exportaciones Electrónico',             'FACTURA DE EXPORTACIÓN ELECTRÓNICA',    true,  'E'],
+        '47' => ['Pagos al Exterior Electrónico',         'COMPROBANTE PAGOS AL EXTERIOR ELECTRÓNICO', true, 'E'],
+    ];
+}
+
+/** Subset of the catalog for one series ('B' fiscal vigente, 'E' electrónico). */
+function ncf_types_for(string $prefix): array
+{
+    $p = strtoupper($prefix) === 'E' ? 'E' : 'B';
+    return array_filter(ncf_types(), fn ($t) => ($t[3] ?? 'B') === $p);
+}
+
+/** Series ('B' | 'E') a given comprobante code belongs to. */
+function ncf_series(string $type): string
+{
+    return ncf_types()[$type][3] ?? 'B';
+}
+
+/** Equivalence between the vigente (B) code and its e-CF (E) counterpart. */
+function ncf_pair_map(): array
+{
+    return ['01' => '31', '02' => '32', '03' => '33', '04' => '34', '11' => '41', '13' => '43', '14' => '44', '15' => '45', '16' => '46', '17' => '47'];
+}
+
+/** Coerce a comprobante code so it always matches the chosen series (server-side guard). */
+function ncf_normalize_type(string $type, string $prefix): string
+{
+    $prefix = strtoupper($prefix) === 'E' ? 'E' : 'B';
+    $types = ncf_types();
+    if (isset($types[$type]) && ($types[$type][3] ?? 'B') === $prefix) {
+        return $type;
+    }
+    $map = ncf_pair_map();
+    if ($prefix === 'E' && isset($map[$type])) {
+        return $map[$type];
+    }
+    if ($prefix === 'B') {
+        $flip = array_flip($map);
+        if (isset($flip[$type])) { return $flip[$type]; }
+    }
+    return $prefix === 'E' ? '31' : '01';
+}
+
+function ncf_type_label(string $type): string
+{
+    return ncf_types()[$type][0] ?? ('Tipo ' . $type);
+}
+
+/** Document heading shown on the PDF for a comprobante type. */
+function ncf_doc_heading(string $type): string
+{
+    return ncf_types()[$type][1] ?? 'COMPROBANTE FISCAL';
+}
+
+/** Whether the DGII type requires the customer's RNC/Cédula. */
+function ncf_requires_rnc(string $type): bool
+{
+    return (bool) (ncf_types()[$type][2] ?? false);
+}
+
+/** Allowed NCF prefixes: B = comprobante fiscal vigente, E = comprobante fiscal electrónico (e-CF). */
+function ncf_prefixes(): array
+{
+    return ['B' => 'B — Comprobante Fiscal', 'E' => 'E — Comprobante Fiscal Electrónico (e-CF)'];
+}
+
+/** Sequence width: e-CF (E) uses 10 digits, the vigente (B) uses 8. */
+function ncf_seq_width(string $prefix): int
+{
+    return strtoupper($prefix) === 'E' ? 10 : 8;
+}
+
+/** Build a full NCF string, e.g. ncf_format('B','01',123) => "B0100000123". */
+function ncf_format(string $prefix, string $type, int $seq): string
+{
+    $prefix = strtoupper($prefix) === 'E' ? 'E' : 'B';
+    $type = substr(preg_replace('/\D/', '', $type) ?: '02', 0, 2);
+    $type = str_pad($type, 2, '0', STR_PAD_LEFT);
+    return $prefix . $type . str_pad((string) max(0, $seq), ncf_seq_width($prefix), '0', STR_PAD_LEFT);
+}
+
+/** Stored lifecycle states of an invoice. "Vencida" is derived, never stored. */
+function invoice_status_list(): array
+{
+    return ['Borrador', 'Emitida', 'Pagada', 'Anulada'];
+}
+
+function invoice_payment_conditions(): array
+{
+    return ['Contado', 'Crédito'];
+}
+
+function invoice_payment_methods(): array
+{
+    return ['Efectivo', 'Transferencia', 'Cheque', 'Tarjeta de crédito', 'Tarjeta de débito', 'Crédito', 'Otro'];
+}
+
+/** An invoice is only editable while it is a draft (fiscal docs lock on emission). */
+function invoice_is_editable(?string $status): bool
+{
+    return strtolower((string) $status) === 'borrador' || (string) $status === '';
+}
+
+/** Default, editable invoice terms (note: comprobante fiscal). */
+function invoice_default_terms(): string
+{
+    return "1. Comprobante fiscal válido para fines del ITBIS según las normas de la DGII.\n"
+        . "2. Las mercancías viajan por cuenta y riesgo del comprador una vez despachadas.\n"
+        . "3. Reclamaciones sobre esta factura dentro de los 5 días posteriores a su recepción.\n"
+        . "4. Facturas a crédito: el incumplimiento del plazo genera intereses por mora.\n"
+        . "5. Garantía de equipos según el fabricante. Instalación y certificación por personal de SCH MEDICOS.\n"
+        . "6. La retención de ITBIS/ISR, cuando aplique, debe acreditarse con el comprobante de retención correspondiente.";
+}
+
+/**
+ * Provision the invoicing schema at runtime (mirrors ensure_quote_schema):
+ * invoices, invoice_items, invoice_payments and ncf_sequences. Idempotent.
+ */
+function ensure_invoice_schema(): void
+{
+    $pdo = db(false);
+    if (!$pdo) {
+        return;
+    }
+    ensure_settings_schema();
+
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS ncf_sequences (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            prefix VARCHAR(2) NOT NULL DEFAULT 'B',
+            ncf_type VARCHAR(2) NOT NULL,
+            seq_from BIGINT UNSIGNED NOT NULL DEFAULT 1,
+            seq_to BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            seq_next BIGINT UNSIGNED NOT NULL DEFAULT 1,
+            expiration DATE NULL,
+            active TINYINT(1) NOT NULL DEFAULT 1,
+            note VARCHAR(190) NULL,
+            created_at DATETIME NULL,
+            updated_at DATETIME NULL,
+            INDEX idx_ncf_type (prefix, ncf_type, active)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS invoices (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            client_id INT UNSIGNED NOT NULL,
+            quote_id INT UNSIGNED NULL,
+            invoice_number VARCHAR(40) NOT NULL UNIQUE,
+            ncf VARCHAR(19) NULL,
+            ncf_type VARCHAR(2) NOT NULL DEFAULT '02',
+            ncf_prefix VARCHAR(2) NOT NULL DEFAULT 'B',
+            is_ecf TINYINT(1) NOT NULL DEFAULT 0,
+            ecf_status VARCHAR(30) NULL,
+            ecf_track_id VARCHAR(60) NULL,
+            ecf_security_code VARCHAR(20) NULL,
+            ecf_sign_date DATETIME NULL,
+            ecf_qr_url TEXT NULL,
+            ecf_xml MEDIUMTEXT NULL,
+            ecf_response TEXT NULL,
+            ncf_expiration DATE NULL,
+            modifies_ncf VARCHAR(19) NULL,
+            modifies_invoice_id INT UNSIGNED NULL,
+            title VARCHAR(190) NULL,
+            status VARCHAR(40) NOT NULL DEFAULT 'Borrador',
+            payment_condition VARCHAR(20) NOT NULL DEFAULT 'Contado',
+            payment_method VARCHAR(40) NULL,
+            issue_date DATE NULL,
+            due_date DATE NULL,
+            taxed_base DECIMAL(12,2) NOT NULL DEFAULT 0,
+            exempt_base DECIMAL(12,2) NOT NULL DEFAULT 0,
+            discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+            subtotal DECIMAL(12,2) NOT NULL DEFAULT 0,
+            tax_rate DECIMAL(5,2) NOT NULL DEFAULT 18,
+            tax_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+            isc_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+            itbis_retained DECIMAL(12,2) NOT NULL DEFAULT 0,
+            isr_retained DECIMAL(12,2) NOT NULL DEFAULT 0,
+            total DECIMAL(12,2) NOT NULL DEFAULT 0,
+            amount_paid DECIMAL(12,2) NOT NULL DEFAULT 0,
+            currency VARCHAR(3) NOT NULL DEFAULT 'DOP',
+            exchange_rate DECIMAL(12,4) NOT NULL DEFAULT 1,
+            notes TEXT NULL,
+            terms TEXT NULL,
+            client_name VARCHAR(190) NULL,
+            client_rnc VARCHAR(40) NULL,
+            client_address TEXT NULL,
+            created_by INT UNSIGNED NULL,
+            emitted_at DATETIME NULL,
+            paid_at DATETIME NULL,
+            voided_at DATETIME NULL,
+            void_reason VARCHAR(255) NULL,
+            created_at DATETIME NULL,
+            updated_at DATETIME NULL,
+            INDEX idx_invoices_status (status),
+            INDEX idx_invoices_client (client_id),
+            INDEX idx_invoices_due (due_date),
+            INDEX idx_invoices_ncf (ncf)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS invoice_items (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            invoice_id INT UNSIGNED NOT NULL,
+            description TEXT NOT NULL,
+            quantity DECIMAL(10,2) NOT NULL DEFAULT 1,
+            unit_price DECIMAL(12,2) NOT NULL DEFAULT 0,
+            discount DECIMAL(12,2) NOT NULL DEFAULT 0,
+            is_exempt TINYINT(1) NOT NULL DEFAULT 0,
+            total DECIMAL(12,2) NOT NULL DEFAULT 0,
+            FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS invoice_payments (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            invoice_id INT UNSIGNED NOT NULL,
+            amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+            method VARCHAR(40) NULL,
+            reference VARCHAR(120) NULL,
+            paid_at DATE NULL,
+            note VARCHAR(255) NULL,
+            created_by INT UNSIGNED NULL,
+            created_at DATETIME NULL,
+            FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // e-CF columns — added idempotently to databases provisioned before the
+        // electronic comprobantes existed. They sit ready for manual capture now
+        // and for the DGII e-CF transmission integration later.
+        $ecfColumns = [
+            'is_ecf' => "ALTER TABLE invoices ADD COLUMN is_ecf TINYINT(1) NOT NULL DEFAULT 0 AFTER ncf_prefix",
+            'ecf_status' => "ALTER TABLE invoices ADD COLUMN ecf_status VARCHAR(30) NULL AFTER is_ecf",
+            'ecf_track_id' => "ALTER TABLE invoices ADD COLUMN ecf_track_id VARCHAR(60) NULL AFTER ecf_status",
+            'ecf_security_code' => "ALTER TABLE invoices ADD COLUMN ecf_security_code VARCHAR(20) NULL AFTER ecf_track_id",
+            'ecf_sign_date' => "ALTER TABLE invoices ADD COLUMN ecf_sign_date DATETIME NULL AFTER ecf_security_code",
+            'ecf_qr_url' => "ALTER TABLE invoices ADD COLUMN ecf_qr_url TEXT NULL AFTER ecf_sign_date",
+            'ecf_xml' => "ALTER TABLE invoices ADD COLUMN ecf_xml MEDIUMTEXT NULL AFTER ecf_qr_url",
+            'ecf_response' => "ALTER TABLE invoices ADD COLUMN ecf_response TEXT NULL AFTER ecf_xml",
+        ];
+        foreach ($ecfColumns as $col => $sql) {
+            if (!column_exists('invoices', $col)) {
+                try { $pdo->exec($sql); } catch (Throwable) { /* ignore */ }
+            }
+        }
+    } catch (Throwable) {
+        /* ignore: best-effort provisioning */
+    }
+}
+
 function client_support_access(array $client, bool $persist = true): array
 {
     $slug = trim((string) ($client['support_slug'] ?? ''));

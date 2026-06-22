@@ -172,3 +172,105 @@ CREATE TABLE IF NOT EXISTS settings (
   setting_value TEXT NULL,
   updated_at DATETIME NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Facturación: secuencias NCF autorizadas por la DGII
+CREATE TABLE IF NOT EXISTS ncf_sequences (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  prefix VARCHAR(2) NOT NULL DEFAULT 'B',
+  ncf_type VARCHAR(2) NOT NULL,
+  seq_from BIGINT UNSIGNED NOT NULL DEFAULT 1,
+  seq_to BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  seq_next BIGINT UNSIGNED NOT NULL DEFAULT 1,
+  expiration DATE NULL,
+  active TINYINT(1) NOT NULL DEFAULT 1,
+  note VARCHAR(190) NULL,
+  created_at DATETIME NULL,
+  updated_at DATETIME NULL,
+  INDEX idx_ncf_type (prefix, ncf_type, active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Facturación: comprobantes fiscales
+CREATE TABLE IF NOT EXISTS invoices (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  client_id INT UNSIGNED NOT NULL,
+  quote_id INT UNSIGNED NULL,
+  invoice_number VARCHAR(40) NOT NULL UNIQUE,
+  ncf VARCHAR(19) NULL,
+  ncf_type VARCHAR(2) NOT NULL DEFAULT '02',
+  ncf_prefix VARCHAR(2) NOT NULL DEFAULT 'B',
+  is_ecf TINYINT(1) NOT NULL DEFAULT 0,
+  ecf_status VARCHAR(30) NULL,
+  ecf_track_id VARCHAR(60) NULL,
+  ecf_security_code VARCHAR(20) NULL,
+  ecf_sign_date DATETIME NULL,
+  ecf_qr_url TEXT NULL,
+  ecf_xml MEDIUMTEXT NULL,
+  ecf_response TEXT NULL,
+  ncf_expiration DATE NULL,
+  modifies_ncf VARCHAR(19) NULL,
+  modifies_invoice_id INT UNSIGNED NULL,
+  title VARCHAR(190) NULL,
+  status VARCHAR(40) NOT NULL DEFAULT 'Borrador',
+  payment_condition VARCHAR(20) NOT NULL DEFAULT 'Contado',
+  payment_method VARCHAR(40) NULL,
+  issue_date DATE NULL,
+  due_date DATE NULL,
+  taxed_base DECIMAL(12,2) NOT NULL DEFAULT 0,
+  exempt_base DECIMAL(12,2) NOT NULL DEFAULT 0,
+  discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  subtotal DECIMAL(12,2) NOT NULL DEFAULT 0,
+  tax_rate DECIMAL(5,2) NOT NULL DEFAULT 18,
+  tax_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  isc_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  itbis_retained DECIMAL(12,2) NOT NULL DEFAULT 0,
+  isr_retained DECIMAL(12,2) NOT NULL DEFAULT 0,
+  total DECIMAL(12,2) NOT NULL DEFAULT 0,
+  amount_paid DECIMAL(12,2) NOT NULL DEFAULT 0,
+  currency VARCHAR(3) NOT NULL DEFAULT 'DOP',
+  exchange_rate DECIMAL(12,4) NOT NULL DEFAULT 1,
+  notes TEXT NULL,
+  terms TEXT NULL,
+  client_name VARCHAR(190) NULL,
+  client_rnc VARCHAR(40) NULL,
+  client_address TEXT NULL,
+  created_by INT UNSIGNED NULL,
+  emitted_at DATETIME NULL,
+  paid_at DATETIME NULL,
+  voided_at DATETIME NULL,
+  void_reason VARCHAR(255) NULL,
+  created_at DATETIME NULL,
+  updated_at DATETIME NULL,
+  FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
+  FOREIGN KEY (quote_id) REFERENCES quotes(id) ON DELETE SET NULL,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_invoices_status (status),
+  INDEX idx_invoices_client (client_id),
+  INDEX idx_invoices_due (due_date),
+  INDEX idx_invoices_ncf (ncf)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS invoice_items (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  invoice_id INT UNSIGNED NOT NULL,
+  description TEXT NOT NULL,
+  quantity DECIMAL(10,2) NOT NULL DEFAULT 1,
+  unit_price DECIMAL(12,2) NOT NULL DEFAULT 0,
+  discount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  is_exempt TINYINT(1) NOT NULL DEFAULT 0,
+  total DECIMAL(12,2) NOT NULL DEFAULT 0,
+  FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS invoice_payments (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  invoice_id INT UNSIGNED NOT NULL,
+  amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  method VARCHAR(40) NULL,
+  reference VARCHAR(120) NULL,
+  paid_at DATE NULL,
+  note VARCHAR(255) NULL,
+  created_by INT UNSIGNED NULL,
+  created_at DATETIME NULL,
+  FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

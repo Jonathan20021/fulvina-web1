@@ -26,6 +26,7 @@ $navCounts = [
     'clientes'     => $navHasDb ? db_count('clients', "status = 'activo'") : 28,
     'equipos'      => $navHasDb ? db_count('equipment') : 152,
     'cotizaciones' => $navHasDb ? db_count('quotes', "status IN ('Borrador','Enviado','Cotizado','Negociacion','Aprobado')") : 18,
+    'facturas'     => $navHasDb && table_exists('invoices') ? db_count('invoices', "status = 'Emitida'") : 0,
     'leads'        => $navHasDb && table_exists('leads') ? db_count('leads', "status = 'nuevo'") : 0,
     'tickets'      => $navHasTickets ? db_count('tickets', "status IN ('Abierto','En proceso')") : 6,
 ];
@@ -38,6 +39,7 @@ $crmNavGroups = [
     'Comercial' => [
         'clientes.php'     => ['Clientes', 'building-2', 'clientes', false, 'clientes.view'],
         'cotizaciones.php' => ['Cotizaciones', 'file-text', 'cotizaciones', false, 'cotizaciones.view'],
+        'facturas.php'     => ['Facturación', 'receipt', 'facturas', true, 'facturas.view'],
         'leads.php'        => ['Leads', 'inbox', 'leads', false, 'leads.view'],
     ],
     'Soporte técnico' => [

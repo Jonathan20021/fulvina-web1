@@ -8915,3 +8915,86 @@ html { scroll-padding-top: 74px; }
   .rep-funnel__row { grid-template-columns: 90px 1fr auto; }
   .rep-seg { width: 100%; overflow-x: auto; }
 }
+
+/* =========================================================================
+   Facturación — comprobantes fiscales (DGII / NCF)
+   ========================================================================= */
+
+/* Invoice line-item builder (adds discount + ITBIS-exempt vs the quote builder) */
+.ib { display: grid; gap: .4rem; }
+.ib__head, .ib__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px 104px 90px 52px 104px 34px;
+  gap: .5rem;
+  align-items: center;
+}
+.ib__head { padding: 0 .15rem .15rem; }
+.ib__head span { color: var(--muted); font-size: .66rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+.ib__head span:nth-child(2), .ib__head span:nth-child(3), .ib__head span:nth-child(4), .ib__head span:nth-child(6) { text-align: right; }
+.ib__head span:nth-child(5) { text-align: center; }
+.ib__row .crm-input { height: 40px; padding: .5rem .55rem; }
+.ib__exempt { display: flex; align-items: center; justify-content: center; height: 40px; }
+.ib__exempt input { width: 18px; height: 18px; accent-color: var(--brand-strong, #0a7d36); cursor: pointer; }
+@media (max-width: 720px) {
+  .ib__head { display: none; }
+  .ib__row { grid-template-columns: 1fr 1fr 1fr auto; gap: .45rem; padding: .55rem; border: 1px solid var(--line-soft); border-radius: 10px; }
+  .ib__row .ib__desc { grid-column: 1 / -1; }
+  .ib__exempt { justify-content: flex-start; }
+}
+
+/* RNC requirement warning inside the modal */
+.inv-rnc-warn {
+  display: flex; align-items: center; gap: .45rem;
+  margin: -.2rem 0 .2rem; padding: .55rem .7rem;
+  border: 1px solid #f4d58a; border-radius: 10px; background: #fffaf0;
+  color: #92660a; font-size: .82rem; font-weight: 600;
+}
+.inv-rnc-warn svg { width: 16px; height: 16px; flex-shrink: 0; }
+.inv-ecf-note {
+  display: flex; align-items: center; gap: .45rem;
+  margin: -.2rem 0 .2rem; padding: .55rem .7rem;
+  border: 1px solid #bcd6ee; border-radius: 10px; background: #f1f7fd;
+  color: #1d4e74; font-size: .82rem; font-weight: 600;
+}
+.inv-ecf-note svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+/* Advanced taxes/retentions disclosure */
+.inv-adv { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); padding: .25rem .8rem; }
+.inv-adv > summary { display: flex; align-items: center; gap: .45rem; padding: .55rem 0; cursor: pointer; color: var(--ink-soft); font-size: .85rem; font-weight: 700; list-style: none; }
+.inv-adv > summary::-webkit-details-marker { display: none; }
+.inv-adv[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: .2rem; }
+
+/* Fiscal action bar on the invoice view */
+.inv-actionbar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .8rem;
+  margin-bottom: 1rem; padding: .8rem 1rem;
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: linear-gradient(180deg, #fff, var(--surface-2));
+}
+.inv-actionbar__state { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; }
+.inv-actionbar__bal { color: var(--muted); font-size: .85rem; }
+.inv-actionbar__bal strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.inv-actionbar__btns { display: flex; flex-wrap: wrap; gap: .5rem; }
+.crm-secondary-btn--danger { border-color: #fbcfcf; color: var(--red); }
+.crm-secondary-btn--danger:hover { background: #fef2f2; border-color: #f3a9a9; }
+
+/* NCF highlight box in the invoice document header */
+.inv-ncf-box {
+  display: inline-block; margin-top: .55rem; padding: .45rem .7rem;
+  border: 1px solid #c7d6c9; border-radius: 10px; background: #f5faf6; text-align: left;
+}
+.inv-ncf-box span { display: block; color: #066128; font-size: .64rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.inv-ncf-box strong { display: block; color: var(--brand-strong, #0a7d36); font-family: "JetBrains Mono", monospace; font-size: 1.1rem; font-weight: 700; letter-spacing: .03em; }
+.inv-ncf-box small { display: block; color: var(--muted); font-size: .72rem; }
+
+/* Mono NCF + type chips in the list */
+.inv-ncf-chip { font-family: "JetBrains Mono", monospace; font-size: .76rem; font-weight: 700; color: var(--brand-strong, #0a7d36); }
+.inv-type-chip { display: inline-block; padding: .12rem .5rem; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-soft); font-size: .72rem; font-weight: 600; }
+.inv-tag-exempt { display: inline-block; margin-left: .35rem; padding: .05rem .4rem; border-radius: 7px; background: #eef2f7; color: var(--muted); font-size: .66rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+
+/* "Son: ..." amount-in-words line on the invoice view */
+.inv-words { margin-top: 1rem; padding: .7rem .9rem; border: 1px dashed #c7d6c9; border-radius: var(--r-md); background: #f5faf6; color: var(--ink-soft); font-size: .86rem; }
+.inv-words span { color: var(--muted); font-weight: 700; text-transform: uppercase; font-size: .7rem; letter-spacing: .05em; }
+
+.crm-toggle { color: var(--ink-soft); font-size: .88rem; }
+.crm-toggle input { width: 17px; height: 17px; accent-color: var(--brand-strong, #0a7d36); }

@@ -243,6 +243,9 @@ if ($action === 'view') {
                         <input type="hidden" name="id" value="<?= (int) $quote['id'] ?>">
                         <button type="submit" class="crm-secondary-btn"><i data-lucide="copy" class="h-4 w-4"></i>Duplicar</button>
                     </form>
+                    <?php if (current_can('facturas.edit')): ?>
+                        <a href="<?= url('crm/facturas.php?action=new&from_quote=' . (int) $quote['id']) ?>" class="crm-secondary-btn"><i data-lucide="receipt" class="h-4 w-4"></i>Generar factura</a>
+                    <?php endif; ?>
                 <?php endif; ?>
                 <button type="button" class="crm-primary-btn" onclick="crmPdfPreviewOpen('<?= url('crm/cotizacion_pdf.php?id=' . (int) ($quote['id'] ?? 0)) ?>','<?= url('crm/cotizacion_pdf.php?id=' . (int) ($quote['id'] ?? 0) . '&download=1') ?>','<?= e(addslashes($number)) ?>')"><i data-lucide="file-text" class="h-4 w-4"></i>Vista previa PDF</button>
             </div>

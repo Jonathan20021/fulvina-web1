@@ -427,3 +427,101 @@ window.crmQuoteModal = function crmQuoteModal(opts) {
   };
 };
 
+/* Fiscal invoice editor inside a modal (facturas) — NCF, ITBIS, exempt lines, retentions */
+window.crmInvoiceModal = function crmInvoiceModal(opts) {
+  opts = opts || {};
+  var defaults = opts.defaults || {};
+  var types = opts.types || [];
+  var pairs = opts.pairs || {};
+  return {
+    form: {},
+    items: [{ d: '', q: 1, p: 0, disc: 0, exempt: false }],
+    tax: Number(defaults.tax) >= 0 ? Number(defaults.tax) : 18,
+    isc: 0,
+    itbisRet: 0,
+    isrRet: 0,
+    currency: 'DOP',
+    rate: Number(defaults.rate) > 0 ? Number(defaults.rate) : 60,
+    reset() {
+      this.form = {
+        id: 0, client_id: '', title: '', ncf_type: defaults.type || '01', ncf_prefix: defaults.prefix === 'E' ? 'E' : 'B',
+        payment_condition: defaults.condition || 'Contado', payment_method: '',
+        issue_date: defaults.issueDate || '', due_date: defaults.dueDate || '', modifies_ncf: '',
+        notes: '', terms: defaults.terms || ''
+      };
+      this.items = [{ d: '', q: 1, p: 0, disc: 0, exempt: false }];
+      this.tax = Number(defaults.tax) >= 0 ? Number(defaults.tax) : 18;
+      this.isc = 0; this.itbisRet = 0; this.isrRet = 0;
+      this.currency = 'DOP';
+      this.rate = Number(defaults.rate) > 0 ? Number(defaults.rate) : 60;
+    },
+    availableTypes() { var p = this.form.ncf_prefix === 'E' ? 'E' : 'B'; return types.filter(function (t) { return t.series === p; }); },
+    syncType() {
+      var want = this.form.ncf_prefix === 'E' ? 'E' : 'B';
+      var cur = this.form.ncf_type;
+      var t = types.find(function (x) { return x.code === cur; });
+      if (t && t.series === want) { return; }
+      var next;
+      if (want === 'E') { next = pairs[cur]; }
+      else { var inv = {}; Object.keys(pairs).forEach(function (b) { inv[pairs[b]] = b; }); next = inv[cur]; }
+      if (!next || !types.find(function (x) { return x.code === next && x.series === want; })) { next = want === 'E' ? '31' : '01'; }
+      this.form.ncf_type = next;
+    },
+    requiresRnc() { var t = types.find((x) => x.code === this.form.ncf_type); return !!(t && t.rnc); },
+    sym() { return this.currency === 'USD' ? 'US$' : 'RD$'; },
+    altSym() { return this.currency === 'USD' ? 'RD$' : 'US$'; },
+    nf(n) { return (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
+    fmt(n) { return this.sym() + ' ' + this.nf(n); },
+    altFmt(n) { return this.altSym() + ' ' + this.nf(n); },
+    lineNet(item) { return Math.max(0, (Number(item.q) || 0) * (Number(item.p) || 0) - (Number(item.disc) || 0)); },
+    subtotalTaxed() { return this.items.reduce((s, i) => s + (i.exempt ? 0 : this.lineNet(i)), 0); },
+    subtotalExempt() { return this.items.reduce((s, i) => s + (i.exempt ? this.lineNet(i) : 0), 0); },
+    discountTotal() { return this.items.reduce((s, i) => s + (Number(i.disc) || 0), 0); },
+    taxAmount() { return this.subtotalTaxed() * (Number(this.tax) || 0) / 100; },
+    total() { return this.subtotalTaxed() + this.subtotalExempt() + this.taxAmount() + (Number(this.isc) || 0); },
+    netReceivable() { return this.total() - (Number(this.itbisRet) || 0) - (Number(this.isrRet) || 0); },
+    altTotal() {
+      const r = Number(this.rate) || 0;
+      if (this.currency === 'USD') return this.total() * r;
+      return r > 0 ? this.total() / r : 0;
+    },
+    addLine() { this.items.push({ d: '', q: 1, p: 0, disc: 0, exempt: false }); this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); },
+    removeLine(index) { if (this.items.length > 1) this.items.splice(index, 1); },
+    openNew() { this.reset(); this.open(); },
+    openEdit(d) {
+      d = d || {};
+      this.form = {
+        id: d.id || 0, client_id: d.client_id || '', title: d.title || '',
+        ncf_type: d.ncf_type || defaults.type || '01', ncf_prefix: d.ncf_prefix === 'E' ? 'E' : 'B',
+        payment_condition: d.payment_condition || defaults.condition || 'Contado', payment_method: d.payment_method || '',
+        issue_date: d.issue_date || defaults.issueDate || '', due_date: d.due_date || defaults.dueDate || '',
+        modifies_ncf: d.modifies_ncf || '', notes: d.notes || '', terms: (d.terms && d.terms.length) ? d.terms : (defaults.terms || '')
+      };
+      this.items = (d.items && d.items.length) ? d.items.map(function (it) { return { d: it.d || '', q: Number(it.q) || 0, p: Number(it.p) || 0, disc: Number(it.disc) || 0, exempt: !!it.exempt }; }) : [{ d: '', q: 1, p: 0, disc: 0, exempt: false }];
+      this.tax = (d.tax_rate !== undefined && d.tax_rate !== '' && Number(d.tax_rate) >= 0) ? Number(d.tax_rate) : (Number(defaults.tax) >= 0 ? Number(defaults.tax) : 18);
+      this.isc = Number(d.isc_amount) || 0; this.itbisRet = Number(d.itbis_retained) || 0; this.isrRet = Number(d.isr_retained) || 0;
+      this.currency = d.currency === 'USD' ? 'USD' : 'DOP';
+      this.rate = Number(d.exchange_rate) > 0 ? Number(d.exchange_rate) : (Number(defaults.rate) > 0 ? Number(defaults.rate) : 60);
+      this.open();
+    },
+    applyPrefill(d) {
+      this.reset();
+      this.form.client_id = d.client_id || '';
+      this.form.title = d.title || '';
+      this.form.notes = d.notes || '';
+      this.items = (d.items && d.items.length) ? d.items.map(function (it) { return { d: it.d || '', q: Number(it.q) || 0, p: Number(it.p) || 0, disc: Number(it.disc) || 0, exempt: !!it.exempt }; }) : [{ d: '', q: 1, p: 0, disc: 0, exempt: false }];
+      if (d.tax_rate !== undefined && Number(d.tax_rate) >= 0) this.tax = Number(d.tax_rate);
+      this.currency = d.currency === 'USD' ? 'USD' : 'DOP';
+      if (Number(d.exchange_rate) > 0) this.rate = Number(d.exchange_rate);
+    },
+    init() {
+      this.reset();
+      if (opts.autoEdit) { this.openEdit(opts.autoEdit); }
+      else if (opts.prefill) { this.applyPrefill(opts.prefill); this.open(); }
+      else if (opts.autoOpen) { this.open(); }
+    },
+    open() { const d = this.$refs.dlg; if (d && !d.open) d.showModal(); this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); },
+    close() { const d = this.$refs.dlg; if (d && d.open) d.close(); }
+  };
+};
+

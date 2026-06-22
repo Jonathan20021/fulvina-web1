@@ -20,6 +20,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '')
     redirect('crm/configuracion.php');
 }
 
+/* ---- Save invoicing (facturación) preferences --------------------------- */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '') === 'invoice_settings') {
+    setting_set('invoice_terms', trim((string) ($_POST['invoice_terms'] ?? '')));
+    $itax = (float) ($_POST['invoice_tax_rate'] ?? 18);
+    setting_set('invoice_tax_rate', (string) ($itax >= 0 ? $itax : 18));
+    $itype = substr(preg_replace('/\D/', '', (string) ($_POST['invoice_default_type'] ?? '01')) ?: '01', 0, 2);
+    if (!isset(ncf_types()[$itype])) { $itype = '01'; }
+    setting_set('invoice_default_type', $itype);
+    $icond = in_array((string) ($_POST['invoice_default_condition'] ?? ''), invoice_payment_conditions(), true) ? (string) $_POST['invoice_default_condition'] : 'Contado';
+    setting_set('invoice_default_condition', $icond);
+    $idue = (int) ($_POST['invoice_due_days'] ?? 30);
+    setting_set('invoice_due_days', (string) ($idue >= 0 ? $idue : 30));
+    log_activity('config', null, 'facturacion_actualizada', null);
+    flash('success', 'Preferencias de facturación guardadas.');
+    redirect('crm/configuracion.php');
+}
+
 /* ---- Save company profile (all fields + logo upload) -------------------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '') === 'company') {
     foreach (company_field_defs() as $key => [$label, $default, $const]) {
@@ -64,6 +81,11 @@ $quoteTermsSetting = setting_get('quote_terms', quote_default_terms());
 $quoteRateSetting = setting_get('quote_exchange_rate', '60');
 $quoteTaxSetting = setting_get('quote_tax_rate', '18');
 $serviceIntervalSetting = setting_get('service_interval_days', '180');
+$invoiceTermsSetting = setting_get('invoice_terms', invoice_default_terms());
+$invoiceTaxSetting = setting_get('invoice_tax_rate', $quoteTaxSetting);
+$invoiceTypeSetting = (string) setting_get('invoice_default_type', '01');
+$invoiceConditionSetting = (string) setting_get('invoice_default_condition', 'Contado');
+$invoiceDueSetting = setting_get('invoice_due_days', '30');
 $companyDefs = company_field_defs();
 $cv = fn (string $k) => company_value($k);
 $dis = db(false) ? '' : 'disabled';
@@ -170,6 +192,46 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 </label>
                 <div class="crm-toolbar" style="justify-content:flex-end">
                     <button class="crm-primary-btn" type="submit" <?= $dis ?>><i data-lucide="save" class="h-4 w-4"></i>Guardar preferencias</button>
+                </div>
+            </div>
+        </form>
+
+        <!-- Preferencias de facturación (DGII / NCF) -->
+        <form method="post" class="crm-card cfg-card">
+            <?= csrf_field() ?>
+            <input type="hidden" name="form" value="invoice_settings">
+            <div class="crm-card__head">
+                <div><h2><i data-lucide="receipt" class="cfg-ic"></i> Preferencias de facturación</h2><p>Valores por defecto al crear comprobantes fiscales (editables en cada factura).</p></div>
+            </div>
+            <div class="crm-card__body" style="display:grid;gap:1rem">
+                <div class="crm-form-grid">
+                    <label class="crm-field"><span>Tipo de comprobante por defecto</span>
+                        <select name="invoice_default_type" class="crm-select" <?= $dis ?>>
+                            <optgroup label="Comprobante fiscal — serie B (vigente)">
+                                <?php foreach (ncf_types_for('B') as $code => $def): ?><option value="<?= e($code) ?>" <?= $invoiceTypeSetting === $code ? 'selected' : '' ?>><?= e($code . ' — ' . $def[0]) ?></option><?php endforeach; ?>
+                            </optgroup>
+                            <optgroup label="Electrónico e-CF — serie E (manual)">
+                                <?php foreach (ncf_types_for('E') as $code => $def): ?><option value="<?= e($code) ?>" <?= $invoiceTypeSetting === $code ? 'selected' : '' ?>><?= e($code . ' — ' . $def[0]) ?></option><?php endforeach; ?>
+                            </optgroup>
+                        </select>
+                    </label>
+                    <label class="crm-field"><span>ITBIS por defecto (%)</span><input type="number" step="0.01" min="0" name="invoice_tax_rate" value="<?= e($invoiceTaxSetting) ?>" class="crm-input" <?= $dis ?>></label>
+                </div>
+                <div class="crm-form-grid">
+                    <label class="crm-field"><span>Condición de pago por defecto</span>
+                        <select name="invoice_default_condition" class="crm-select" <?= $dis ?>>
+                            <?php foreach (invoice_payment_conditions() as $c): ?><option value="<?= e($c) ?>" <?= $invoiceConditionSetting === $c ? 'selected' : '' ?>><?= e($c) ?></option><?php endforeach; ?>
+                        </select>
+                    </label>
+                    <label class="crm-field"><span>Días de crédito (vencimiento)</span><input type="number" step="1" min="0" name="invoice_due_days" value="<?= e($invoiceDueSetting) ?>" class="crm-input" <?= $dis ?>></label>
+                </div>
+                <label class="crm-field">
+                    <span>Términos y condiciones por defecto</span>
+                    <textarea name="invoice_terms" rows="6" class="crm-textarea" <?= $dis ?>><?= e($invoiceTermsSetting) ?></textarea>
+                    <small class="cfg-hint">Aparecen al final del PDF de cada factura. Las secuencias NCF se gestionan en <a class="underline" href="<?= url('crm/facturas.php?action=ncf') ?>">Facturación → Secuencias NCF</a>.</small>
+                </label>
+                <div class="crm-toolbar" style="justify-content:flex-end">
+                    <button class="crm-primary-btn" type="submit" <?= $dis ?>><i data-lucide="save" class="h-4 w-4"></i>Guardar facturación</button>
                 </div>
             </div>
         </form>

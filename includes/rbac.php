@@ -20,6 +20,7 @@ function rbac_modules(): array
         'panel'        => ['Panel',         ['view']],
         'clientes'     => ['Clientes',      ['view', 'edit', 'delete']],
         'cotizaciones' => ['Cotizaciones',  ['view', 'edit', 'delete']],
+        'facturas'     => ['Facturación',   ['view', 'edit', 'delete']],
         'leads'        => ['Leads',         ['view', 'edit', 'delete']],
         'equipos'      => ['Equipos',       ['view', 'edit', 'delete']],
         'tickets'      => ['Tickets',       ['view', 'edit', 'delete']],
@@ -66,6 +67,7 @@ function rbac_default_roles(): array
         'ventas' => ['label' => 'Ventas', 'caps' => [
             'panel.view', 'clientes.view', 'clientes.edit',
             'cotizaciones.view', 'cotizaciones.edit', 'cotizaciones.delete',
+            'facturas.view', 'facturas.edit', 'facturas.delete',
             'leads.view', 'leads.edit', 'leads.delete',
             'equipos.view', 'tickets.view', 'agenda.view', 'reportes.view',
         ]],
@@ -188,6 +190,7 @@ function rbac_landing_page(): string
 {
     $map = [
         'panel' => 'crm/index.php', 'clientes' => 'crm/clientes.php', 'cotizaciones' => 'crm/cotizaciones.php',
+        'facturas' => 'crm/facturas.php',
         'leads' => 'crm/leads.php', 'equipos' => 'crm/equipos.php', 'tickets' => 'crm/tickets.php',
         'agenda' => 'crm/agenda.php', 'reportes' => 'crm/reportes.php',
     ];
