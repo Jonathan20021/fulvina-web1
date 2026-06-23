@@ -26,6 +26,7 @@ function rbac_modules(): array
         'tickets'      => ['Tickets',       ['view', 'edit', 'delete']],
         'agenda'       => ['Agenda',        ['view', 'edit']],
         'reportes'     => ['Reportes',      ['view']],
+        'finanzas'     => ['Datos financieros', ['view']],
         'usuarios'     => ['Usuarios',      ['manage']],
         'config'       => ['Configuración', ['manage']],
     ];
@@ -69,7 +70,7 @@ function rbac_default_roles(): array
             'cotizaciones.view', 'cotizaciones.edit', 'cotizaciones.delete',
             'facturas.view', 'facturas.edit', 'facturas.delete',
             'leads.view', 'leads.edit', 'leads.delete',
-            'equipos.view', 'tickets.view', 'agenda.view', 'reportes.view',
+            'equipos.view', 'tickets.view', 'agenda.view', 'reportes.view', 'finanzas.view',
         ]],
         'soporte' => ['label' => 'Soporte', 'caps' => [
             'panel.view', 'clientes.view', 'equipos.view', 'equipos.edit',

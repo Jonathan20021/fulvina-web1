@@ -37,6 +37,11 @@ $criticalTickets = $hasDb && table_exists('tickets') ? db_count('tickets', "prio
 
 $stats = ['open' => $openTickets, 'quotes' => $openQuoteCount];
 
+// Financial figures (pipeline, ingresos, montos) are role-gated: only users with
+// the "Datos financieros" permission (finanzas.view) see money on the dashboard.
+$canFinance = current_can('finanzas.view');
+$defaultMetric = $canFinance ? 'ingresos' : 'tickets';
+
 /* ---- Team (real): tone + presence --------------------------------------- */
 $tones = ['green', 'blue', 'teal', 'gold', 'slate'];
 foreach ($team as $i => &$tm) { $tm['tone'] = $tones[$i % count($tones)]; }
@@ -189,6 +194,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
 
     <!-- ============ Summary band: hero + KPI cluster ============ -->
     <section class="dash-summary">
+        <?php if ($canFinance): ?>
         <article class="dash-hero">
             <p class="dash-hero__label"><span class="dot"></span> Valor del pipeline activo</p>
             <div class="dash-hero__value">
@@ -201,6 +207,16 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <p class="dash-hero__sub"><b><?= e((string) $openQuoteCount) ?></b> cotizaciones abiertas · <?= e($periodLabel) ?></p>
             <?php if ($trendHas): ?><div class="dash-hero__spark"><?= spark_svg($trend['ingresos'], 'heroSpark', '#0a7d36') ?></div><?php endif; ?>
         </article>
+        <?php else: ?>
+        <article class="dash-hero">
+            <p class="dash-hero__label"><span class="dot"></span> Tickets abiertos</p>
+            <div class="dash-hero__value"><?= e((string) $openTickets) ?></div>
+            <div class="dash-hero__meta">
+                <span class="dash-delta dash-delta--solid"><?= e((string) $criticalTickets) ?> de alta prioridad</span>
+            </div>
+            <p class="dash-hero__sub"><b><?= e((string) count($overdueServices)) ?></b> mantenimientos vencidos · <?= e($periodLabel) ?></p>
+        </article>
+        <?php endif; ?>
 
         <div class="dash-kpis">
             <article class="dash-kpi dash-kpi--feature">
@@ -215,6 +231,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 </div>
             </article>
 
+            <?php if ($canFinance): ?>
             <article class="dash-kpi dash-kpi--dark">
                 <span class="dash-kpi__star"><i data-lucide="star"></i></span>
                 <div class="dash-kpi__top">
@@ -226,6 +243,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                     <span><?= e($bestQuote['client']) ?></span>
                 </div>
             </article>
+            <?php endif; ?>
 
             <article class="dash-kpi">
                 <div class="dash-kpi__top">
@@ -236,6 +254,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <div class="dash-kpi__foot"><span class="dash-sub"><?= e((string) $criticalTickets) ?> de alta prioridad</span></div>
             </article>
 
+            <?php if ($canFinance): ?>
             <article class="dash-kpi">
                 <div class="dash-kpi__top">
                     <span class="dash-kpi__label">Valor ganado</span>
@@ -244,6 +263,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <div class="dash-kpi__value">RD$ <?= e($kfmt($wonValue)) ?></div>
                 <div class="dash-kpi__foot"><?= $delta_chip($wonDelta) ?><span class="dash-sub"><?= e((string) $stats['quotes']) ?> activas</span></div>
             </article>
+            <?php endif; ?>
 
             <article class="dash-kpi">
                 <div class="dash-kpi__top">
@@ -253,11 +273,30 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <div class="dash-kpi__value"><?= e((string) $winRate) ?>%</div>
                 <div class="dash-kpi__foot"><span class="dash-sub">aprobadas / cerradas · histórico</span></div>
             </article>
+
+            <?php if (!$canFinance): ?>
+            <article class="dash-kpi">
+                <div class="dash-kpi__top">
+                    <span class="dash-kpi__label">Mantenimientos vencidos</span>
+                    <span class="dash-kpi__icon dash-kpi__icon--amber"><i data-lucide="alert-triangle"></i></span>
+                </div>
+                <div class="dash-kpi__value"><?= e((string) count($overdueServices)) ?></div>
+                <div class="dash-kpi__foot"><span class="dash-sub">requieren atención</span></div>
+            </article>
+            <article class="dash-kpi">
+                <div class="dash-kpi__top">
+                    <span class="dash-kpi__label">Garantías por vencer</span>
+                    <span class="dash-kpi__icon"><i data-lucide="shield-alert"></i></span>
+                </div>
+                <div class="dash-kpi__value"><?= e((string) count($maintenance)) ?></div>
+                <div class="dash-kpi__foot"><span class="dash-sub">próximas a expirar</span></div>
+            </article>
+            <?php endif; ?>
         </div>
     </section>
 
     <!-- ============ Pipeline stage pills ============ -->
-    <?php if ($openQuoteCount > 0): ?>
+    <?php if ($canFinance && $openQuoteCount > 0): ?>
         <div class="dash-pills">
             <?php foreach ($stages as $name => $s): $pct = round($s['amount'] / $pipelineTotal * 100, 1); ?>
                 <a class="dash-pill" href="<?= e(url('crm/cotizaciones.php') . '?status=' . rawurlencode($name)) ?>">
@@ -274,6 +313,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
 
     <!-- ============ Mid row: business lines + monthly accent chart ============ -->
     <section class="dash-mid">
+        <?php if ($canFinance): ?>
         <article class="dash-card">
             <div class="dash-card__head">
                 <h3><i data-lucide="layers"></i> Ingresos por línea de negocio</h3>
@@ -298,8 +338,9 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <?php endif; ?>
             </div>
         </article>
+        <?php endif; ?>
 
-        <article class="dash-accent" x-data="{ metric: 'ingresos' }">
+        <article class="dash-accent" x-data="{ metric: '<?= $defaultMetric ?>' }">
             <div class="dash-accent__head">
                 <div>
                     <h3>Promedio mensual</h3>
@@ -307,18 +348,18 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 </div>
                 <?php if ($trendHas): ?>
                     <div class="dash-seg" role="tablist" aria-label="Métrica del gráfico">
-                        <button type="button" class="is-active" :class="{ 'is-active': metric==='ingresos' }" @click="metric='ingresos'; dashSetMonthly('ingresos')">Ingresos</button>
-                        <button type="button" :class="{ 'is-active': metric==='cotizaciones' }" @click="metric='cotizaciones'; dashSetMonthly('cotizaciones')">Cotiz.</button>
-                        <button type="button" :class="{ 'is-active': metric==='tickets' }" @click="metric='tickets'; dashSetMonthly('tickets')">Tickets</button>
+                        <?php if ($canFinance): ?><button type="button" class="is-active" :class="{ 'is-active': metric==='ingresos' }" @click="metric='ingresos'; dashSetMonthly('ingresos')">Ingresos</button><?php endif; ?>
+                        <button type="button" class="<?= $defaultMetric === 'cotizaciones' ? 'is-active' : '' ?>" :class="{ 'is-active': metric==='cotizaciones' }" @click="metric='cotizaciones'; dashSetMonthly('cotizaciones')">Cotiz.</button>
+                        <button type="button" class="<?= $defaultMetric === 'tickets' ? 'is-active' : '' ?>" :class="{ 'is-active': metric==='tickets' }" @click="metric='tickets'; dashSetMonthly('tickets')">Tickets</button>
                     </div>
                 <?php endif; ?>
             </div>
             <?php if ($trendHas): ?>
                 <div class="dash-accent__value">
-                    <span id="dashMonthlyValue"><?= e($monthlyMeta['ingresos']['label']) ?></span>
+                    <span id="dashMonthlyValue"><?= e($monthlyMeta[$defaultMetric]['label']) ?></span>
                 </div>
                 <div class="dash-accent__chart"><canvas id="dashMonthly"></canvas></div>
-                <div class="dash-accent__foot"><span>Promedio: <b id="dashMonthlyAvg" style="color:#fff"><?= e($monthlyMeta['ingresos']['avg']) ?></b></span><span>Máximo: <b id="dashMonthlyMeta" style="color:#fff"><?= e($monthlyMeta['ingresos']['meta']) ?></b></span></div>
+                <div class="dash-accent__foot"><span>Promedio: <b id="dashMonthlyAvg" style="color:#fff"><?= e($monthlyMeta[$defaultMetric]['avg']) ?></b></span><span>Máximo: <b id="dashMonthlyMeta" style="color:#fff"><?= e($monthlyMeta[$defaultMetric]['meta']) ?></b></span></div>
             <?php else: ?>
                 <div class="dash-accent__chart" style="display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.75);text-align:center;padding:1.5rem">
                     <div><i data-lucide="bar-chart-2" style="width:28px;height:28px;opacity:.7"></i><p style="margin-top:.5rem;font-size:.85rem">Aún no hay actividad mensual registrada.</p></div>
@@ -341,7 +382,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                             <tr>
                                 <th>Integrante</th>
                                 <th>Rol</th>
-                                <th>Ingresos</th>
+                                <?php if ($canFinance): ?><th>Ingresos</th><?php endif; ?>
                                 <th>Cotiz.</th>
                                 <th>Resueltos</th>
                             </tr>
@@ -356,7 +397,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                                         </div>
                                     </td>
                                     <td><span class="dash-sub" style="text-transform:capitalize"><?= e((string) ($m['role'] ?? '—')) ?></span></td>
-                                    <td><span class="dash-money"><?= e($money0($m['ingresos'])) ?></span></td>
+                                    <?php if ($canFinance): ?><td><span class="dash-money"><?= e($money0($m['ingresos'])) ?></span></td><?php endif; ?>
                                     <td><span class="dash-badge dash-badge--soft"><?= e((string) (int) $m['cotizaciones']) ?></span></td>
                                     <td><span class="dash-badge dash-badge--green"><?= e((string) (int) $m['resueltos']) ?></span></td>
                                 </tr>
@@ -539,7 +580,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <div class="overflow-x-auto">
                 <table class="ops-table">
                     <thead>
-                        <tr><th>Número</th><th>Cliente</th><th>Asunto</th><th>Etapa</th><th class="text-right">Valor</th><th>Actualizado</th></tr>
+                        <tr><th>Número</th><th>Cliente</th><th>Asunto</th><th>Etapa</th><?php if ($canFinance): ?><th class="text-right">Valor</th><?php endif; ?><th>Actualizado</th></tr>
                     </thead>
                     <tbody>
                         <?php foreach ($quotes as $quote): ?>
@@ -548,7 +589,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                                 <td><?= e($quote['client_name'] ?? 'Cliente') ?></td>
                                 <td><?= e($quote['title']) ?></td>
                                 <td><span class="ops-status <?= e(status_class($quote['status'])) ?>"><?= e($quote['status']) ?></span></td>
-                                <td class="text-right ops-nowrap"><?= money($quote['total']) ?></td>
+                                <?php if ($canFinance): ?><td class="text-right ops-nowrap"><?= money($quote['total']) ?></td><?php endif; ?>
                                 <td class="ops-nowrap"><?= e(date_es($quote['updated_at'] ?? $quote['created_at'] ?? null)) ?></td>
                             </tr>
                         <?php endforeach; ?>
@@ -616,35 +657,52 @@ require_once __DIR__ . '/../includes/crm_header.php';
 
 <script>
 (function () {
-    var trend = <?= json_encode(['ingresos' => $trend['ingresos'], 'cotizaciones' => $trend['cotizaciones'], 'tickets' => $trend['tickets'], 'resueltos' => $trend['resueltos']], JSON_HEX_TAG | JSON_HEX_AMP) ?>;
+<?php
+    // Only emit financial series/values when the user holds finanzas.view, so
+    // the numbers never reach the browser (not even in page source) otherwise.
+    $jsTrend = ['cotizaciones' => $trend['cotizaciones'], 'tickets' => $trend['tickets'], 'resueltos' => $trend['resueltos']];
+    $jsMonthlyMeta = ['cotizaciones' => $monthlyMeta['cotizaciones'], 'tickets' => $monthlyMeta['tickets']];
+    $jsDashData = [
+        'periodo' => $periodLabel,
+        'equipo'  => array_map(fn ($t) => array_merge(
+            ['nombre' => $t['name'], 'rol' => $t['role'] ?? '', 'cotizaciones' => (int) $t['cotizaciones'], 'resueltos' => (int) $t['resueltos']],
+            $canFinance ? ['ingresos' => (float) $t['ingresos']] : []
+        ), $team),
+        'marcas'  => array_map(fn ($b) => ['marca' => $b['brand'], 'equipos' => (int) $b['total']], $brandRows),
+    ];
+    if ($canFinance) {
+        $jsTrend['ingresos'] = $trend['ingresos'];
+        $jsMonthlyMeta['ingresos'] = $monthlyMeta['ingresos'];
+        $jsDashData['pipeline'] = $pipelineValue;
+        $jsDashData['ganado'] = $wonValue;
+        $jsDashData['stages'] = array_values(array_map(fn ($k, $v) => ['etapa' => $k, 'monto' => $v['amount'], 'cotizaciones' => $v['count']], array_keys($stages), $stages));
+        $jsDashData['lineas'] = array_map(fn ($l) => ['linea' => $l['line'], 'pct' => $l['pct'], 'monto' => $l['amount']], $lines);
+    }
+?>
+    var trend = <?= json_encode($jsTrend, JSON_HEX_TAG | JSON_HEX_AMP) ?>;
     var trendLabels = <?= json_encode($trend['labels'], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
-    var monthlyMeta = <?= json_encode($monthlyMeta, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
+    var monthlyMeta = <?= json_encode($jsMonthlyMeta, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 
-    var dashData = <?= json_encode([
-        'periodo'  => $periodLabel,
-        'pipeline' => $pipelineValue,
-        'ganado'   => $wonValue,
-        'stages'   => array_values(array_map(fn ($k, $v) => ['etapa' => $k, 'monto' => $v['amount'], 'cotizaciones' => $v['count']], array_keys($stages), $stages)),
-        'lineas'   => array_map(fn ($l) => ['linea' => $l['line'], 'pct' => $l['pct'], 'monto' => $l['amount']], $lines),
-        'equipo'   => array_map(fn ($t) => ['nombre' => $t['name'], 'rol' => $t['role'] ?? '', 'ingresos' => (float) $t['ingresos'], 'cotizaciones' => (int) $t['cotizaciones'], 'resueltos' => (int) $t['resueltos']], $team),
-        'marcas'   => array_map(fn ($b) => ['marca' => $b['brand'], 'equipos' => (int) $b['total']], $brandRows),
-    ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    var dashData = <?= json_encode($jsDashData, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
     window.dashExport = function () {
+        var fin = (dashData.pipeline != null); // financial data present only with permission
         var rows = [];
         rows.push(['SCH MEDICOS — Panel de operaciones']);
         rows.push(['Periodo', dashData.periodo]);
-        rows.push(['Valor del pipeline activo (RD$)', dashData.pipeline]);
-        rows.push(['Valor ganado (RD$)', dashData.ganado]);
+        if (fin) {
+            rows.push(['Valor del pipeline activo (RD$)', dashData.pipeline]);
+            rows.push(['Valor ganado (RD$)', dashData.ganado]);
+            rows.push([]);
+            rows.push(['Pipeline por etapa', 'Monto (RD$)', 'Cotizaciones']);
+            dashData.stages.forEach(function (s) { rows.push([s.etapa, s.monto, s.cotizaciones]); });
+            rows.push([]);
+            rows.push(['Ingresos por línea de negocio', '%', 'Monto (RD$)']);
+            dashData.lineas.forEach(function (l) { rows.push([l.linea, l.pct, l.monto]); });
+        }
         rows.push([]);
-        rows.push(['Pipeline por etapa', 'Monto (RD$)', 'Cotizaciones']);
-        dashData.stages.forEach(function (s) { rows.push([s.etapa, s.monto, s.cotizaciones]); });
-        rows.push([]);
-        rows.push(['Ingresos por línea de negocio', '%', 'Monto (RD$)']);
-        dashData.lineas.forEach(function (l) { rows.push([l.linea, l.pct, l.monto]); });
-        rows.push([]);
-        rows.push(['Equipo', 'Rol', 'Ingresos (RD$)', 'Cotizaciones', 'Resueltos']);
-        dashData.equipo.forEach(function (t) { rows.push([t.nombre, t.rol, t.ingresos, t.cotizaciones, t.resueltos]); });
+        rows.push(fin ? ['Equipo', 'Rol', 'Ingresos (RD$)', 'Cotizaciones', 'Resueltos'] : ['Equipo', 'Rol', 'Cotizaciones', 'Resueltos']);
+        dashData.equipo.forEach(function (t) { rows.push(fin ? [t.nombre, t.rol, t.ingresos, t.cotizaciones, t.resueltos] : [t.nombre, t.rol, t.cotizaciones, t.resueltos]); });
         rows.push([]);
         rows.push(['Inventario por marca', 'Equipos']);
         dashData.marcas.forEach(function (b) { rows.push([b.marca, b.equipos]); });
@@ -732,7 +790,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
     function init() {
         if (!window.Chart) { return setTimeout(init, 120); }
         Chart.defaults.font.family = "Inter, system-ui, sans-serif";
-        buildMonthly('ingresos');
+        buildMonthly('<?= $defaultMetric ?>');
         buildDynamic();
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
