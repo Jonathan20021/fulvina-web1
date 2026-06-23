@@ -200,6 +200,7 @@ function authenticate_user(string $email, string $password): ?array
                 'name' => $user['name'],
                 'email' => $user['email'],
                 'role' => $user['role'],
+                'must_change_password' => (int) ($user['must_change_password'] ?? 0) === 1,
             ];
         }
 
@@ -235,6 +236,9 @@ function establish_session(array $user): void
     ];
     if (!empty($user['demo'])) {
         $_SESSION['user']['demo'] = true;
+    }
+    if (!empty($user['must_change_password'])) {
+        $_SESSION['user']['must_change_password'] = true;
     }
 }
 

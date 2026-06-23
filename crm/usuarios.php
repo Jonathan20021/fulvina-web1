@@ -26,6 +26,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         redirect('crm/usuarios.php');
     }
 
+    if (($_POST['form'] ?? '') === 'force_pw_all') {
+        db()->prepare('UPDATE users SET must_change_password=1, updated_at=NOW() WHERE id <> ?')->execute([$me]);
+        log_activity('user', null, 'exigir_cambio_password_equipo', null);
+        flash('success', 'Listo: el equipo deberá crear una contraseña nueva al iniciar sesión.');
+        redirect('crm/usuarios.php');
+    }
+
     if (($_POST['form'] ?? '') === 'user_edit') {
         $uid = (int) ($_POST['id'] ?? 0);
         $name = trim((string) ($_POST['name'] ?? ''));
@@ -51,7 +58,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         } else {
             try {
                 if ($password !== '') {
-                    db()->prepare('UPDATE users SET name=?, email=?, role=?, status=?, password_hash=?, updated_at=NOW() WHERE id=?')
+                    // New temporary password → require the user to change it at next login.
+                    db()->prepare('UPDATE users SET name=?, email=?, role=?, status=?, password_hash=?, must_change_password=1, updated_at=NOW() WHERE id=?')
                         ->execute([$name, $email, $role, $status, password_hash($password, PASSWORD_DEFAULT), $uid]);
                 } else {
                     db()->prepare('UPDATE users SET name=?, email=?, role=?, status=?, updated_at=NOW() WHERE id=?')
@@ -80,7 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
             redirect('crm/usuarios.php');
         } else {
             try {
-                db()->prepare('INSERT INTO users (name, email, password_hash, role, status, created_at, updated_at) VALUES (?, ?, ?, ?, "activo", NOW(), NOW())')
+                db()->prepare('INSERT INTO users (name, email, password_hash, role, status, must_change_password, created_at, updated_at) VALUES (?, ?, ?, ?, "activo", 1, NOW(), NOW())')
                     ->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $role]);
                 log_activity('user', (int) db()->lastInsertId(), 'usuario_creado', $name);
                 flash('success', 'Usuario creado.');
@@ -105,7 +113,8 @@ if ($hasDb) {
     $params = [];
     if ($q !== '') { $where .= ' AND (name LIKE ? OR email LIKE ?)'; array_push($params, "%{$q}%", "%{$q}%"); }
     if ($roleFilter !== '') { $where .= ' AND role = ?'; $params[] = $roleFilter; }
-    $users = fetch_all("SELECT id, name, email, role, status, created_at FROM users WHERE {$where} ORDER BY (status='activo') DESC, name ASC", $params);
+    $mcpCol = column_exists('users', 'must_change_password') ? ', must_change_password' : '';
+    $users = fetch_all("SELECT id, name, email, role, status, created_at{$mcpCol} FROM users WHERE {$where} ORDER BY (status='activo') DESC, name ASC", $params);
     $userTotal = (int) (fetch_one('SELECT COUNT(*) c FROM users')['c'] ?? 0);
     $userActive = db_count('users', "status='activo'");
     $userAdmins = db_count('users', "role='admin'");
@@ -140,6 +149,13 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <div class="crm-cockpit__actions">
                 <?php if ($hasDb): ?><button type="button" class="crm-primary-btn" @click="openNew()"><i data-lucide="user-plus" class="h-4 w-4"></i>Nuevo usuario</button><?php endif; ?>
                 <?php if (current_can('config.manage')): ?><a href="<?= url('crm/roles.php') ?>" class="crm-secondary-btn"><i data-lucide="shield-check" class="h-4 w-4"></i>Roles y permisos</a><?php endif; ?>
+                <?php if ($hasDb && $userTotal > 1): ?>
+                <form method="post" style="display:inline" onsubmit="return confirm('¿Exigir a todo el equipo (excepto a ti) crear una contraseña nueva al iniciar sesión?');">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="form" value="force_pw_all">
+                    <button type="submit" class="crm-secondary-btn"><i data-lucide="key-round" class="h-4 w-4"></i>Exigir cambio de contraseña</button>
+                </form>
+                <?php endif; ?>
             </div>
         </div>
         <div class="crm-cockpit__metrics" aria-label="Resumen de usuarios">
@@ -174,7 +190,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                             <td>
                                 <div class="dash-person">
                                     <span class="av av--<?= e($tones[$i % count($tones)]) ?>"><?= e($initialsOf((string) $user['name'])) ?></span>
-                                    <span class="dash-person__id"><b><?= e($user['name']) ?><?= (int) $user['id'] === $meId ? ' <small style="color:var(--brand-strong);font-weight:600">· Tú</small>' : '' ?></b><span><?= e($user['email']) ?></span></span>
+                                    <span class="dash-person__id"><b><?= e($user['name']) ?><?= (int) $user['id'] === $meId ? ' <small style="color:var(--brand-strong);font-weight:600">· Tú</small>' : '' ?></b><span><?= e($user['email']) ?><?= !empty($user['must_change_password']) ? ' <small style="color:#b45309;font-weight:600">· debe cambiar contraseña</small>' : '' ?></span></span>
                                 </div>
                             </td>
                             <td><span class="status-chip <?= e(role_class((string) $user['role'])) ?>"><?= e(role_label((string) $user['role'])) ?></span></td>

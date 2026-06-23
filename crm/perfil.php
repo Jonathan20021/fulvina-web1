@@ -50,6 +50,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($changePass) {
             db()->prepare('UPDATE users SET name=?, email=?, password_hash=?, updated_at=NOW() WHERE id=?')
                 ->execute([$name, $email, password_hash($new, PASSWORD_DEFAULT), $uid]);
+            if (column_exists('users', 'must_change_password')) {
+                try { db()->prepare('UPDATE users SET must_change_password=0 WHERE id=?')->execute([$uid]); } catch (Throwable) { /* ignore */ }
+            }
+            unset($_SESSION['user']['must_change_password']);
             session_regenerate_id(true);
         } else {
             db()->prepare('UPDATE users SET name=?, email=?, updated_at=NOW() WHERE id=?')->execute([$name, $email, $uid]);

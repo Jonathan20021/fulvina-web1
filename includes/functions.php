@@ -447,6 +447,14 @@ function ensure_rbac_schema(): void
     } catch (Throwable) {
         /* ignore */
     }
+    // Force-password-change flag (set when an admin assigns a temporary password).
+    if (!column_exists('users', 'must_change_password')) {
+        try {
+            $pdo->exec("ALTER TABLE users ADD COLUMN must_change_password TINYINT(1) NOT NULL DEFAULT 0");
+        } catch (Throwable) {
+            /* ignore */
+        }
+    }
 }
 
 /** Simple key/value settings store for global CRM preferences. */
