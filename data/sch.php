@@ -27,14 +27,24 @@ $services = [
 ];
 
 $projects = [
-    ['name' => 'Hospital Metropolitano de Santiago', 'date' => '2005-2007', 'location' => 'Santiago de los Caballeros, R.D.', 'work' => 'Sistema central de gases, paredes modulares, revestimientos asépticos y equipamiento médico para quirófanos.', 'image' => 'hospital-de-santiago.png'],
-    ['name' => 'Hospital Jaime Mota', 'date' => '2009-2010', 'location' => 'Barahona, R.D.', 'work' => 'Sistema central de gases medicinales e ingeniería hospitalaria.', 'image' => 'MINISTERIO-DE-SALUD-PUBLICA-Y-ASISTENCIA-SOCIAL-HOSPITAL-JAIME-MOTA-ER.png'],
-    ['name' => 'Hospital Moscoso Puello, Emergencia', 'date' => '2009-2010', 'location' => 'Santo Domingo, R.D.', 'work' => 'Sistema central de gases medicinales e ingeniería hospitalaria.', 'image' => '6-1.png'],
-    ['name' => 'Hospital Morillo King, Emergencia', 'date' => '2008-2010', 'location' => 'La Vega, R.D.', 'work' => 'Sistema central de gases medicinales y equipamiento médico.', 'image' => '16.png'],
-    ['name' => 'Centro Odontológico Dr. Marcos Diaz', 'date' => '2010', 'location' => 'Santo Domingo, R.D.', 'work' => 'Sistema central de gases, ingeniería hospitalaria y equipamiento médico.', 'image' => '5-1.png'],
-    ['name' => 'Hospital Central Fuerzas Armadas', 'date' => '2008-2009', 'location' => 'Santo Domingo, R.D.', 'work' => 'Sistema central de gases, equipamiento médico e ingeniería hospitalaria.', 'image' => '12.png'],
-    ['name' => 'Centro Comprensivo del Cancer Dr. Heriberto Pieter', 'date' => '2012-Actual', 'location' => 'Santo Domingo, R.D.', 'work' => 'Sistema central de gases medicinales y soporte para infraestructura hospitalaria.', 'image' => 'Plaza-de-la-salud.png'],
-    ['name' => 'CAID', 'date' => 'Proyecto institucional', 'location' => 'República Dominicana', 'work' => 'Soluciones hospitalarias, equipamiento y soporte técnico.', 'image' => 'Caid.png'],
+    ['name' => 'Hospital Metropolitano de Santiago', 'location' => 'Santiago de los Caballeros, R.D.', 'work' => 'Sistema central de gases, paredes modulares, revestimientos asépticos y equipamiento médico para quirófanos.', 'image' => 'hospital-de-santiago.png'],
+    ['name' => 'Hospital Jaime Mota', 'location' => 'Barahona, R.D.', 'work' => 'Sistema central de gases medicinales e ingeniería hospitalaria.', 'image' => 'MINISTERIO-DE-SALUD-PUBLICA-Y-ASISTENCIA-SOCIAL-HOSPITAL-JAIME-MOTA-ER.png'],
+    ['name' => 'Hospital Moscoso Puello, Emergencia', 'location' => 'Santo Domingo, R.D.', 'work' => 'Sistema central de gases medicinales e ingeniería hospitalaria.', 'image' => '6-1.png'],
+    ['name' => 'Hospital Morillo King, Emergencia', 'location' => 'La Vega, R.D.', 'work' => 'Sistema central de gases medicinales y equipamiento médico.', 'image' => '16.png'],
+    ['name' => 'Centro Odontológico Dr. Marcos Diaz', 'location' => 'Santo Domingo, R.D.', 'work' => 'Sistema central de gases, ingeniería hospitalaria y equipamiento médico.', 'image' => '5-1.png'],
+    ['name' => 'Hospital Central Fuerzas Armadas', 'location' => 'Santo Domingo, R.D.', 'work' => 'Sistema central de gases, equipamiento médico e ingeniería hospitalaria.', 'image' => '12.png'],
+    ['name' => 'Centro Comprensivo del Cancer Dr. Heriberto Pieter', 'location' => 'Santo Domingo, R.D.', 'work' => 'Sistema central de gases medicinales y soporte para infraestructura hospitalaria.', 'image' => 'Plaza-de-la-salud.png'],
+    ['name' => 'CAID', 'location' => 'República Dominicana', 'work' => 'Soluciones hospitalarias, equipamiento y soporte técnico.', 'image' => 'Caid.png'],
+    ['name' => 'Oncológico Barahona', 'location' => 'Barahona, R.D.', 'work' => 'Sistema central de gases medicinales e ingeniería hospitalaria.', 'image' => 'Gases-5.jpg'],
+    ['name' => 'Hospital Católico Sagrado Corazón de Jesús', 'location' => 'República Dominicana', 'work' => 'Sistema central de gases medicinales e ingeniería hospitalaria.', 'image' => 'Gases-5.jpg'],
+    ['name' => 'Centro Médico Primed Bonao (Cemep)', 'location' => 'Bonao, R.D.', 'work' => 'Sistema central de gases medicinales e ingeniería hospitalaria.', 'image' => 'Gases-5.jpg'],
+    ['name' => 'Ministerio de Obras Públicas y Comunicaciones (MOPC)', 'location' => 'Santo Domingo, R.D.', 'work' => 'Soluciones hospitalarias, equipamiento y soporte técnico.', 'image' => 'Gases-5.jpg'],
+    ['name' => 'Universidad Autónoma de Santo Domingo (UASD)', 'location' => 'Santo Domingo, R.D.', 'work' => 'Soluciones hospitalarias, equipamiento y soporte técnico.', 'image' => 'Gases-5.jpg'],
+    ['name' => 'Hospital Dr. Vinicio Calventi', 'location' => 'Los Alcarrizos, R.D.', 'work' => 'Sistema central de gases medicinales e ingeniería hospitalaria.', 'image' => 'Gases-5.jpg'],
+    ['name' => 'Hospiten Santo Domingo', 'location' => 'Santo Domingo, R.D.', 'work' => 'Sistema central de gases medicinales e ingeniería hospitalaria.', 'image' => 'Gases-5.jpg'],
+    ['name' => 'CEDIGLO', 'location' => 'República Dominicana', 'work' => 'Sistema central de gases medicinales e ingeniería hospitalaria.', 'image' => 'Gases-5.jpg'],
+    ['name' => 'Clínica Dr. Cedano', 'location' => 'República Dominicana', 'work' => 'Sistema central de gases medicinales e ingeniería hospitalaria.', 'image' => 'Gases-5.jpg'],
+    ['name' => 'Hispánico', 'location' => 'República Dominicana', 'work' => 'Sistema central de gases medicinales e ingeniería hospitalaria.', 'image' => 'Gases-5.jpg'],
 ];
 
 $brands = [

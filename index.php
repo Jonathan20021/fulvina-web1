@@ -138,7 +138,7 @@ require_once __DIR__ . '/includes/public_header.php';
                         <img src="<?= asset('assets/media/' . $p['image']) ?>" alt="<?= e($p['name']) ?>" loading="lazy" decoding="async">
                     </div>
                     <h3 class="sx-feat__name"><?= e($p['name']) ?></h3>
-                    <p class="sx-feat__meta"><?= e($p['location']) ?> &middot; <?= e($p['date']) ?></p>
+                    <p class="sx-feat__meta"><?= e($p['location']) ?></p>
                 </a>
             <?php endforeach; ?>
         </div>
@@ -149,7 +149,6 @@ require_once __DIR__ . '/includes/public_header.php';
                     <span class="sx-reg__code"><?= e(sprintf('P-%02d', $i + 1)) ?></span>
                     <span class="sx-reg__name"><?= e($p['name']) ?><i data-lucide="arrow-right"></i></span>
                     <span class="sx-reg__loc"><?= e($p['location']) ?></span>
-                    <span class="sx-reg__date"><?= e($p['date']) ?></span>
                 </a>
             <?php endforeach; ?>
         </div>

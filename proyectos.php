@@ -44,7 +44,7 @@ require_once __DIR__ . '/includes/public_header.php';
         <div class="sx-sechead" data-reveal>
             <span class="sx-kicker">Instituciones</span>
             <h2 class="sx-h2">Registro de trabajos entregados.</h2>
-            <p class="sx-lead">Cada proyecto prioriza instalaciones reales con ubicación, periodo de ejecucion y alcance técnico.</p>
+            <p class="sx-lead">Cada proyecto prioriza instalaciones reales con ubicación y alcance técnico.</p>
         </div>
 
         <div class="sx-feat" data-reveal>
@@ -54,7 +54,7 @@ require_once __DIR__ . '/includes/public_header.php';
                         <img src="<?= asset('assets/media/' . $p['image']) ?>" alt="<?= e($p['name']) ?>" loading="lazy" decoding="async">
                     </div>
                     <h3 class="sx-feat__name"><?= e($p['name']) ?></h3>
-                    <p class="sx-feat__meta"><?= e($p['location']) ?> &middot; <?= e($p['date']) ?></p>
+                    <p class="sx-feat__meta"><?= e($p['location']) ?></p>
                 </article>
             <?php endforeach; ?>
         </div>
@@ -65,7 +65,6 @@ require_once __DIR__ . '/includes/public_header.php';
                     <span class="sx-reg__code"><?= e(sprintf('P-%02d', $i + 1)) ?></span>
                     <span class="sx-reg__name"><?= e($p['name']) ?></span>
                     <span class="sx-reg__loc"><?= e($p['location']) ?></span>
-                    <span class="sx-reg__date"><?= e($p['date']) ?></span>
                 </div>
             <?php endforeach; ?>
         </div>

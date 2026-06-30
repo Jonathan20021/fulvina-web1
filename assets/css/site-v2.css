@@ -305,7 +305,7 @@
 .sx .sx-register { margin-top: clamp(2.4rem, 4vw, 3.4rem); border-top: 1px solid var(--ink); }
 .sx .sx-reg {
   display: grid;
-  grid-template-columns: 4.5rem 1fr 14rem 8rem;
+  grid-template-columns: 4.5rem 1fr 14rem;
   align-items: center;
   gap: 1rem;
   padding: 1.15rem .25rem;
@@ -589,7 +589,7 @@
   .sx .sx-cap:last-child { padding-right: 0; }
   .sx .sx-cap__media { aspect-ratio: 16 / 10; }
   .sx .sx-feat { grid-template-columns: 1fr; gap: 2rem; }
-  .sx .sx-reg { grid-template-columns: 4rem 1fr 11rem 6rem; gap: .75rem; }
+  .sx .sx-reg { grid-template-columns: 4rem 1fr 11rem; gap: .75rem; }
   .sx .sx-cover__grid { grid-template-columns: 1fr; gap: 1.8rem; }
   .sx .sx-cover__media { order: -1; }
   .sx .sx-sheet, .sx .sx-sheet.is-rev .sx-sheet__media { grid-template-columns: 1fr; }
