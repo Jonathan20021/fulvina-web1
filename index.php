@@ -64,8 +64,8 @@ require_once __DIR__ . '/includes/public_header.php';
             </div>
         </div>
         <div class="sx-hero__media">
-            <img class="sx-hero__photo" src="<?= asset('assets/media/2-1.png') ?>" alt="Área hospitalaria equipada y certificada por SCH MEDICOS" width="900" height="600" fetchpriority="high" decoding="async">
-            <div class="sx-hero__cap"><b>REGISTRO</b> Sistema central de gases, Santo Domingo</div>
+            <img class="sx-hero__photo" src="<?= asset('assets/media/portada.jpeg') ?>" alt="Quirófano hospitalario equipado y certificado por SCH MEDICOS" width="1280" height="960" fetchpriority="high" decoding="async">
+            <div class="sx-hero__cap"><b>REGISTRO</b> Quirófano equipado, Santo Domingo</div>
         </div>
     </div>
 </section>
