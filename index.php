@@ -65,7 +65,7 @@ require_once __DIR__ . '/includes/public_header.php';
         </div>
         <div class="sx-hero__media">
             <img class="sx-hero__photo" src="<?= asset('assets/media/portada.jpeg') ?>" alt="Quirófano hospitalario equipado y certificado por SCH MEDICOS" width="1280" height="960" fetchpriority="high" decoding="async">
-            <div class="sx-hero__cap"><b>REGISTRO</b> Quirófano equipado, Santo Domingo</div>
+            <div class="sx-hero__cap"><b>REGISTRO</b> Quirófano equipado, República Dominicana</div>
         </div>
     </div>
 </section>

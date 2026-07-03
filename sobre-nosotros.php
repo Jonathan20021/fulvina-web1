@@ -54,7 +54,7 @@ require_once __DIR__ . '/includes/public_header.php';
             </div>
         </div>
         <div class="sx-cover__media" data-reveal>
-            <img src="<?= asset('assets/media/5.png') ?>" alt="Área hospitalaria equipada por SCH MEDICOS" loading="lazy" decoding="async">
+            <img src="<?= asset('assets/media/habitacion.jpeg') ?>" alt="Área hospitalaria equipada por SCH MEDICOS" loading="lazy" decoding="async">
         </div>
     </div>
 </section>
