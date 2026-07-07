@@ -109,7 +109,10 @@ require_once __DIR__ . '/includes/public_header.php';
                     <div>
                         <h3>Correo comercial</h3>
                         <p>Solicitudes de cotización, soporte y proyectos.</p>
-                        <a href="mailto:<?= e(APP_EMAIL) ?>"><?= e(APP_EMAIL) ?></a>
+                        <div class="sx-channel__links">
+                            <a href="mailto:<?= e(APP_EMAIL) ?>"><?= e(APP_EMAIL) ?></a>
+                            <a href="mailto:<?= e(APP_INFO_EMAIL) ?>"><?= e(APP_INFO_EMAIL) ?></a>
+                        </div>
                     </div>
                 </div>
                 <div class="sx-channel">

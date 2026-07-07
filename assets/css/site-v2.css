@@ -500,6 +500,7 @@
 .sx .sx-channel p { margin-top: .25rem; font-size: .9rem; color: var(--muted); line-height: 1.5; }
 .sx .sx-channel a { font-family: var(--mono); font-size: .82rem; color: var(--blue); text-decoration: none; }
 .sx .sx-channel a:hover { color: var(--blue-ink); }
+.sx .sx-channel__links { display: flex; flex-wrap: wrap; gap: .2rem 1rem; margin-top: .15rem; }
 
 /* ---- Forms (restyle existing .sch-public-form markup; keep JS hooks) ----- */
 .sx .sch-public-form {

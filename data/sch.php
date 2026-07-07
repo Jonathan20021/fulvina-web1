@@ -32,7 +32,7 @@ $projects = [
     ['name' => 'Hospital Moscoso Puello, Emergencia', 'location' => 'Santo Domingo, R.D.', 'work' => 'Sistema central de gases medicinales e ingeniería hospitalaria.', 'image' => '6-1.png'],
     ['name' => 'Hospital Morillo King, Emergencia', 'location' => 'La Vega, R.D.', 'work' => 'Sistema central de gases medicinales y equipamiento médico.', 'image' => '16.png'],
     ['name' => 'Centro Odontológico Dr. Marcos Diaz', 'location' => 'Santo Domingo, R.D.', 'work' => 'Sistema central de gases, ingeniería hospitalaria y equipamiento médico.', 'image' => '5-1.png'],
-    ['name' => 'Hospital Central Fuerzas Armadas', 'location' => 'Santo Domingo, R.D.', 'work' => 'Sistema central de gases, equipamiento médico e ingeniería hospitalaria.', 'image' => '12.png'],
+    ['name' => 'Hospital Central Fuerzas Armadas', 'location' => 'Santo Domingo, R.D.', 'work' => 'Sistema central de gases, equipamiento médico e ingeniería hospitalaria.', 'image' => 'hospitalfuerzasarmadas.jpg'],
     ['name' => 'Centro Comprensivo del Cancer Dr. Heriberto Pieter', 'location' => 'Santo Domingo, R.D.', 'work' => 'Sistema central de gases medicinales y soporte para infraestructura hospitalaria.', 'image' => 'Plaza-de-la-salud.png'],
     ['name' => 'CAID', 'location' => 'República Dominicana', 'work' => 'Soluciones hospitalarias, equipamiento y soporte técnico.', 'image' => 'Caid.png'],
     ['name' => 'Oncológico Barahona', 'location' => 'Barahona, R.D.', 'work' => 'Sistema central de gases medicinales e ingeniería hospitalaria.', 'image' => 'Gases-5.jpg'],
