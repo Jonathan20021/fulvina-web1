@@ -41,6 +41,8 @@ foreach ($projects as $i => $p) {
     }
 }
 
+$brandRows = array_chunk($brands, (int) ceil(count($brands) / 2));
+
 require_once __DIR__ . '/includes/public_header.php';
 ?>
 
@@ -178,12 +180,32 @@ require_once __DIR__ . '/includes/public_header.php';
 </section>
 
 <!-- 6) MARKS -Authorized representations -->
-<section class="sx-sec sx-sec--tight sx-sec--paper" aria-label="Marcas representadas">
+<section class="sx-sec sx-sec--tight sx-sec--paper sx-marks" aria-label="Marcas representadas">
     <div class="sx-container">
-        <h2 class="sx-label" data-reveal>Marcas representadas</h2>
-        <div class="sx-marks__wall" data-reveal>
-            <?php foreach ($brands as $brand): ?>
-                <div class="sx-mark"><img src="<?= asset('assets/media/marks/' . $brand['logo']) ?>" alt="<?= e($brand['name']) ?>" loading="lazy" decoding="async"></div>
+        <div class="sx-marks__head" data-reveal>
+            <h2 class="sx-label">Marcas representadas</h2>
+            <p class="sx-marks__copy"><?= count($brands) ?> fabricantes y lineas certificadas para proyectos hospitalarios de alta exigencia.</p>
+        </div>
+        <div class="sx-marks__stage" data-reveal>
+            <?php foreach ($brandRows as $rowIndex => $brandRow): ?>
+                <div class="sx-marks__lane<?= $rowIndex % 2 === 1 ? ' is-reverse' : '' ?>">
+                    <div class="sx-marks__track">
+                        <div class="sx-marks__group" role="list">
+                            <?php foreach ($brandRow as $brand): ?>
+                                <div class="sx-mark" role="listitem">
+                                    <img src="<?= asset('assets/media/marks/' . $brand['logo']) ?>" alt="<?= e($brand['name']) ?>" loading="lazy" decoding="async">
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="sx-marks__group" aria-hidden="true">
+                            <?php foreach ($brandRow as $brand): ?>
+                                <div class="sx-mark">
+                                    <img src="<?= asset('assets/media/marks/' . $brand['logo']) ?>" alt="" loading="lazy" decoding="async">
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
             <?php endforeach; ?>
         </div>
     </div>

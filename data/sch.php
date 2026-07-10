@@ -56,6 +56,12 @@ $brands = [
     ['name' => 'ADC', 'logo' => 'ADC.png'],
     ['name' => 'EcoMed', 'logo' => 'ecomed.png'],
     ['name' => 'Hill-Rom MEDAES', 'logo' => 'Logo-g-1.png'],
+    ['name' => 'Beacon Medaes', 'logo' => 'BeaconMedaes.jpeg'],
+    ['name' => 'Advanced Instrumentations', 'logo' => 'AdvancedInstrumentations.jpeg'],
+    ['name' => 'Construction Specialties', 'logo' => 'ConstructionSpecialties.jpeg'],
+    ['name' => 'Imperial', 'logo' => 'Imperial.jpeg'],
+    ['name' => 'Ari Medical', 'logo' => 'AriMedical.jpeg'],
+    ['name' => 'UPL', 'logo' => 'Upl.jpeg'],
 ];
 
 $heroImages = ['5.png', '2-1.png', 'Gases-5.jpg', 'Equipo-medico-6.png'];
