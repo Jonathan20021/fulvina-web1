@@ -801,10 +801,23 @@ function client_support_access(array $client, bool $persist = true): array
     return ['slug' => $slug, 'token' => $token];
 }
 
+/** Root-relative path -> full https://host/... link, safe to send to a client. */
+function absolute_url(string $relative): string
+{
+    $forwarded = strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+    $secure = $forwarded === 'https' || (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    return ($secure ? 'https' : 'http') . '://' . $host . $relative;
+}
+
+/**
+ * Public helpdesk link for a client. Always absolute: this URL is copied out of
+ * the CRM into an email or WhatsApp, where a bare "/helpdesk?..." is not a link.
+ */
 function client_support_url(array $client): string
 {
     $access = client_support_access($client);
-    return url('helpdesk.php?cliente=' . rawurlencode($access['slug']) . '&key=' . rawurlencode($access['token']));
+    return absolute_url(url('helpdesk.php?cliente=' . rawurlencode($access['slug']) . '&key=' . rawurlencode($access['token'])));
 }
 
 function fetch_all(string $sql, array $params = []): array

@@ -214,12 +214,6 @@ foreach ($tickets as $ticket) {
     $ticketsByStatus[$status][] = $ticket;
 }
 
-$absolute = function (string $relative): string {
-    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-    return $scheme . '://' . $host . $relative;
-};
-
 $queryForPage = function (int $nextPage) use ($statusFilter, $priorityFilter, $clientFilter, $q, $view): string {
     return http_build_query(array_filter([
         'view' => $view,
@@ -550,7 +544,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <div class="helpdesk-portal-grid">
                 <?php foreach ($clients as $client): ?>
                     <?php
-                        $portalUrl = $hasPortalColumns ? $absolute(client_support_url($client)) : '#';
+                        $portalUrl = $hasPortalColumns ? client_support_url($client) : '#';
                         $enabled = (int) ($client['support_enabled'] ?? 1) === 1;
                     ?>
                     <article class="helpdesk-client-link <?= !$enabled ? 'is-paused' : '' ?>">

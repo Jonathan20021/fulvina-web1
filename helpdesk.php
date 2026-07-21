@@ -18,7 +18,7 @@ $equipmentList = [];
 if ($hasPortal && $slug !== '' && $key !== '') {
     $client = fetch_one('SELECT * FROM clients WHERE support_slug=? AND support_token=? AND support_enabled=1 LIMIT 1', [$slug, $key]);
     if ($client) {
-        $equipmentList = fetch_all('SELECT id, name, brand, model, serial, área, location FROM equipment WHERE client_id=? ORDER BY name ASC', [(int) $client['id']]);
+        $equipmentList = fetch_all('SELECT id, name, brand, model, serial, area, location FROM equipment WHERE client_id=? ORDER BY name ASC', [(int) $client['id']]);
     }
 }
 
@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $client && $hasPortal) {
     $equipmentId = (int) ($_POST['equipment_id'] ?? 0) ?: null;
     $equipmentName = trim((string) ($_POST['equipment_name'] ?? ''));
     $serial = trim((string) ($_POST['serial'] ?? ''));
-    $área = trim((string) ($_POST['área'] ?? ''));
+    $area = trim((string) ($_POST['area'] ?? ''));
     $impact = trim((string) ($_POST['impact'] ?? 'Media'));
     $subject = trim((string) ($_POST['subject'] ?? ''));
     $description = trim((string) ($_POST['description'] ?? ''));
@@ -46,9 +46,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $client && $hasPortal) {
         redirect('helpdesk.php?cliente=' . rawurlencode($slug) . '&key=' . rawurlencode($key));
     }
 
-    if (!$equipmentId && ($equipmentName !== '' || $serial !== '' || $área !== '')) {
-        $stmt = $pdo->prepare('INSERT INTO equipment (client_id, name, serial, área, location, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, "requiere revisión", NOW(), NOW())');
-        $stmt->execute([(int) $client['id'], $equipmentName ?: 'Equipo reportado por portal', $serial, $área, $área]);
+    if (!$equipmentId && ($equipmentName !== '' || $serial !== '' || $area !== '')) {
+        $stmt = $pdo->prepare('INSERT INTO equipment (client_id, name, serial, area, location, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, "requiere revisión", NOW(), NOW())');
+        $stmt->execute([(int) $client['id'], $equipmentName ?: 'Equipo reportado por portal', $serial, $area, $area]);
         $equipmentId = (int) $pdo->lastInsertId();
     }
 
@@ -165,7 +165,7 @@ require_once __DIR__ . '/includes/public_header.php';
                             <select name="equipment_id" x-model="fields.equipment_id">
                                 <option value="">No estoy seguro o no aparece</option>
                                 <?php foreach ($equipmentList as $item): ?>
-                                    <option value="<?= (int) $item['id'] ?>"><?= e($item['name'] . ' - ' . ($item['serial'] ?: $item['área'] ?: 'sin serie')) ?></option>
+                                    <option value="<?= (int) $item['id'] ?>"><?= e($item['name'] . ' - ' . ($item['serial'] ?: $item['area'] ?: 'sin serie')) ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </label>
@@ -179,7 +179,7 @@ require_once __DIR__ . '/includes/public_header.php';
                         </label>
                         <label class="sch-field sch-field--full">
                             <span>Área afectada</span>
-                            <input name="área" x-model="fields.área" placeholder="Ej. Emergencia, quirófano 2, central de gases">
+                            <input name="area" x-model="fields.area" placeholder="Ej. Emergencia, quirófano 2, central de gases">
                         </label>
                     </div>
                 </div>
