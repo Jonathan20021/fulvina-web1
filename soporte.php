@@ -131,7 +131,8 @@ require_once __DIR__ . '/includes/public_header.php';
                     <div>
                         <h3>Emergencia crítica 24/7</h3>
                         <p>Si una falla detiene un área clínica, llama directo.</p>
-                        <a href="tel:+18095675559"><?= e(APP_PHONE) ?></a>
+                        <a href="<?= tel_href(APP_PHONE) ?>"><?= e(APP_PHONE) ?></a>
+                        <a href="<?= tel_href(APP_PHONE_SUPPORT) ?>"><?= e(APP_PHONE_SUPPORT) ?></a>
                     </div>
                 </div>
             </div>

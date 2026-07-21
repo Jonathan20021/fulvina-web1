@@ -801,6 +801,22 @@ function client_support_access(array $client, bool $persist = true): array
     return ['slug' => $slug, 'token' => $token];
 }
 
+/**
+ * "(809) 905-4318" -> "tel:+18099054318". Los números se editan desde
+ * Configuración, así que el href nunca debe quedar escrito a mano.
+ */
+function tel_href(string $phone, string $countryCode = '1'): string
+{
+    $digits = preg_replace('/\D+/', '', $phone) ?? '';
+    if ($digits === '') {
+        return '#';
+    }
+    if (strlen($digits) === 10) {
+        $digits = $countryCode . $digits;
+    }
+    return 'tel:+' . $digits;
+}
+
 /** Root-relative path -> full https://host/... link, safe to send to a client. */
 function absolute_url(string $relative): string
 {

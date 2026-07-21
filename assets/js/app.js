@@ -288,11 +288,28 @@ window.crmFormModal = function crmFormModal(defaults, autoEdit) {
   };
 };
 
-window.publicTicketWizard = function publicTicketWizard() {
+/* Public helpdesk wizard: 4 guided steps + review before sending the ticket.
+   `config` = { storageKey, equipment: [{id, label}] } injected per client. */
+window.publicTicketWizard = function publicTicketWizard(config) {
+  const cfg = config || {};
+  const STEPS = 4;
+  const CONTACT_KEYS = ['contact_name', 'email', 'phone', 'department'];
+
   return {
     step: 1,
-    titles: ['Contacto del reporte', 'Activo afectado', 'Prioridad y descripcion'],
+    steps: STEPS,
+    titles: ['Contacto del reporte', 'Activo afectado', 'Prioridad y descripción', 'Revisión y envío'],
+    hints: [
+      'Necesitamos a quién buscar cuando el técnico tome el caso.',
+      'Identifica el activo para llegar con el repuesto correcto.',
+      'Mientras mejor descrito, más rápido se resuelve.',
+      'Revisa antes de enviar. Puedes editar cualquier dato.'
+    ],
     error: '',
+    errors: {},
+    sending: false,
+    remembered: false,
+    equipment: Array.isArray(cfg.equipment) ? cfg.equipment : [],
     fields: {
       contact_name: '',
       email: '',
@@ -307,36 +324,140 @@ window.publicTicketWizard = function publicTicketWizard() {
       description: '',
       availability: ''
     },
+
     init() {
+      this.restoreContact();
       this.$nextTick(() => schInitIcons());
     },
+
+    /* The same person usually reports every case: prefill their contact data. */
+    restoreContact() {
+      if (!cfg.storageKey) return;
+      try {
+        const saved = JSON.parse(window.localStorage.getItem(cfg.storageKey) || 'null');
+        if (!saved || !saved.contact_name) return;
+        CONTACT_KEYS.forEach((k) => { if (saved[k]) this.fields[k] = saved[k]; });
+        this.remembered = true;
+      } catch (e) { /* storage blocked or corrupt: start empty */ }
+    },
+    rememberContact() {
+      if (!cfg.storageKey) return;
+      try {
+        const data = {};
+        CONTACT_KEYS.forEach((k) => { data[k] = this.fields[k]; });
+        window.localStorage.setItem(cfg.storageKey, JSON.stringify(data));
+      } catch (e) { /* ignore */ }
+    },
+    forget() {
+      CONTACT_KEYS.forEach((k) => { this.fields[k] = ''; });
+      this.remembered = false;
+      try { window.localStorage.removeItem(cfg.storageKey); } catch (e) { /* ignore */ }
+    },
+
+    equipmentLabel() {
+      const found = this.equipment.find((item) => String(item.id) === String(this.fields.equipment_id));
+      return found ? found.label : '';
+    },
+
+    get review() {
+      const f = this.fields;
+      const asset = this.equipmentLabel() || [f.equipment_name, f.serial].filter(Boolean).join(' · ');
+      const row = (label, value, step) => ({ label, value: value || 'Sin especificar', empty: !value, step });
+      return [
+        row('Contacto', f.contact_name, 1),
+        row('Correo', f.email, 1),
+        row('Teléfono', f.phone, 1),
+        row('Área o departamento', f.department || f.area, 1),
+        row('Equipo', asset, 2),
+        row('Impacto', f.impact, 3),
+        row('Asunto', f.subject, 3),
+        row('Descripción', f.description, 3),
+        row('Disponibilidad', f.availability, 3)
+      ];
+    },
+
     validEmail(value) {
       return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
     },
-    validateCurrent() {
-      this.error = '';
-      if (this.step === 1) {
-        if (!this.fields.contact_name.trim()) this.error = 'Indica el nombre del contacto que reporta el caso.';
-        else if (!this.validEmail(this.fields.email)) this.error = 'Indica un correo institucional valido.';
+    clear(field) {
+      if (this.errors[field]) {
+        delete this.errors[field];
+        this.errors = { ...this.errors };
       }
-      if (this.step === 3) {
-        if (!this.fields.subject.trim()) this.error = 'Escribe un asunto claro para el ticket.';
-        else if (!this.fields.description.trim()) this.error = 'Describe el problema antes de enviar el ticket.';
+      if (!Object.keys(this.errors).length) this.error = '';
+    },
+
+    /* Validates one step and marks the offending fields. */
+    validateStep(step) {
+      const f = this.fields;
+      const found = {};
+      if (step === 1) {
+        if (!f.contact_name.trim()) found.contact_name = 'Indica quién reporta el caso.';
+        if (!this.validEmail(f.email)) found.email = 'Escribe un correo válido, ahí llega el seguimiento.';
       }
-      return this.error === '';
+      if (step === 3) {
+        if (!f.subject.trim()) found.subject = 'Resume el caso en una línea.';
+        else if (f.subject.trim().length < 6) found.subject = 'El asunto es muy corto para identificar el caso.';
+        if (!f.description.trim()) found.description = 'Describe la falla antes de enviar el ticket.';
+        else if (f.description.trim().length < 20) found.description = 'Agrega un poco más de detalle: síntomas, alarmas u hora.';
+      }
+      this.errors = found;
+      const keys = Object.keys(found);
+      this.error = keys.length ? found[keys[0]] : '';
+      if (keys.length) this.focusField(keys[0]);
+      return keys.length === 0;
+    },
+    focusField(name) {
+      this.$nextTick(() => {
+        const el = this.$root.querySelector('[name="' + name + '"]');
+        if (el) el.focus({ preventScroll: false });
+      });
+    },
+
+    go(step) {
+      this.step = Math.min(this.steps, Math.max(1, step));
+      this.$nextTick(() => {
+        schInitIcons();
+        const top = this.$root.querySelector('.helpdesk-wizard');
+        if (top && window.innerWidth <= 1099) top.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
     },
     next() {
-      if (!this.validateCurrent()) return;
-      this.step = Math.min(3, this.step + 1);
-      this.$nextTick(() => schInitIcons());
+      if (!this.validateStep(this.step)) return;
+      if (this.step === 1) this.rememberContact();
+      this.go(this.step + 1);
     },
     back() {
       this.error = '';
-      this.step = Math.max(1, this.step - 1);
-      this.$nextTick(() => schInitIcons());
+      this.errors = {};
+      this.go(this.step - 1);
     },
-    validateFinal(event) {
-      if (!this.validateCurrent()) event.preventDefault();
+    /* Progress chips: jump back freely, forward only through validation. */
+    goTo(step) {
+      if (step === this.step) return;
+      if (step < this.step) { this.error = ''; this.errors = {}; this.go(step); return; }
+      for (let s = this.step; s < step; s += 1) {
+        if (!this.validateStep(s)) { this.go(s); return; }
+      }
+      this.go(step);
+    },
+    /* Enter must advance the wizard, never submit a half-filled ticket. */
+    onEnter(event) {
+      const tag = (event.target.tagName || '').toLowerCase();
+      if (tag === 'textarea') return;
+      event.preventDefault();
+      if (this.step < this.steps) { this.next(); return; }
+      const form = event.target.closest('form');
+      if (form) form.requestSubmit();
+    },
+    /* Runs on the form's submit event, so disabling the button here is safe. */
+    onSubmit(event) {
+      for (let s = 1; s <= this.steps; s += 1) {
+        if (!this.validateStep(s)) { event.preventDefault(); this.go(s); return; }
+      }
+      if (this.sending) { event.preventDefault(); return; }
+      this.sending = true;
+      this.rememberContact();
     }
   };
 };

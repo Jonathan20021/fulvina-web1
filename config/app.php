@@ -20,6 +20,7 @@ function company_field_defs(): array
         'company_email'      => ['Correo principal', 'sch@sch.com.do', 'APP_EMAIL'],
         'company_info_email' => ['Correo de información', 'info@sch.com.do', 'APP_INFO_EMAIL'],
         'company_phone'      => ['Teléfono (RD)', '(809) 567-5559', 'APP_PHONE'],
+        'company_phone_support' => ['Teléfono de soporte técnico (RD)', '(809) 905-4318', 'APP_PHONE_SUPPORT'],
         'company_phone_us'   => ['Teléfono (US)', '+1 (305) 597-4090', 'APP_PHONE_US'],
         'company_whatsapp'   => ['WhatsApp (solo números)', '18095675559', 'APP_WHATSAPP'],
         'company_address'    => ['Dirección (RD)', 'Santo Domingo, Republica Dominicana', 'APP_ADDRESS'],
