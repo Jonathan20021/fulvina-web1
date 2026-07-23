@@ -649,6 +649,81 @@ function invoice_default_terms(): string
 }
 
 /**
+ * Whether a draft has an active, in-range, unexpired NCF sequence available.
+ * Same filter the emission uses, so the UI never offers what emit would reject.
+ */
+function invoice_has_sequence(string $prefix, string $type): bool
+{
+    if (!db(false) || !table_exists('ncf_sequences')) {
+        return false;
+    }
+    $row = fetch_one(
+        'SELECT COUNT(*) c FROM ncf_sequences WHERE prefix=? AND ncf_type=? AND active=1 AND seq_next<=seq_to AND (expiration IS NULL OR expiration>=CURDATE())',
+        [$prefix !== '' ? $prefix : 'B', $type !== '' ? $type : '02']
+    );
+    return (int) ($row['c'] ?? 0) > 0;
+}
+
+/**
+ * Emit a draft: take the next number from its authorized NCF range, stamp it on
+ * the invoice and lock the document. Single source of truth for every emission
+ * path (invoice detail, list row action, "guardar y emitir").
+ * Returns ['ok' => bool, 'message' => string, 'ncf' => string].
+ */
+function invoice_emit(int $invoiceId): array
+{
+    $inv = $invoiceId > 0 ? fetch_one('SELECT * FROM invoices WHERE id=?', [$invoiceId]) : null;
+    if (!$inv) {
+        return ['ok' => false, 'message' => 'La factura no existe.', 'ncf' => ''];
+    }
+    if (!invoice_is_editable($inv['status'])) {
+        return ['ok' => false, 'message' => 'Esta factura ya fue emitida.', 'ncf' => ''];
+    }
+    if ((int) (fetch_one('SELECT COUNT(*) c FROM invoice_items WHERE invoice_id=?', [$invoiceId])['c'] ?? 0) === 0) {
+        return ['ok' => false, 'message' => 'Agrega al menos una partida antes de emitir.', 'ncf' => ''];
+    }
+    $type = (string) $inv['ncf_type'];
+    $prefix = (string) $inv['ncf_prefix'];
+    if (ncf_requires_rnc($type) && trim((string) ($inv['client_rnc'] ?? '')) === '') {
+        return ['ok' => false, 'message' => 'El tipo «' . ncf_type_label($type) . '» exige el RNC/Cédula del cliente. Complétalo en la ficha del cliente y vuelve a intentarlo.', 'ncf' => ''];
+    }
+
+    $pdo = db();
+    $ownTransaction = !$pdo->inTransaction();
+    if ($ownTransaction) {
+        $pdo->beginTransaction();
+    }
+    try {
+        $seq = $pdo->prepare('SELECT * FROM ncf_sequences WHERE prefix=? AND ncf_type=? AND active=1 AND seq_next<=seq_to AND (expiration IS NULL OR expiration>=CURDATE()) ORDER BY id ASC LIMIT 1 FOR UPDATE');
+        $seq->execute([$prefix, $type]);
+        $pool = $seq->fetch();
+        if (!$pool) {
+            if ($ownTransaction) { $pdo->rollBack(); }
+            return [
+                'ok' => false,
+                'message' => 'No hay una secuencia NCF activa y vigente para ' . $prefix . $type . ' (' . ncf_type_label($type) . '). Revisa el rango en «Secuencias NCF»: debe estar activo, sin agotar y sin vencer.',
+                'ncf' => '',
+            ];
+        }
+        $ncf = ncf_format((string) $pool['prefix'], (string) $pool['ncf_type'], (int) $pool['seq_next']);
+        $pdo->prepare('UPDATE ncf_sequences SET seq_next=seq_next+1, updated_at=NOW() WHERE id=?')->execute([(int) $pool['id']]);
+
+        $issue = date('Y-m-d');
+        $dueDays = max(0, (int) setting_get('invoice_due_days', '30'));
+        $due = ((string) $inv['payment_condition'] === 'Crédito') ? date('Y-m-d', strtotime("+{$dueDays} days")) : $issue;
+        $pdo->prepare('UPDATE invoices SET ncf=?, ncf_expiration=?, status=?, issue_date=?, due_date=?, emitted_at=NOW(), updated_at=NOW() WHERE id=?')
+            ->execute([$ncf, $pool['expiration'], 'Emitida', $issue, $due, $invoiceId]);
+        if ($ownTransaction) { $pdo->commit(); }
+        log_activity('invoice', $invoiceId, 'factura_emitida', $ncf);
+        return ['ok' => true, 'message' => 'Factura emitida con NCF ' . $ncf . '.', 'ncf' => $ncf];
+    } catch (Throwable $e) {
+        if ($ownTransaction && $pdo->inTransaction()) { $pdo->rollBack(); }
+        error_log('invoice_emit: ' . $e->getMessage());
+        return ['ok' => false, 'message' => 'No se pudo emitir la factura. Inténtalo de nuevo.', 'ncf' => ''];
+    }
+}
+
+/**
  * Provision the invoicing schema at runtime (mirrors ensure_quote_schema):
  * invoices, invoice_items, invoice_payments and ncf_sequences. Idempotent.
  */

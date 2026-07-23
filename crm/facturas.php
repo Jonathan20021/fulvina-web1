@@ -111,9 +111,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
         $sid = (int) ($_POST['id'] ?? 0);
         $prefix = strtoupper(trim((string) ($_POST['prefix'] ?? 'B'))) === 'E' ? 'E' : 'B';
         $type = substr(preg_replace('/\D/', '', (string) ($_POST['ncf_type'] ?? '')) ?: '', 0, 2);
+        // El tipo debe pertenecer a la serie elegida; si no, el rango nunca casaría
+        // con una factura (B01 vs E31) y el NCF no se asignaría al emitir.
+        $type = ncf_normalize_type($type, $prefix);
         $from = max(1, (int) ($_POST['seq_from'] ?? 1));
         $to = max($from, (int) ($_POST['seq_to'] ?? $from));
-        $next = (int) ($_POST['seq_next'] ?? $from);
+        // «Próximo a usar»: si el campo llega vacío al editar un rango existente
+        // se conserva el contador actual; nunca se rebobina en silencio.
+        $nextRaw = trim((string) ($_POST['seq_next'] ?? ''));
+        if ($nextRaw === '' && $sid > 0) {
+            $next = (int) (fetch_one('SELECT seq_next FROM ncf_sequences WHERE id=?', [$sid])['seq_next'] ?? $from);
+        } else {
+            $next = (int) $nextRaw;
+        }
         if ($next < $from) { $next = $from; }
         $exp = trim((string) ($_POST['expiration'] ?? '')) ?: null;
         $active = isset($_POST['active']) ? 1 : 0;
@@ -153,50 +163,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
     if ($form === 'emit') {
         if (!current_can('facturas.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/facturas.php'); }
         $iid = (int) ($_POST['id'] ?? 0);
-        $inv = $iid > 0 ? fetch_one('SELECT * FROM invoices WHERE id=?', [$iid]) : null;
-        if (!$inv) { redirect('crm/facturas.php'); }
-        if (!invoice_is_editable($inv['status'])) {
-            flash('warning', 'Esta factura ya fue emitida.');
-            redirect('crm/facturas.php?action=view&id=' . $iid);
-        }
-        $itemCount = (int) (fetch_one('SELECT COUNT(*) c FROM invoice_items WHERE invoice_id=?', [$iid])['c'] ?? 0);
-        if ($itemCount === 0) {
-            flash('warning', 'Agrega al menos una partida antes de emitir.');
-            redirect('crm/facturas.php?action=view&id=' . $iid);
-        }
-        if (ncf_requires_rnc((string) $inv['ncf_type']) && trim((string) ($inv['client_rnc'] ?? '')) === '') {
-            flash('warning', 'El tipo «' . ncf_type_label((string) $inv['ncf_type']) . '» exige el RNC/Cédula del cliente. Edítalo en el cliente y vuelve a intentarlo.');
-            redirect('crm/facturas.php?action=view&id=' . $iid);
-        }
-
-        $pdo = db();
-        $pdo->beginTransaction();
-        try {
-            $seq = $pdo->prepare('SELECT * FROM ncf_sequences WHERE prefix=? AND ncf_type=? AND active=1 AND seq_next<=seq_to AND (expiration IS NULL OR expiration>=CURDATE()) ORDER BY id ASC LIMIT 1 FOR UPDATE');
-            $seq->execute([$inv['ncf_prefix'], $inv['ncf_type']]);
-            $pool = $seq->fetch();
-            if (!$pool) {
-                $pdo->rollBack();
-                flash('warning', 'No hay una secuencia NCF activa y vigente para ' . e((string) $inv['ncf_prefix']) . $inv['ncf_type'] . '. Configúrala en «Secuencias NCF».');
-                redirect('crm/facturas.php?action=view&id=' . $iid);
-            }
-            $seqNum = (int) $pool['seq_next'];
-            $ncf = ncf_format((string) $pool['prefix'], (string) $pool['ncf_type'], $seqNum);
-            $pdo->prepare('UPDATE ncf_sequences SET seq_next=seq_next+1, updated_at=NOW() WHERE id=?')->execute([(int) $pool['id']]);
-
-            $issue = date('Y-m-d');
-            $dueDays = max(0, (int) setting_get('invoice_due_days', '30'));
-            $due = ((string) $inv['payment_condition'] === 'Crédito') ? date('Y-m-d', strtotime("+{$dueDays} days")) : $issue;
-            $pdo->prepare('UPDATE invoices SET ncf=?, ncf_expiration=?, status=?, issue_date=?, due_date=?, emitted_at=NOW(), updated_at=NOW() WHERE id=?')
-                ->execute([$ncf, $pool['expiration'], 'Emitida', $issue, $due, $iid]);
-            $pdo->commit();
-            log_activity('invoice', $iid, 'factura_emitida', $ncf);
-            flash('success', 'Factura emitida con NCF ' . $ncf . '.');
-        } catch (Throwable $e) {
-            if ($pdo->inTransaction()) { $pdo->rollBack(); }
-            error_log('facturas emit: ' . $e->getMessage());
-            flash('warning', 'No se pudo emitir la factura. Inténtalo de nuevo.');
-        }
+        if ($iid <= 0) { redirect('crm/facturas.php'); }
+        $res = invoice_emit($iid);
+        flash($res['ok'] ? 'success' : 'warning', $res['message']);
         redirect('crm/facturas.php?action=view&id=' . $iid);
     }
 
@@ -353,7 +322,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
             $pdo->prepare('UPDATE invoices SET is_ecf=?, ecf_status=? WHERE id=?')->execute([$prefix === 'E' ? 1 : 0, $prefix === 'E' ? 'Manual' : null, $invoiceId]);
             $pdo->commit();
             log_activity('invoice', $invoiceId, $logAction, $title);
-            flash('success', $flashMsg);
+            // "Guardar y emitir": assign the NCF right away instead of leaving a draft.
+            if ((string) ($_POST['emit_now'] ?? '') === '1') {
+                $res = invoice_emit($invoiceId);
+                flash($res['ok'] ? 'success' : 'warning', $res['ok'] ? $res['message'] : 'Factura guardada como borrador, pero no se pudo emitir: ' . $res['message']);
+            } else {
+                flash('success', $flashMsg);
+            }
             redirect('crm/facturas.php?action=view&id=' . $invoiceId);
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) { $pdo->rollBack(); }
@@ -496,7 +471,7 @@ if ($action === 'view') {
     $editable = invoice_is_editable($status);
     $net = round((float) $inv['total'] - (float) $inv['itbis_retained'] - (float) $inv['isr_retained'], 2);
     $balance = round($net - (float) ($inv['amount_paid'] ?? 0), 2);
-    $hasActiveSeq = $hasInvoices ? (int) (fetch_one('SELECT COUNT(*) c FROM ncf_sequences WHERE prefix=? AND ncf_type=? AND active=1 AND seq_next<=seq_to AND (expiration IS NULL OR expiration>=CURDATE())', [$inv['ncf_prefix'] ?? 'B', $inv['ncf_type'] ?? '02'])['c'] ?? 0) > 0 : true;
+    $hasActiveSeq = $hasInvoices ? invoice_has_sequence((string) ($inv['ncf_prefix'] ?? 'B'), (string) ($inv['ncf_type'] ?? '02')) : true;
     $overdue = invoice_is_overdue($inv);
 
     $crmTitle = 'Factura ' . ($inv['invoice_number'] ?? '');
@@ -519,7 +494,7 @@ if ($action === 'view') {
         </div>
 
         <?php if ($editable && !$hasActiveSeq && current_can('facturas.edit')): ?>
-            <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">No hay secuencia NCF activa para <b><?= e(($inv['ncf_prefix'] ?? 'B') . ($inv['ncf_type'] ?? '02')) ?></b>. <a class="underline" href="<?= url('crm/facturas.php?action=ncf') ?>">Configura el rango</a> antes de emitir.</div>
+            <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">No hay secuencia NCF disponible para <b><?= e(($inv['ncf_prefix'] ?? 'B') . ($inv['ncf_type'] ?? '02')) ?></b> (<?= e(ncf_type_label((string) ($inv['ncf_type'] ?? '02'))) ?>). El rango debe existir con esa misma serie y tipo, estar marcado como activo, no estar agotado y no estar vencido. <a class="underline" href="<?= url('crm/facturas.php?action=ncf') ?>">Revisar secuencias NCF</a>.</div>
         <?php endif; ?>
 
         <!-- Fiscal action bar -->
@@ -751,12 +726,41 @@ if ($hasInvoices) {
 
 $queryForPage = fn (int $p) => http_build_query(array_filter(['q' => $listQ, 'status' => $statusFilter, 'client_id' => $clientFilter ?: '', 'page' => $p], fn ($v) => $v !== '' && $v !== null));
 
+/*
+ * Rango NCF vigente por serie+tipo: el mismo criterio y el mismo orden que usa
+ * invoice_emit(), así que «próximo» es exactamente el NCF que se asignará.
+ * Alimenta el botón «Emitir» de la lista y la vista previa dentro del modal.
+ */
+$activeSeqPairs = [];
+if ($hasInvoices) {
+    foreach (fetch_all('SELECT * FROM ncf_sequences WHERE active=1 AND seq_next<=seq_to AND (expiration IS NULL OR expiration>=CURDATE()) ORDER BY id ASC') as $s) {
+        $pair = (string) $s['prefix'] . (string) $s['ncf_type'];
+        if (isset($activeSeqPairs[$pair])) {
+            continue; // ya tomamos el primer rango del par: es el que consumirá la emisión
+        }
+        $activeSeqPairs[$pair] = [
+            'next' => ncf_format((string) $s['prefix'], (string) $s['ncf_type'], (int) $s['seq_next']),
+            'remaining' => max(0, (int) $s['seq_to'] - (int) $s['seq_next'] + 1),
+            'expiration' => $s['expiration'] ? date_es((string) $s['expiration']) : '',
+        ];
+    }
+}
+
+/* RNC por cliente, para avisar en el modal solo cuando de verdad falta. */
+$clientRncMap = [];
+foreach ($clients as $cl) {
+    $clientRncMap[(string) $cl['id']] = trim((string) ($cl['rnc'] ?? ''));
+}
+
 $modalOpts = json_encode([
     'autoOpen' => (isset($_GET['new']) || $action === 'new' || $prefillPayload) && !$editPayload,
     'autoEdit' => $editPayload,
     'prefill' => $prefillPayload,
     'types' => array_values(array_map(fn ($code, $t) => ['code' => $code, 'label' => $t[0], 'series' => $t[3], 'rnc' => $t[2]], array_keys($ncfTypes), $ncfTypes)),
     'pairs' => ncf_pair_map(),
+    'sequences' => (object) $activeSeqPairs,
+    'clientRnc' => (object) $clientRncMap,
+    'ncfUrl' => url('crm/facturas.php?action=ncf'),
     'defaults' => ['rate' => $defaultRate, 'tax' => $defaultTax, 'type' => $defaultType, 'prefix' => ncf_series($defaultType), 'condition' => $defaultCondition, 'terms' => $defaultTerms, 'issueDate' => date('Y-m-d'), 'dueDate' => date('Y-m-d', strtotime("+{$defaultDueDays} days"))],
 ], JSON_UNESCAPED_UNICODE);
 
@@ -815,6 +819,14 @@ require_once __DIR__ . '/../includes/crm_header.php';
                             <div class="crm-row-actions">
                                 <a class="crm-icon-action" href="<?= url('crm/facturas.php?action=view&id=' . (int) $inv['id']) ?>" title="Ver"><i data-lucide="eye"></i></a>
                                 <?php if ($hasInvoices && invoice_is_editable($inv['status'] ?? '') && current_can('facturas.edit')): ?><a class="crm-icon-action" href="<?= url('crm/facturas.php?edit=' . (int) $inv['id']) ?>" title="Editar"><i data-lucide="pencil"></i></a><?php endif; ?>
+                                <?php if ($hasInvoices && invoice_is_editable($inv['status'] ?? '') && current_can('facturas.edit')):
+                                    $pair = (string) ($inv['ncf_prefix'] ?? 'B') . (string) ($inv['ncf_type'] ?? '');
+                                    $canEmit = isset($activeSeqPairs[$pair]); ?>
+                                    <form method="post" style="display:inline" onsubmit="return confirm('Se asignará el NCF de la secuencia <?= e($pair) ?> y la factura quedará bloqueada. ¿Emitir <?= e(addslashes((string) $inv['invoice_number'])) ?>?');">
+                                        <?= csrf_field() ?><input type="hidden" name="form" value="emit"><input type="hidden" name="id" value="<?= (int) $inv['id'] ?>">
+                                        <button type="submit" class="crm-icon-action" title="<?= $canEmit ? 'Emitir y asignar NCF' : 'Sin secuencia NCF activa para ' . e($pair) ?>" <?= $canEmit ? '' : 'disabled' ?>><i data-lucide="badge-check"></i></button>
+                                    </form>
+                                <?php endif; ?>
                                 <button type="button" class="crm-icon-action" title="Vista previa PDF" onclick="crmPdfPreviewOpen('<?= url('crm/factura_pdf.php?id=' . (int) $inv['id']) ?>','<?= url('crm/factura_pdf.php?id=' . (int) $inv['id'] . '&download=1') ?>','<?= e(addslashes((string) ($inv['ncf'] ?? $inv['invoice_number']))) ?>')"><i data-lucide="file-text"></i></button>
                                 <?php if ($hasInvoices && invoice_is_editable($inv['status'] ?? '') && current_can('facturas.delete')): ?>
                                     <form method="post" style="display:inline" onsubmit="return confirm('¿Eliminar el borrador <?= e(addslashes((string) $inv['invoice_number'])) ?>?');"><?= csrf_field() ?><input type="hidden" name="delete_id" value="<?= (int) $inv['id'] ?>"><button type="submit" class="crm-icon-action crm-icon-action--danger" title="Eliminar borrador"><i data-lucide="trash-2"></i></button></form>
@@ -847,7 +859,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <span class="crm-modal__icon"><i data-lucide="receipt"></i></span>
                 <div class="crm-modal__titles">
                     <h2 x-text="form.id ? 'Editar factura (borrador)' : 'Nueva factura'">Nueva factura</h2>
-                    <p>El comprobante se guarda como borrador; el NCF se asigna al emitir.</p>
+                    <p>«Crear borrador» lo deja editable sin consumir NCF; «Guardar y emitir NCF» toma el número de tu secuencia autorizada al instante.</p>
                 </div>
                 <button type="button" class="crm-modal__close" @click="close()" aria-label="Cerrar"><i data-lucide="x"></i></button>
             </header>
@@ -870,8 +882,18 @@ require_once __DIR__ . '/../includes/crm_header.php';
                     </label>
                     <label class="crm-field"><span>Condición de pago</span><select name="payment_condition" x-model="form.payment_condition" class="crm-select"><?php foreach ($payConditions as $c): ?><option value="<?= e($c) ?>"><?= e($c) ?></option><?php endforeach; ?></select></label>
                 </div>
+                <!-- NCF que tomará esta factura: el próximo número del rango autorizado. -->
+                <div class="inv-ncf-preview" :class="seqInfo() ? 'is-ok' : 'is-warn'" x-show="form.client_id" x-cloak>
+                    <span class="inv-ncf-preview__ic"><i data-lucide="hash"></i></span>
+                    <div class="inv-ncf-preview__body">
+                        <span class="inv-ncf-preview__k" x-text="seqInfo() ? 'NCF que se asignará al emitir' : 'Sin secuencia NCF disponible'"></span>
+                        <strong class="inv-ncf-preview__v" x-text="seqInfo() ? seqInfo().next : (form.ncf_prefix + form.ncf_type + ' — sin rango configurado')"></strong>
+                        <small x-show="seqInfo()" x-text="'Rango ' + form.ncf_prefix + form.ncf_type + ' · ' + seqInfo().remaining.toLocaleString('en-US') + ' disponibles' + (seqInfo().expiration ? ' · vence ' + seqInfo().expiration : '') + (clientRnc() ? ' · RNC del cliente ' + clientRnc() : '')"></small>
+                        <small x-show="!seqInfo()">Registra el rango autorizado por la DGII para este tipo de comprobante en <a class="underline" href="<?= url('crm/facturas.php?action=ncf') ?>">Secuencias NCF</a>; sin él la factura solo puede guardarse como borrador.</small>
+                    </div>
+                </div>
                 <p class="inv-ecf-note" x-show="form.ncf_prefix==='E'" x-cloak><i data-lucide="zap"></i> e-CF (comprobante fiscal electrónico): por ahora se captura de forma manual; la transmisión y validación con la DGII se integrará más adelante.</p>
-                <p class="inv-rnc-warn" x-show="requiresRnc()" x-cloak><i data-lucide="alert-triangle"></i> Este tipo de comprobante exige el RNC/Cédula del cliente para poder emitirse.</p>
+                <p class="inv-rnc-warn" x-show="requiresRnc() && form.client_id && !clientRnc()" x-cloak><i data-lucide="alert-triangle"></i> Este tipo de comprobante exige el RNC/Cédula del cliente y la ficha del cliente no lo tiene: complétalo antes de emitir.</p>
                 <div class="crm-form-grid" x-show="['03','04','33','34'].includes(form.ncf_type)" x-cloak>
                     <label class="crm-field"><span>NCF que modifica (nota de crédito/débito)</span><input name="modifies_ncf" x-model="form.modifies_ncf" placeholder="Ej. B0100000123" class="crm-input"></label>
                 </div>
@@ -931,8 +953,10 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 </div>
             </div>
             <footer class="crm-modal__foot">
+                <input type="hidden" name="emit_now" value="0">
                 <button type="button" class="crm-secondary-btn" @click="close()">Cancelar</button>
-                <button type="submit" class="crm-primary-btn"><i data-lucide="save" class="h-4 w-4"></i><span x-text="form.id ? 'Guardar cambios' : 'Crear borrador'">Crear borrador</span></button>
+                <button type="submit" class="crm-secondary-btn" onclick="this.form.emit_now.value='0'"><i data-lucide="save" class="h-4 w-4"></i><span x-text="form.id ? 'Guardar cambios' : 'Crear borrador'">Crear borrador</span></button>
+                <button type="submit" class="crm-primary-btn" onclick="if(!confirm('Se guardará la factura y se le asignará el NCF de tu secuencia autorizada. Una vez emitida no se puede editar. ¿Continuar?')){return false;} this.form.emit_now.value='1';"><i data-lucide="badge-check" class="h-4 w-4"></i>Guardar y emitir NCF</button>
             </footer>
         </form>
     </dialog>

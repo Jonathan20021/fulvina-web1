@@ -554,6 +554,8 @@ window.crmInvoiceModal = function crmInvoiceModal(opts) {
   var defaults = opts.defaults || {};
   var types = opts.types || [];
   var pairs = opts.pairs || {};
+  var sequences = opts.sequences || {};   // 'B01' => {next, remaining, expiration}
+  var clientRncMap = opts.clientRnc || {};
   return {
     form: {},
     items: [{ d: '', q: 1, p: 0, disc: 0, exempt: false }],
@@ -589,6 +591,10 @@ window.crmInvoiceModal = function crmInvoiceModal(opts) {
       this.form.ncf_type = next;
     },
     requiresRnc() { var t = types.find((x) => x.code === this.form.ncf_type); return !!(t && t.rnc); },
+    /* Rango vigente para la serie+tipo elegidos: mismo que consumirá la emisión. */
+    seqInfo() { return sequences[(this.form.ncf_prefix || 'B') + (this.form.ncf_type || '')] || null; },
+    /* RNC del cliente seleccionado ('' si la ficha no lo tiene). */
+    clientRnc() { return clientRncMap[String(this.form.client_id || '')] || ''; },
     sym() { return this.currency === 'USD' ? 'US$' : 'RD$'; },
     altSym() { return this.currency === 'USD' ? 'RD$' : 'US$'; },
     nf(n) { return (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
