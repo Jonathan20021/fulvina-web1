@@ -14,7 +14,7 @@ function company_field_defs(): array
 {
     return [
         'company_name'       => ['Nombre comercial', 'SCH MEDICOS', 'APP_NAME'],
-        'company_legal'      => ['Razón social', 'SCH MEDICOS, SRL', 'APP_LEGAL'],
+        'company_legal'      => ['Razón social', 'SERVICIOS PARA CLINICAS Y HOSPITALES, SRL', 'APP_LEGAL'],
         'company_tagline'    => ['Eslogan', 'Servicios para Clinicas y Hospitales', 'APP_TAGLINE'],
         'company_rnc'        => ['RNC', '', 'APP_RNC'],
         'company_email'      => ['Correo principal', 'sch@sch.com.do', 'APP_EMAIL'],

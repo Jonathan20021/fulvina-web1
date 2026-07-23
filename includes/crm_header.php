@@ -175,7 +175,7 @@ foreach ($crmNavGroups as $g => $items) {
             </nav>
             <div class="crm-nav__footer">
                 <div class="crm-local-card">
-                    <p>SCH MEDICOS, SRL</p>
+                    <p><?= e(APP_LEGAL) ?></p>
                     <span>Santo Domingo, Rep. Dom.</span>
                     <hr>
                     <small>Hora local</small>

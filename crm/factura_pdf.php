@@ -192,7 +192,7 @@ ob_start();
                     <tr>
                         <?php if ($logoData): ?><td style="width: 70px; vertical-align: top;"><img src="<?= $logoData ?>" class="brand-logo"></td><?php endif; ?>
                         <td style="vertical-align: top; padding-top: 2px;">
-                            <div class="brand-name">SCH MEDICOS</div>
+                            <div class="brand-name"><?= $h(APP_NAME) ?></div>
                             <div class="brand-sub"><?= $h(APP_TAGLINE) ?></div>
                             <div class="brand-meta"><?= $h(APP_LEGAL) ?><?php if (APP_RNC !== ''): ?> · RNC: <?= $h(APP_RNC) ?><?php endif; ?><br><?= $h(APP_ADDRESS) ?><br>Tel. <?= $h(APP_PHONE) ?> · <?= $h(APP_INFO_EMAIL) ?></div>
                         </td>

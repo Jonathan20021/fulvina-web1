@@ -75,7 +75,7 @@ ob_start();
             <table><tr>
                 <?php if ($logoData): ?><td style="width:54px;vertical-align:top;"><img src="<?= $logoData ?>" style="width:46px;"></td><?php endif; ?>
                 <td style="vertical-align:top;padding-top:2px;">
-                    <div class="brand-name">SCH MEDICOS</div>
+                    <div class="brand-name"><?= $h(APP_NAME) ?></div>
                     <div class="brand-sub"><?= $h(APP_TAGLINE) ?></div>
                 </td>
             </tr></table>
