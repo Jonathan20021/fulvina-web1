@@ -65,7 +65,7 @@ ob_start();
 </style></head>
 <body>
     <div class="foot"><div class="foot-inner"><table><tr>
-        <td><b><?= $h(APP_NAME) ?></b> · Centro de reportes · Generado <?= $h(date('d/m/Y H:i')) ?></td>
+        <td><b><?= $h(APP_LEGAL) ?></b> · Centro de reportes · Generado <?= $h(date('d/m/Y H:i')) ?></td>
         <td class="right">Tel. <?= $h(APP_PHONE) ?> · <?= $h(APP_INFO_EMAIL) ?></td>
     </tr></table></div></div>
 
@@ -75,8 +75,8 @@ ob_start();
             <table><tr>
                 <?php if ($logoData): ?><td style="width:54px;vertical-align:top;"><img src="<?= $logoData ?>" style="width:46px;"></td><?php endif; ?>
                 <td style="vertical-align:top;padding-top:2px;">
-                    <div class="brand-name"><?= $h(APP_NAME) ?></div>
-                    <div class="brand-sub"><?= $h(APP_TAGLINE) ?></div>
+                    <div class="brand-name"><?= $h(APP_LEGAL) ?></div>
+                    <?php if (APP_RNC !== ''): ?><div class="brand-sub">RNC: <?= $h(APP_RNC) ?></div><?php endif; ?>
                 </td>
             </tr></table>
         </td>

@@ -86,8 +86,8 @@ ob_start();
             <table><tr>
                 <?php if ($logoData): ?><td style="width:54px;vertical-align:top;"><img src="<?= $logoData ?>" style="width:46px;"></td><?php endif; ?>
                 <td style="vertical-align:top;padding-top:2px;">
-                    <div class="brand-name"><?= $h(APP_NAME) ?></div>
-                    <div class="brand-sub"><?= $h(APP_LEGAL) ?><?php if (APP_RNC !== ''): ?> · RNC: <?= $h(APP_RNC) ?><?php endif; ?></div>
+                    <div class="brand-name"><?= $h(APP_LEGAL) ?></div>
+                    <?php if (APP_RNC !== ''): ?><div class="brand-sub">RNC: <?= $h(APP_RNC) ?></div><?php endif; ?>
                 </td>
             </tr></table>
         </td>

@@ -499,7 +499,7 @@ function quote_default_terms(): string
         . "3. Tiempo de entrega: según disponibilidad, confirmado al recibir la orden de compra.\n"
         . "4. Forma de pago: 50% de anticipo, 50% contra entrega.\n"
         . "5. Garantía según fabricante. No incluye trabajos civiles ni eléctricos salvo indicación expresa.\n"
-        . "6. Instalación y puesta en marcha por personal certificado de SCH MEDICOS.";
+        . "6. Instalación y puesta en marcha por personal certificado de SERVICIOS PARA CLINICAS Y HOSPITALES.";
 }
 
 /* =========================================================================
@@ -648,7 +648,7 @@ function invoice_default_terms(): string
         . "2. Las mercancías viajan por cuenta y riesgo del comprador una vez despachadas.\n"
         . "3. Reclamaciones sobre esta factura dentro de los 5 días posteriores a su recepción.\n"
         . "4. Facturas a crédito: el incumplimiento del plazo genera intereses por mora.\n"
-        . "5. Garantía de equipos según el fabricante. Instalación y certificación por personal de SCH MEDICOS.\n"
+        . "5. Garantía de equipos según el fabricante. Instalación y certificación por personal de SERVICIOS PARA CLINICAS Y HOSPITALES.\n"
         . "6. La retención de ITBIS/ISR, cuando aplique, debe acreditarse con el comprobante de retención correspondiente.";
 }
 

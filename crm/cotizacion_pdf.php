@@ -188,8 +188,7 @@ ob_start();
                     <tr>
                         <?php if ($logoData): ?><td style="width: 70px; vertical-align: top;"><img src="<?= $logoData ?>" class="brand-logo"></td><?php endif; ?>
                         <td style="vertical-align: top; padding-top: 2px;">
-                            <div class="brand-name"><?= $h(APP_NAME) ?></div>
-                            <div class="brand-sub"><?= $h(APP_TAGLINE) ?></div>
+                            <div class="brand-name"><?= $h(APP_LEGAL) ?></div>
                             <div class="brand-meta">Equipos médicos · Gases medicinales · Diseño, instalación,<br>certificación y soporte técnico hospitalario.<br><?= $h(APP_ADDRESS) ?> · Tel. <?= $h(APP_PHONE) ?></div>
                         </td>
                     </tr>

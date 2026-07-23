@@ -148,17 +148,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
         redirect('crm/facturas.php?action=ncf');
     }
 
-    /* ---- Delete (drafts only) ----------------------------------------- */
+    /* ---- Delete (borradores y facturas anuladas) ---------------------- */
     if (isset($_POST['delete_id'])) {
         if (!current_can('facturas.delete')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/facturas.php'); }
         $did = (int) $_POST['delete_id'];
-        $inv = $did > 0 ? fetch_one('SELECT status FROM invoices WHERE id=?', [$did]) : null;
-        if ($inv && invoice_is_editable($inv['status'])) {
-            db()->prepare('DELETE FROM invoices WHERE id=?')->execute([$did]);
-            log_activity('invoice', $did, 'factura_eliminada', null);
-            flash('success', 'Borrador de factura eliminado.');
-        } elseif ($inv) {
-            flash('warning', 'Una factura emitida no se elimina: anúlala para conservar el rastro fiscal.');
+        $inv = $did > 0 ? fetch_one('SELECT * FROM invoices WHERE id=?', [$did]) : null;
+        if (!$inv) {
+            redirect('crm/facturas.php');
+        }
+        $st = (string) $inv['status'];
+        // Emitidas/Pagadas conservan valor fiscal: hay que anularlas primero.
+        if ($st === 'Emitida' || $st === 'Pagada') {
+            flash('warning', 'Una factura emitida no se elimina directamente: anúlala primero (así queda el rastro) y luego, si lo necesitas, elimínala.');
+            redirect('crm/facturas.php?action=view&id=' . $did);
+        }
+        $pdo = db();
+        $pdo->beginTransaction();
+        try {
+            // Si es anulada y aún retiene su NCF, devuélvelo al pool cuando sea el
+            // último número de su rango (evita huecos y permite reutilizarlo).
+            $releasedNcf = '';
+            if ($st === 'Anulada' && (string) ($inv['ncf'] ?? '') !== '') {
+                $ncfWas = (string) $inv['ncf'];
+                if (invoice_release_ncf($did)) { $releasedNcf = $ncfWas; }
+            }
+            $pdo->prepare('DELETE FROM invoices WHERE id=?')->execute([$did]);
+            $pdo->commit();
+            log_activity('invoice', $did, 'factura_eliminada', trim((string) ($inv['invoice_number'] ?? '') . ($inv['ncf'] ? ' · ' . $inv['ncf'] : '')));
+            $msg = $st === 'Anulada' ? 'Factura anulada eliminada.' : 'Borrador de factura eliminado.';
+            if ($releasedNcf !== '') { $msg .= ' El NCF ' . $releasedNcf . ' quedó libre para reutilizarse.'; }
+            flash('success', $msg);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) { $pdo->rollBack(); }
+            error_log('facturas delete: ' . $e->getMessage());
+            flash('warning', 'No se pudo eliminar la factura. Inténtalo de nuevo.');
         }
         redirect('crm/facturas.php');
     }
@@ -558,6 +581,12 @@ if ($action === 'view') {
                 <?php if ($status !== 'Anulada' && !$editable): ?>
                     <button type="button" class="crm-secondary-btn crm-secondary-btn--danger" onclick="document.getElementById('inv-void').showModal()"><i data-lucide="ban" class="h-4 w-4"></i>Anular</button>
                 <?php endif; ?>
+                <?php if (current_can('facturas.delete') && in_array($status, ['Borrador', 'Anulada'], true)): ?>
+                    <form method="post" style="display:inline" onsubmit="return confirm('<?= e($status === 'Anulada' ? 'Eliminar definitivamente la factura ANULADA ' . addslashes((string) ($inv['invoice_number'] ?? '')) . '. Se borra por completo del sistema. ¿Continuar?' : '¿Eliminar este borrador?') ?>');">
+                        <?= csrf_field() ?><input type="hidden" name="delete_id" value="<?= (int) ($inv['id'] ?? 0) ?>">
+                        <button type="submit" class="crm-secondary-btn crm-secondary-btn--danger"><i data-lucide="trash-2" class="h-4 w-4"></i>Eliminar</button>
+                    </form>
+                <?php endif; ?>
             </div>
         </div>
         <?php endif; ?>
@@ -934,8 +963,12 @@ require_once __DIR__ . '/../includes/crm_header.php';
                                     </form>
                                 <?php endif; ?>
                                 <button type="button" class="crm-icon-action" title="Vista previa PDF" onclick="crmPdfPreviewOpen('<?= url('crm/factura_pdf.php?id=' . (int) $inv['id']) ?>','<?= url('crm/factura_pdf.php?id=' . (int) $inv['id'] . '&download=1') ?>','<?= e(addslashes((string) ($inv['ncf'] ?? $inv['invoice_number']))) ?>')"><i data-lucide="file-text"></i></button>
-                                <?php if ($hasInvoices && invoice_is_editable($inv['status'] ?? '') && current_can('facturas.delete')): ?>
-                                    <form method="post" style="display:inline" onsubmit="return confirm('¿Eliminar el borrador <?= e(addslashes((string) $inv['invoice_number'])) ?>?');"><?= csrf_field() ?><input type="hidden" name="delete_id" value="<?= (int) $inv['id'] ?>"><button type="submit" class="crm-icon-action crm-icon-action--danger" title="Eliminar borrador"><i data-lucide="trash-2"></i></button></form>
+                                <?php if ($hasInvoices && current_can('facturas.delete') && in_array((string) ($inv['status'] ?? 'Borrador'), ['Borrador', 'Anulada'], true)):
+                                    $isVoided = (string) ($inv['status'] ?? '') === 'Anulada';
+                                    $delMsg = $isVoided
+                                        ? 'Eliminar definitivamente la factura ANULADA ' . addslashes((string) $inv['invoice_number']) . ($inv['ncf'] ? ' (NCF ' . addslashes((string) $inv['ncf']) . ')' : '') . '. Esto la borra por completo del sistema. ¿Continuar?'
+                                        : '¿Eliminar el borrador ' . addslashes((string) $inv['invoice_number']) . '?'; ?>
+                                    <form method="post" style="display:inline" onsubmit="return confirm('<?= e($delMsg) ?>');"><?= csrf_field() ?><input type="hidden" name="delete_id" value="<?= (int) $inv['id'] ?>"><button type="submit" class="crm-icon-action crm-icon-action--danger" title="<?= $isVoided ? 'Eliminar factura anulada' : 'Eliminar borrador' ?>"><i data-lucide="trash-2"></i></button></form>
                                 <?php endif; ?>
                             </div>
                         </td>
