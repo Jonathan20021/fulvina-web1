@@ -4,8 +4,12 @@ require_can('facturas.view');
 verify_csrf();
 
 $hasDb = db(false) && table_exists('clients');
-if (db(false)) { ensure_invoice_schema(); }
+if (db(false)) { ensure_invoice_schema(); cartera_seed_defaults(); }
 $hasInvoices = $hasDb && table_exists('invoices');
+
+/* Cartera y antigüedad de cuentas por cobrar: permiso nominal (contabilidad),
+   no depende del rol. Ver includes/rbac.php → can_view_cartera(). */
+$canCartera = can_view_cartera();
 
 $ncfTypes = ncf_types();
 $ncfPrefixes = ncf_prefixes();
@@ -207,14 +211,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
         if (!current_can('facturas.delete') && !current_can('facturas.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/facturas.php'); }
         $iid = (int) ($_POST['id'] ?? 0);
         $reason = trim((string) ($_POST['void_reason'] ?? ''));
-        $inv = $iid > 0 ? fetch_one('SELECT status FROM invoices WHERE id=?', [$iid]) : null;
+        $release = (string) ($_POST['release_ncf'] ?? '') === '1';
+        $inv = $iid > 0 ? fetch_one('SELECT * FROM invoices WHERE id=?', [$iid]) : null;
         if ($inv && (string) $inv['status'] !== 'Anulada') {
             if ($reason === '') {
                 flash('warning', 'Indica el motivo de la anulación.');
             } else {
-                db()->prepare('UPDATE invoices SET status=?, voided_at=NOW(), void_reason=?, updated_at=NOW() WHERE id=?')->execute(['Anulada', $reason, $iid]);
-                log_activity('invoice', $iid, 'factura_anulada', $reason);
-                flash('success', 'Factura anulada. Considera emitir una Nota de Crédito que la modifique.');
+                $pdo = db();
+                $pdo->beginTransaction();
+                try {
+                    $pdo->prepare('UPDATE invoices SET status=?, voided_at=NOW(), void_reason=?, updated_at=NOW() WHERE id=?')->execute(['Anulada', $reason, $iid]);
+                    // Liberar el NCF: solo si se pidió y este comprobante tomó el
+                    // ÚLTIMO número de su rango (seq_next-1). Así se devuelve al pool
+                    // sin dejar huecos y la próxima factura reusa el mismo NCF.
+                    $released = false;
+                    if ($release) {
+                        $released = invoice_release_ncf($iid);
+                    }
+                    $pdo->commit();
+                    log_activity('invoice', $iid, 'factura_anulada', $reason . ($released ? ' · NCF liberado' : ''));
+                    if ($released) {
+                        flash('success', 'Factura anulada y NCF ' . (string) $inv['ncf'] . ' liberado: la próxima factura de esa serie volverá a tomar ese número.');
+                    } else {
+                        flash('success', 'Factura anulada.' . ($release ? ' El NCF no se pudo liberar (no era el último número emitido de su rango); se conserva como anulado.' : ' Considera emitir una Nota de Crédito que la modifique.'));
+                    }
+                } catch (Throwable $e) {
+                    if ($pdo->inTransaction()) { $pdo->rollBack(); }
+                    error_log('facturas void: ' . $e->getMessage());
+                    flash('warning', 'No se pudo anular la factura. Inténtalo de nuevo.');
+                }
             }
         }
         redirect('crm/facturas.php?action=view&id=' . $iid);
@@ -473,6 +498,16 @@ if ($action === 'view') {
     $balance = round($net - (float) ($inv['amount_paid'] ?? 0), 2);
     $hasActiveSeq = $hasInvoices ? invoice_has_sequence((string) ($inv['ncf_prefix'] ?? 'B'), (string) ($inv['ncf_type'] ?? '02')) : true;
     $overdue = invoice_is_overdue($inv);
+    // Reconciliación partidas ↔ encabezado: detecta facturas sin sus líneas.
+    $itemsSum = 0.0;
+    foreach ($items as $it) { $itemsSum += (float) ($it['total'] ?? 0); }
+    $itemsMismatch = $hasInvoices && (int) ($inv['id'] ?? 0) > 0 && abs($itemsSum - (float) ($inv['subtotal'] ?? 0)) > 0.01;
+    // ¿El NCF de esta factura es el último consumido de su rango? → se puede liberar al anular.
+    $ncfIsLast = false;
+    if ($hasInvoices && $status === 'Emitida' && (string) ($inv['ncf'] ?? '') !== '' && ctype_digit(substr((string) $inv['ncf'], 3))) {
+        $seqNum = (int) substr((string) $inv['ncf'], 3);
+        $ncfIsLast = (int) (fetch_one('SELECT COUNT(*) c FROM ncf_sequences WHERE prefix=? AND ncf_type=? AND seq_next=?', [(string) $inv['ncf_prefix'], (string) $inv['ncf_type'], $seqNum + 1])['c'] ?? 0) > 0;
+    }
 
     $crmTitle = 'Factura ' . ($inv['invoice_number'] ?? '');
     require_once __DIR__ . '/../includes/crm_header.php';
@@ -503,6 +538,9 @@ if ($action === 'view') {
             <div class="inv-actionbar__state">
                 <span class="status-chip <?= e(status_class($status)) ?>"><?= e($status) ?></span>
                 <?php if ($overdue): ?><span class="status-chip bg-red-50 text-red-700 ring-1 ring-red-200">Vencida</span><?php endif; ?>
+                <?php if ($canCartera && $status !== 'Borrador' && $status !== 'Anulada'): $age = invoice_aging($inv); ?>
+                    <span class="inv-age-chip inv-age-chip--<?= e($age['tone']) ?>" title="Periodo de vencimiento">Vencimiento: <?= e($age['label']) ?></span>
+                <?php endif; ?>
                 <?php if ($status === 'Emitida' || $status === 'Pagada'): ?>
                     <span class="inv-actionbar__bal">Balance: <strong><?= money_cur($balance > 0 ? $balance : 0, $cur) ?></strong> de <?= money_cur($net, $cur) ?></span>
                 <?php endif; ?>
@@ -560,6 +598,7 @@ if ($action === 'view') {
                     <p>
                         Emitida: <?= e(date_es($inv['issue_date'] ?? null)) ?><br>
                         Vence: <?= e(date_es($inv['due_date'] ?? null)) ?> · <?= e($inv['payment_condition'] ?? 'Contado') ?><br>
+                        <?php if ($canCartera && $status !== 'Borrador' && $status !== 'Anulada'): ?>Periodo de vencimiento: <strong><?= e(invoice_aging_text($inv)) ?></strong><br><?php endif; ?>
                         <?php if (!empty($inv['ncf_expiration'])): ?>Vence NCF: <?= e(date_es($inv['ncf_expiration'])) ?><br><?php endif; ?>
                         <?php if (!empty($inv['modifies_ncf'])): ?>Modifica NCF: <?= e($inv['modifies_ncf']) ?><?php endif; ?>
                     </p>
@@ -580,6 +619,7 @@ if ($action === 'view') {
                             </tr>
                         <?php endforeach; ?>
                         <?php if (!$items): ?><tr><td colspan="5" class="text-center" style="color:var(--muted);padding:1.2rem">Esta factura no tiene partidas registradas.</td></tr><?php endif; ?>
+                        <?php if ($itemsMismatch): ?><tr><td colspan="5" style="padding:1rem;background:#fffaf0;color:#92660a;font-weight:600"><i data-lucide="alert-triangle" style="width:15px;height:15px;vertical-align:-2px"></i> Las partidas mostradas no cuadran con el total del encabezado (<?= money_cur($inv['subtotal'] ?? 0, $cur) ?>). Esta factura se guardó sin su detalle de líneas. <?php if ($editable && current_can('facturas.edit')): ?><a class="underline" href="<?= url('crm/facturas.php?edit=' . (int) $inv['id']) ?>">Edítala</a> para completar las partidas antes de emitir.<?php else: ?>Duplícala como borrador para reconstruir las partidas.<?php endif; ?></td></tr><?php endif; ?>
                     </tbody>
                 </table>
             </div>
@@ -638,7 +678,17 @@ if ($action === 'view') {
         <form method="post" class="crm-modal__form">
             <?= csrf_field() ?><input type="hidden" name="form" value="void"><input type="hidden" name="id" value="<?= (int) ($inv['id'] ?? 0) ?>">
             <header class="crm-modal__head"><span class="crm-modal__icon"><i data-lucide="ban"></i></span><div class="crm-modal__titles"><h2>Anular factura</h2><p>Queda registrada como anulada para el rastro fiscal.</p></div><button type="button" class="crm-modal__close" onclick="document.getElementById('inv-void').close()"><i data-lucide="x"></i></button></header>
-            <div class="crm-modal__body"><label class="crm-field"><span class="required">Motivo de la anulación</span><textarea name="void_reason" rows="3" required class="crm-textarea" placeholder="Ej. Error en el RNC del cliente / venta cancelada"></textarea></label></div>
+            <div class="crm-modal__body">
+                <label class="crm-field"><span class="required">Motivo de la anulación</span><textarea name="void_reason" rows="3" required class="crm-textarea" placeholder="Ej. Error en el RNC del cliente / venta cancelada"></textarea></label>
+                <?php if ($ncfIsLast): ?>
+                    <div class="crm-perm-box" style="margin-top:.7rem">
+                        <label class="crm-toggle" style="display:flex;align-items:flex-start;gap:.55rem">
+                            <input type="checkbox" name="release_ncf" value="1">
+                            <span><b>Liberar el NCF <?= e((string) $inv['ncf']) ?> para reutilizarlo</b><br><small style="color:var(--muted)">Este es el último número emitido de su rango. Al liberarlo, la próxima factura de la serie <?= e((string) $inv['ncf_prefix'] . $inv['ncf_type']) ?> volverá a tomar exactamente este NCF, sin dejar huecos. Úsalo solo si el comprobante no se entregó al cliente ni se transmitió a la DGII.</small></span>
+                        </label>
+                    </div>
+                <?php endif; ?>
+            </div>
             <footer class="crm-modal__foot"><button type="button" class="crm-secondary-btn" onclick="document.getElementById('inv-void').close()">Cancelar</button><button type="submit" class="crm-primary-btn" style="background:var(--red);border-color:var(--red)"><i data-lucide="ban" class="h-4 w-4"></i>Anular factura</button></footer>
         </form>
     </dialog>
@@ -690,6 +740,9 @@ if ($hasInvoices && !$editPayload && ($fromQuote = (int) ($_GET['from_quote'] ??
 $statusFilter = trim((string) ($_GET['status'] ?? ''));
 if ($statusFilter !== '' && !in_array($statusFilter, $invStatuses, true)) { $statusFilter = ''; }
 $clientFilter = (int) ($_GET['client_id'] ?? 0);
+$agingBuckets = invoice_aging_buckets();
+$agingFilter = $canCartera ? trim((string) ($_GET['aging'] ?? '')) : '';
+if ($agingFilter !== '' && !isset($agingBuckets[$agingFilter])) { $agingFilter = ''; }
 $listQ = trim((string) ($_GET['q'] ?? ''));
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 50;
@@ -700,6 +753,7 @@ if ($hasInvoices) {
     $where = '1=1'; $params = [];
     if ($statusFilter !== '') { $where .= ' AND invoices.status = ?'; $params[] = $statusFilter; }
     if ($clientFilter > 0) { $where .= ' AND invoices.client_id = ?'; $params[] = $clientFilter; }
+    if ($agingFilter !== '') { $where .= ' AND ' . invoice_aging_condition($agingFilter); }
     if ($listQ !== '') {
         $like = '%' . $listQ . '%';
         $where .= ' AND (invoices.invoice_number LIKE ? OR invoices.ncf LIKE ? OR invoices.title LIKE ? OR invoices.client_name LIKE ?)';
@@ -724,7 +778,20 @@ if ($hasInvoices) {
     $invPending = 1; $invBilled = 27649.30; $invCollected = 9200; $invReceivable = 18449.30; $invOverdue = 0;
 }
 
-$queryForPage = fn (int $p) => http_build_query(array_filter(['q' => $listQ, 'status' => $statusFilter, 'client_id' => $clientFilter ?: '', 'page' => $p], fn ($v) => $v !== '' && $v !== null));
+$queryForPage = fn (int $p) => http_build_query(array_filter(['q' => $listQ, 'status' => $statusFilter, 'client_id' => $clientFilter ?: '', 'aging' => $agingFilter, 'page' => $p], fn ($v) => $v !== '' && $v !== null));
+$hasFilters = $listQ !== '' || $statusFilter !== '' || $clientFilter > 0 || $agingFilter !== '';
+
+/* Cuentas por cobrar por antigüedad (solo para quien tenga el permiso nominal). */
+$agingSummary = [];
+$agingTotal = ['count' => 0, 'amount' => 0.0];
+if ($hasInvoices && $canCartera) {
+    $report = receivables_aging();
+    foreach ($report['buckets'] as $bk => $b) {
+        $agingSummary[$bk] = ['label' => $b['label'], 'count' => $b['count'], 'amount' => $b['amount']];
+    }
+    $agingTotal = $report['total'];
+}
+$agingTone = ['por_vencer' => 'ok', '0-30' => 'warn', '31-60' => 'warn', '61-90' => 'bad', '90+' => 'bad'];
 
 /*
  * Rango NCF vigente por serie+tipo: el mismo criterio y el mismo orden que usa
@@ -792,28 +859,67 @@ require_once __DIR__ . '/../includes/crm_header.php';
         </div>
     </div>
 
+    <?php if ($hasInvoices && $canCartera): ?>
+    <article class="crm-card inv-aging">
+        <div class="crm-card__head">
+            <div>
+                <h2><i data-lucide="calendar-clock" class="cfg-ic"></i> Cuentas por cobrar por antigüedad</h2>
+                <p>Saldo pendiente por periodo de vencimiento. Pulsa un tramo para ver esas facturas. Montos en RD$ (las facturas en USD se convierten con la tasa del comprobante). Información restringida a contabilidad.</p>
+            </div>
+            <div class="crm-toolbar" style="gap:.5rem;padding:0">
+                <button type="button" class="crm-secondary-btn" onclick="crmPdfPreviewOpen('<?= url('crm/cartera_pdf.php') ?>','<?= url('crm/cartera_pdf.php?download=1') ?>','Cartera-<?= e(date('Y-m-d')) ?>')"><i data-lucide="printer" class="h-4 w-4"></i>Imprimir / PDF</button>
+                <a class="crm-secondary-btn" href="<?= url('crm/cartera_export.php') ?>"><i data-lucide="sheet" class="h-4 w-4"></i>Exportar Excel</a>
+                <?php if ($agingFilter !== ''): ?><a href="<?= url('crm/facturas.php') ?>" class="crm-secondary-btn"><i data-lucide="x" class="h-4 w-4"></i>Quitar filtro</a><?php endif; ?>
+            </div>
+        </div>
+        <div class="inv-aging__grid">
+            <?php foreach ($agingSummary as $bk => $row): ?>
+                <a class="inv-aging__cell inv-aging__cell--<?= e($agingTone[$bk] ?? 'muted') ?> <?= $agingFilter === $bk ? 'is-active' : '' ?>" href="<?= url('crm/facturas.php?aging=' . urlencode($bk)) ?>">
+                    <span><?= e($row['label']) ?></span>
+                    <strong><?= money($row['amount']) ?></strong>
+                    <small><?= e((string) $row['count']) ?> factura<?= $row['count'] === 1 ? '' : 's' ?></small>
+                </a>
+            <?php endforeach; ?>
+            <div class="inv-aging__cell inv-aging__cell--total">
+                <span>Total por cobrar</span>
+                <strong><?= money($agingTotal['amount']) ?></strong>
+                <small><?= e((string) $agingTotal['count']) ?> factura<?= $agingTotal['count'] === 1 ? '' : 's' ?> con saldo</small>
+            </div>
+        </div>
+    </article>
+    <?php endif; ?>
+
     <article class="crm-data-surface">
         <div class="crm-data-surface__head">
-            <div><h3>Facturas</h3><p><?php if ($listQ !== '' || $statusFilter !== '' || $clientFilter > 0): ?><?= e((string) $totalMatching) ?> coincidencia<?= $totalMatching === 1 ? '' : 's' ?><?php else: ?>Comprobantes fiscales, NCF, estado de cobro e impresión.<?php endif; ?></p></div>
+            <div><h3>Facturas</h3><p><?php if ($hasFilters): ?><?= e((string) $totalMatching) ?> coincidencia<?= $totalMatching === 1 ? '' : 's' ?><?php else: ?>Comprobantes fiscales, NCF, estado de cobro e impresión.<?php endif; ?></p></div>
             <?php if (current_can('facturas.edit')): ?><button type="button" class="crm-primary-btn" @click="openNew()"><i data-lucide="plus" class="h-4 w-4"></i>Nueva factura</button><?php endif; ?>
         </div>
         <form method="get" class="crm-toolbar" style="flex-wrap:wrap;gap:.5rem;padding:0 0 .8rem">
             <div class="crm-search-field" style="flex:1 1 220px"><i data-lucide="search" class="h-4 w-4"></i><input name="q" value="<?= e($listQ) ?>" placeholder="Número, NCF, título o cliente" class="crm-input"></div>
             <select name="status" class="crm-select" style="max-width:170px"><option value="">Todos los estados</option><?php foreach ($invStatuses as $st): ?><option value="<?= e($st) ?>" <?= $statusFilter === $st ? 'selected' : '' ?>><?= e($st) ?></option><?php endforeach; ?></select>
             <?php if ($hasInvoices): ?><select name="client_id" class="crm-select" style="max-width:200px"><option value="">Todos los clientes</option><?php foreach ($clients as $cl): ?><option value="<?= (int) $cl['id'] ?>" <?= $clientFilter === (int) $cl['id'] ? 'selected' : '' ?>><?= e($cl['name']) ?></option><?php endforeach; ?></select><?php endif; ?>
+            <?php if ($canCartera): ?><select name="aging" class="crm-select" style="max-width:180px" title="Periodo de vencimiento"><option value="">Todo vencimiento</option><?php foreach ($agingBuckets as $k => $lbl): ?><option value="<?= e($k) ?>" <?= $agingFilter === $k ? 'selected' : '' ?>><?= e($lbl) ?></option><?php endforeach; ?></select><?php endif; ?>
             <button type="submit" class="crm-secondary-btn"><i data-lucide="filter" class="h-4 w-4"></i>Filtrar</button>
-            <?php if ($listQ !== '' || $statusFilter !== '' || $clientFilter > 0): ?><a href="<?= url('crm/facturas.php') ?>" class="crm-secondary-btn"><i data-lucide="x" class="h-4 w-4"></i>Limpiar</a><?php endif; ?>
+            <?php if ($hasFilters): ?><a href="<?= url('crm/facturas.php') ?>" class="crm-secondary-btn"><i data-lucide="x" class="h-4 w-4"></i>Limpiar</a><?php endif; ?>
         </form>
         <div class="crm-table-wrap">
         <table class="crm-table crm-data-table">
-            <thead><tr><th>Comprobante</th><th>Cliente</th><th>Tipo</th><th>Estado</th><th class="text-right">Total</th><th class="text-right">Acción</th></tr></thead>
+            <thead><tr><th>Comprobante</th><th>Cliente</th><th>Tipo</th><th>Estado</th><?php if ($canCartera): ?><th>Vencimiento</th><?php endif; ?><th class="text-right">Total</th><th class="text-right">Acción</th></tr></thead>
             <tbody>
-                <?php foreach ($invoices as $inv): $ov = invoice_is_overdue($inv); ?>
+                <?php foreach ($invoices as $inv): $ov = invoice_is_overdue($inv); $age = invoice_aging($inv); ?>
                     <tr>
                         <td><strong><?= e($inv['invoice_number'] ?? '') ?></strong><?php if (!empty($inv['ncf'])): ?><br><span class="inv-ncf-chip"><?= e($inv['ncf']) ?></span><?php else: ?><br><span style="color:var(--muted);font-size:.78rem">Sin NCF</span><?php endif; ?></td>
                         <td><?= e($inv['client_name'] ?? $inv['c_name'] ?? 'Cliente') ?><?php if (!empty($inv['title'])): ?><br><span style="color:var(--muted);font-size:.8rem"><?= e($inv['title']) ?></span><?php endif; ?></td>
                         <td><span class="inv-type-chip"><?= e(($inv['ncf_type'] ?? '') . ' · ' . ncf_type_label((string) ($inv['ncf_type'] ?? ''))) ?></span></td>
                         <td><span class="status-chip <?= e(status_class($inv['status'] ?? 'Borrador')) ?>"><?= e($inv['status'] ?? 'Borrador') ?></span><?php if ($ov): ?> <span class="status-chip bg-red-50 text-red-700 ring-1 ring-red-200" title="Vencida el <?= e(date_es($inv['due_date'])) ?>">Vencida</span><?php endif; ?></td>
+                        <?php if ($canCartera): ?>
+                        <td>
+                            <span class="inv-age-chip inv-age-chip--<?= e($age['tone']) ?>"><?= e($age['label']) ?></span>
+                            <?php if ($age['days'] !== null): ?>
+                                <br><span style="color:var(--muted);font-size:.75rem"><?= $age['key'] === 'por_vencer' ? 'faltan ' . e((string) abs((int) $age['days'])) . ' d' : e((string) (int) $age['days']) . ' d de vencida' ?><?php if (!empty($inv['due_date'])): ?> · <?= e(date_es($inv['due_date'])) ?><?php endif; ?></span>
+                            <?php endif; ?>
+                        </td>
+                        <?php endif; ?>
                         <td class="text-right"><strong><?= money_cur($inv['total'] ?? 0, (string) ($inv['currency'] ?? 'DOP')) ?></strong></td>
                         <td class="text-right">
                             <div class="crm-row-actions">
@@ -838,7 +944,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
             </tbody>
         </table>
         <?php if (!$invoices): ?>
-            <div class="crm-empty"><i data-lucide="receipt" class="h-6 w-6"></i><strong><?= $listQ !== '' || $statusFilter !== '' || $clientFilter > 0 ? 'Sin coincidencias' : 'Aún no hay facturas' ?></strong><p><?= $listQ !== '' || $statusFilter !== '' || $clientFilter > 0 ? 'Prueba con otros filtros.' : 'Crea la primera con el botón “Nueva factura”.' ?></p></div>
+            <div class="crm-empty"><i data-lucide="receipt" class="h-6 w-6"></i><strong><?= $hasFilters ? 'Sin coincidencias' : 'Aún no hay facturas' ?></strong><p><?= $hasFilters ? 'Prueba con otros filtros.' : 'Crea la primera con el botón “Nueva factura”.' ?></p></div>
         <?php endif; ?>
         </div>
         <?php if ($totalPages > 1): ?>

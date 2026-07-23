@@ -186,6 +186,89 @@ function rbac_save_roles(array $roles): void
     setting_set('rbac_roles', json_encode($clean, JSON_UNESCAPED_UNICODE));
 }
 
+/* ---------------------------------------------------------------------------
+ * Cartera y antigüedad de cuentas por cobrar — permiso NOMINAL, por usuario.
+ * No depende del rol: es una lista blanca de IDs guardada en settings y editable
+ * en CRM → Usuarios. Un administrador que no esté en la lista tampoco ve estos
+ * datos (sí puede editar la lista, como cualquier gestor de usuarios).
+ * ------------------------------------------------------------------------- */
+
+/** IDs de usuario autorizados a ver cartera/antigüedad. */
+function cartera_user_ids(): array
+{
+    $raw = setting_get('cartera_users', null);
+    if ($raw === null || $raw === '') {
+        return [];
+    }
+    $ids = json_decode((string) $raw, true);
+    return is_array($ids) ? array_values(array_unique(array_map('intval', $ids))) : [];
+}
+
+/** Guarda la lista blanca (solo IDs existentes). */
+function cartera_set_user_ids(array $ids): void
+{
+    $clean = array_values(array_unique(array_filter(array_map('intval', $ids), fn ($i) => $i > 0)));
+    setting_set('cartera_users', json_encode($clean));
+}
+
+/**
+ * Siembra la lista la primera vez con las personas de contabilidad autorizadas
+ * (Fulvina, Fulvio y Delgis). Se ejecuta una sola vez: después manda lo que el
+ * administrador configure en Usuarios, incluso si la lista queda vacía.
+ */
+function cartera_seed_defaults(): void
+{
+    if (!db(false) || !table_exists('users') || !table_exists('settings')) {
+        return;
+    }
+    if (setting_get('cartera_users', null) !== null) {
+        return; // ya configurada
+    }
+    $ids = [];
+    foreach (['fulvina', 'fulvio', 'delgis'] as $needle) {
+        foreach (fetch_all('SELECT id FROM users WHERE name LIKE ? OR email LIKE ?', ['%' . $needle . '%', $needle . '%']) as $u) {
+            $ids[] = (int) $u['id'];
+        }
+    }
+    cartera_set_user_ids($ids);
+}
+
+/** Concede o retira el permiso de cartera a un usuario. */
+function cartera_toggle_user(int $userId, bool $granted): void
+{
+    if ($userId <= 0) {
+        return;
+    }
+    $ids = cartera_user_ids();
+    $has = in_array($userId, $ids, true);
+    if ($granted === $has) {
+        return;
+    }
+    $ids = $granted ? array_merge($ids, [$userId]) : array_values(array_diff($ids, [$userId]));
+    cartera_set_user_ids($ids);
+    log_activity('user', $userId, $granted ? 'cartera_permiso_otorgado' : 'cartera_permiso_retirado', null);
+}
+
+/** ¿El usuario en sesión puede ver cartera/antigüedad de cuentas por cobrar? */
+function can_view_cartera(): bool
+{
+    $me = (int) (current_user()['id'] ?? 0);
+    if ($me <= 0) {
+        return false;
+    }
+    return in_array($me, cartera_user_ids(), true);
+}
+
+/** Gate de página/endpoint para la información de cartera. */
+function require_cartera(): void
+{
+    require_login();
+    if (!can_view_cartera()) {
+        http_response_code(403);
+        exit('No autorizado. La cartera y la antigüedad de cuentas por cobrar están restringidas a contabilidad.');
+    }
+}
+
 /** First CRM page the current user is allowed to open (used as a safe landing). */
 function rbac_landing_page(): string
 {

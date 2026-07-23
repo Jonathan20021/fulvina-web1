@@ -455,6 +455,10 @@ function ensure_rbac_schema(): void
             /* ignore */
         }
     }
+    // Lista blanca inicial de cartera (contabilidad); una sola vez.
+    if (function_exists('cartera_seed_defaults')) {
+        cartera_seed_defaults();
+    }
 }
 
 /** Simple key/value settings store for global CRM preferences. */
@@ -649,6 +653,152 @@ function invoice_default_terms(): string
 }
 
 /**
+ * Tramos de antigüedad de cobro ("periodo de vencimiento") que usa contabilidad.
+ * Se cuentan los días transcurridos desde la fecha de vencimiento de la factura.
+ */
+function invoice_aging_buckets(): array
+{
+    return [
+        'por_vencer' => 'Por vencer',
+        '0-30'       => '0-30 días',
+        '31-60'      => '31-60 días',
+        '61-90'      => '61-90 días',
+        '90+'        => '+90 días',
+    ];
+}
+
+/**
+ * Periodo de vencimiento de una factura: tramo, días vencidos y saldo pendiente.
+ * Solo aplica a comprobantes emitidos con saldo; borradores, anuladas y saldadas
+ * devuelven su propio estado para que la UI no invente antigüedad.
+ * Devuelve ['key','label','days','balance','tone'].
+ */
+function invoice_aging(array $inv): array
+{
+    $status = (string) ($inv['status'] ?? '');
+    $net = round((float) ($inv['total'] ?? 0) - (float) ($inv['itbis_retained'] ?? 0) - (float) ($inv['isr_retained'] ?? 0), 2);
+    $balance = round($net - (float) ($inv['amount_paid'] ?? 0), 2);
+
+    if ($status === 'Borrador' || $status === '') {
+        return ['key' => 'borrador', 'label' => 'Sin emitir', 'days' => null, 'balance' => $balance, 'tone' => 'muted'];
+    }
+    if ($status === 'Anulada') {
+        return ['key' => 'anulada', 'label' => 'Anulada', 'days' => null, 'balance' => 0.0, 'tone' => 'muted'];
+    }
+    if ($balance <= 0.009) {
+        return ['key' => 'saldada', 'label' => 'Saldada', 'days' => null, 'balance' => 0.0, 'tone' => 'ok'];
+    }
+
+    $ref = (string) ($inv['due_date'] ?? '');
+    if ($ref === '' || $ref === '0000-00-00') {
+        $ref = (string) ($inv['issue_date'] ?? '');
+    }
+    if ($ref === '' || $ref === '0000-00-00') {
+        return ['key' => 'na', 'label' => 'Sin fecha', 'days' => null, 'balance' => $balance, 'tone' => 'muted'];
+    }
+
+    $days = (int) floor((strtotime(date('Y-m-d')) - strtotime($ref)) / 86400);
+    if ($days < 0)      { $key = 'por_vencer'; $tone = 'ok'; }
+    elseif ($days <= 30) { $key = '0-30';  $tone = 'warn'; }
+    elseif ($days <= 60) { $key = '31-60'; $tone = 'warn'; }
+    elseif ($days <= 90) { $key = '61-90'; $tone = 'bad'; }
+    else                 { $key = '90+';   $tone = 'bad'; }
+
+    return [
+        'key' => $key,
+        'label' => invoice_aging_buckets()[$key],
+        'days' => $days,
+        'balance' => $balance,
+        'tone' => $tone,
+    ];
+}
+
+/** Texto largo del periodo de vencimiento (documento y detalle). */
+function invoice_aging_text(array $inv): string
+{
+    $a = invoice_aging($inv);
+    if ($a['days'] === null) {
+        return $a['label'];
+    }
+    $d = (int) $a['days'];
+    if ($a['key'] === 'por_vencer') {
+        return $a['label'] . ' (faltan ' . abs($d) . ' día' . (abs($d) === 1 ? '' : 's') . ')';
+    }
+    if ($d === 0) {
+        return $a['label'] . ' (vence hoy)';
+    }
+    return $a['label'] . ' (' . $d . ' día' . ($d === 1 ? '' : 's') . ' de vencida)';
+}
+
+/**
+ * Cartera por antigüedad: facturas emitidas con saldo, clasificadas en tramos.
+ * Fuente única del resumen en pantalla, del PDF y del export; los importes se
+ * expresan en RD$ (las facturas en USD se convierten con la tasa del comprobante).
+ * Devuelve ['buckets' => [key => ['label','count','amount','rows']], 'total' => [...]].
+ */
+function receivables_aging(): array
+{
+    $buckets = [];
+    foreach (invoice_aging_buckets() as $k => $label) {
+        $buckets[$k] = ['label' => $label, 'count' => 0, 'amount' => 0.0, 'rows' => []];
+    }
+    $total = ['count' => 0, 'amount' => 0.0];
+    if (!db(false) || !table_exists('invoices')) {
+        return ['buckets' => $buckets, 'total' => $total];
+    }
+
+    $rows = fetch_all(
+        'SELECT invoices.*, clients.name AS c_name
+         FROM invoices LEFT JOIN clients ON clients.id = invoices.client_id
+         WHERE invoices.status = ? AND (invoices.total - invoices.itbis_retained - invoices.isr_retained - invoices.amount_paid) > 0.009
+         ORDER BY COALESCE(NULLIF(invoices.due_date, \'0000-00-00\'), invoices.issue_date) ASC, invoices.id ASC',
+        ['Emitida']
+    );
+    foreach ($rows as $r) {
+        $a = invoice_aging($r);
+        if (!isset($buckets[$a['key']])) {
+            continue; // saldadas/anuladas no forman cartera
+        }
+        $rate = strtoupper((string) ($r['currency'] ?? 'DOP')) === 'USD' ? max(1.0, (float) ($r['exchange_rate'] ?? 1)) : 1.0;
+        $dop = round((float) $a['balance'] * $rate, 2);
+        $r['aging'] = $a;
+        $r['balance_dop'] = $dop;
+        $buckets[$a['key']]['rows'][] = $r;
+        $buckets[$a['key']]['count']++;
+        $buckets[$a['key']]['amount'] += $dop;
+        $total['count']++;
+        $total['amount'] += $dop;
+    }
+    return ['buckets' => $buckets, 'total' => $total];
+}
+
+/** Condición SQL del tramo, para filtrar y totalizar cuentas por cobrar. */
+function invoice_aging_condition(string $bucket): string
+{
+    $pending = "invoices.status='Emitida' AND (invoices.total - invoices.itbis_retained - invoices.isr_retained - invoices.amount_paid) > 0.009";
+    $d = 'DATEDIFF(CURDATE(), COALESCE(NULLIF(invoices.due_date, \'0000-00-00\'), invoices.issue_date))';
+    return match ($bucket) {
+        'por_vencer' => "{$pending} AND {$d} < 0",
+        '0-30'       => "{$pending} AND {$d} BETWEEN 0 AND 30",
+        '31-60'      => "{$pending} AND {$d} BETWEEN 31 AND 60",
+        '61-90'      => "{$pending} AND {$d} BETWEEN 61 AND 90",
+        '90+'        => "{$pending} AND {$d} > 90",
+        default      => '1=1',
+    };
+}
+
+/** Normaliza una fecha 'YYYY-MM-DD' real; null si viene vacía, cero o inválida. */
+function invoice_valid_date(string $date): ?string
+{
+    $date = trim($date);
+    if ($date === '' || $date === '0000-00-00') {
+        return null;
+    }
+    $d = DateTime::createFromFormat('Y-m-d', substr($date, 0, 10));
+    return ($d && $d->format('Y-m-d') === substr($date, 0, 10)) ? $d->format('Y-m-d') : null;
+}
+
+/**
  * Whether a draft has an active, in-range, unexpired NCF sequence available.
  * Same filter the emission uses, so the UI never offers what emit would reject.
  */
@@ -662,6 +812,40 @@ function invoice_has_sequence(string $prefix, string $type): bool
         [$prefix !== '' ? $prefix : 'B', $type !== '' ? $type : '02']
     );
     return (int) ($row['c'] ?? 0) > 0;
+}
+
+/**
+ * Devuelve el NCF de una factura anulada al pool para reutilizarlo, SOLO si fue
+ * el último número emitido de su rango (seq_next == este_seq + 1). En ese caso
+ * decrementa seq_next: la próxima emisión volverá a tomar exactamente ese NCF,
+ * sin abrir huecos en la secuencia. Si el número no era el último (hay emitidos
+ * posteriores), no se puede liberar sin dejar hueco y se conserva como anulado.
+ * Debe llamarse dentro de la transacción de anulación. Devuelve true si liberó.
+ */
+function invoice_release_ncf(int $invoiceId): bool
+{
+    $inv = fetch_one('SELECT ncf, ncf_prefix, ncf_type FROM invoices WHERE id=?', [$invoiceId]);
+    if (!$inv || (string) ($inv['ncf'] ?? '') === '') {
+        return false;
+    }
+    // Número secuencial embebido en el NCF (los dígitos tras la serie+tipo).
+    $digits = substr((string) $inv['ncf'], 3);
+    if (!ctype_digit($digits)) {
+        return false;
+    }
+    $seq = (int) $digits;
+    $pdo = db();
+    $stmt = $pdo->prepare('SELECT * FROM ncf_sequences WHERE prefix=? AND ncf_type=? AND seq_next=? LIMIT 1 FOR UPDATE');
+    $stmt->execute([(string) $inv['ncf_prefix'], (string) $inv['ncf_type'], $seq + 1]);
+    $pool = $stmt->fetch();
+    if (!$pool) {
+        return false; // no era el último número consumido de ningún rango
+    }
+    $pdo->prepare('UPDATE ncf_sequences SET seq_next=seq_next-1, updated_at=NOW() WHERE id=?')->execute([(int) $pool['id']]);
+    // La factura anulada suelta el NCF (queda registrada como anulada sin número
+    // fiscal ocupado), de modo que ese comprobante quede libre para reasignarse.
+    $pdo->prepare('UPDATE invoices SET ncf=NULL, updated_at=NOW() WHERE id=?')->execute([$invoiceId]);
+    return true;
 }
 
 /**
@@ -708,9 +892,15 @@ function invoice_emit(int $invoiceId): array
         $ncf = ncf_format((string) $pool['prefix'], (string) $pool['ncf_type'], (int) $pool['seq_next']);
         $pdo->prepare('UPDATE ncf_sequences SET seq_next=seq_next+1, updated_at=NOW() WHERE id=?')->execute([(int) $pool['id']]);
 
-        $issue = date('Y-m-d');
+        // Respeta la fecha de emisión que el usuario fijó en el borrador; solo usa
+        // hoy si venía vacía. El vencimiento se conserva si lo capturó; si no, se
+        // deriva de la condición de pago (Crédito: +N días; Contado: mismo día).
+        $issue = invoice_valid_date((string) ($inv['issue_date'] ?? '')) ?? date('Y-m-d');
         $dueDays = max(0, (int) setting_get('invoice_due_days', '30'));
-        $due = ((string) $inv['payment_condition'] === 'Crédito') ? date('Y-m-d', strtotime("+{$dueDays} days")) : $issue;
+        $due = invoice_valid_date((string) ($inv['due_date'] ?? ''));
+        if ($due === null) {
+            $due = ((string) $inv['payment_condition'] === 'Crédito') ? date('Y-m-d', strtotime("{$issue} +{$dueDays} days")) : $issue;
+        }
         $pdo->prepare('UPDATE invoices SET ncf=?, ncf_expiration=?, status=?, issue_date=?, due_date=?, emitted_at=NOW(), updated_at=NOW() WHERE id=?')
             ->execute([$ncf, $pool['expiration'], 'Emitida', $issue, $due, $invoiceId]);
         if ($ownTransaction) { $pdo->commit(); }

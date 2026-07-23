@@ -65,6 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
                     db()->prepare('UPDATE users SET name=?, email=?, role=?, status=?, updated_at=NOW() WHERE id=?')
                         ->execute([$name, $email, $role, $status, $uid]);
                 }
+                cartera_toggle_user($uid, (string) ($_POST['cartera'] ?? '') === '1');
                 log_activity('user', $uid, 'usuario_actualizado', $name);
                 flash('success', 'Usuario actualizado.');
             } catch (Throwable) {
@@ -90,7 +91,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
             try {
                 db()->prepare('INSERT INTO users (name, email, password_hash, role, status, must_change_password, created_at, updated_at) VALUES (?, ?, ?, ?, "activo", 1, NOW(), NOW())')
                     ->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $role]);
-                log_activity('user', (int) db()->lastInsertId(), 'usuario_creado', $name);
+                $newUserId = (int) db()->lastInsertId();
+                cartera_toggle_user($newUserId, (string) ($_POST['cartera'] ?? '') === '1');
+                log_activity('user', $newUserId, 'usuario_creado', $name);
                 flash('success', 'Usuario creado.');
                 redirect('crm/usuarios.php');
             } catch (Throwable $e) {
@@ -126,6 +129,7 @@ if ($hasDb) {
 }
 
 $meId = (int) (current_user()['id'] ?? -1);
+$carteraIds = cartera_user_ids(); // permiso nominal de cartera/antigüedad (contabilidad)
 $initialsOf = static function (string $name): string {
     $p = preg_split('/\s+/', trim(preg_replace('/^(Ing\.|Lic\.|Dr\.|Dra\.|Sr\.|Sra\.)\s+/u', '', $name))) ?: [];
     return strtoupper(mb_substr($p[0] ?? 'U', 0, 1) . (isset($p[1]) ? mb_substr($p[1], 0, 1) : ''));
@@ -140,7 +144,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
     <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para crear usuarios reales.</div>
 <?php endif; ?>
 
-<section class="crm-cockpit" x-data="crmFormModal({id:0,name:'',email:'',role:'soporte',status:'activo',password:''})">
+<section class="crm-cockpit" x-data="crmFormModal({id:0,name:'',email:'',role:'soporte',status:'activo',password:'',cartera:false})">
     <div class="crm-cockpit__top">
         <div class="crm-cockpit__hero">
             <span class="crm-kicker"><i data-lucide="users-round"></i>Control de acceso</span>
@@ -182,7 +186,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
         <div class="crm-table-wrap">
             <table class="crm-table crm-data-table">
                 <thead>
-                    <tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Creado</th><th class="text-right">Acción</th></tr>
+                    <tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Cartera</th><th>Creado</th><th class="text-right">Acción</th></tr>
                 </thead>
                 <tbody>
                     <?php foreach ($users as $i => $user): ?>
@@ -195,11 +199,12 @@ require_once __DIR__ . '/../includes/crm_header.php';
                             </td>
                             <td><span class="status-chip <?= e(role_class((string) $user['role'])) ?>"><?= e(role_label((string) $user['role'])) ?></span></td>
                             <td><span class="status-chip <?= e(status_class($user['status'])) ?>"><?= e(status_label($user['status'])) ?></span></td>
+                            <td><?php if (in_array((int) $user['id'], $carteraIds, true)): ?><span class="status-chip bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" title="Ve cuentas por cobrar por antigüedad">Autorizado</span><?php else: ?><span style="color:var(--muted);font-size:.8rem">—</span><?php endif; ?></td>
                             <td class="ops-nowrap"><?= e(date_es($user['created_at'] ?? null)) ?></td>
                             <td class="text-right">
                                 <div class="crm-row-actions">
                                     <?php if ($hasDb): ?>
-                                        <button type="button" class="crm-icon-action" title="Editar" @click='openEdit(<?= e(json_encode(['id' => (int) $user['id'], 'name' => (string) $user['name'], 'email' => (string) $user['email'], 'role' => (string) $user['role'], 'status' => (string) $user['status'], 'password' => ''])) ?>)'><i data-lucide="pencil"></i></button>
+                                        <button type="button" class="crm-icon-action" title="Editar" @click='openEdit(<?= e(json_encode(['id' => (int) $user['id'], 'name' => (string) $user['name'], 'email' => (string) $user['email'], 'role' => (string) $user['role'], 'status' => (string) $user['status'], 'password' => '', 'cartera' => in_array((int) $user['id'], $carteraIds, true)])) ?>)'><i data-lucide="pencil"></i></button>
                                         <?php if ((int) $user['id'] !== $meId): ?>
                                             <form method="post" style="display:inline" onsubmit="return confirm('¿Eliminar a <?= e(addslashes($user['name'])) ?>?');">
                                                 <?= csrf_field() ?>
@@ -241,6 +246,12 @@ require_once __DIR__ . '/../includes/crm_header.php';
                     <label class="crm-field" x-show="form.id" x-cloak><span>Estado</span><select name="status" x-model="form.status" class="crm-select"><option value="activo">Activo</option><option value="inactivo">Inactivo</option></select></label>
                 </div>
                 <label class="crm-field"><span :class="form.id ? '' : 'required'" x-text="form.id ? 'Nueva contraseña (opcional)' : 'Contraseña'">Contraseña</span><input type="password" name="password" minlength="8" :required="!form.id" x-model="form.password" class="crm-input" :placeholder="form.id ? 'Dejar en blanco para no cambiar' : 'Mínimo 8 caracteres'"></label>
+                <div class="crm-perm-box">
+                    <label class="crm-toggle" style="display:flex;align-items:flex-start;gap:.55rem">
+                        <input type="checkbox" name="cartera" value="1" x-model="form.cartera">
+                        <span><b>Cartera y antigüedad de cuentas por cobrar</b><br><small style="color:var(--muted)">Ve el resumen 0-30 / 31-60 / 61-90 / +90 días, el periodo de vencimiento de cada factura y puede imprimir o exportar el reporte. Permiso individual: no lo otorga ningún rol.</small></span>
+                    </label>
+                </div>
             </div>
             <footer class="crm-modal__foot">
                 <button type="button" class="crm-secondary-btn" @click="close()">Cancelar</button>

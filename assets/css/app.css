@@ -9513,6 +9513,39 @@ html { scroll-padding-top: 74px; }
 .inv-type-chip { display: inline-block; padding: .12rem .5rem; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-soft); font-size: .72rem; font-weight: 600; }
 .inv-tag-exempt { display: inline-block; margin-left: .35rem; padding: .05rem .4rem; border-radius: 7px; background: #eef2f7; color: var(--muted); font-size: .66rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
 
+/* Permiso individual dentro del modal de usuario */
+.crm-perm-box { margin-top: .35rem; padding: .65rem .75rem; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.crm-perm-box small { display: block; margin-top: .15rem; font-size: .76rem; line-height: 1.35; }
+
+/* Cuentas por cobrar por antigüedad */
+.inv-aging { margin-bottom: 1rem; }
+.inv-aging__grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .6rem; padding: 0 1rem 1rem; }
+.inv-aging__cell {
+  display: block; padding: .7rem .8rem; border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--surface-2); text-decoration: none; transition: border-color .15s, box-shadow .15s, transform .15s;
+}
+a.inv-aging__cell:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(15, 23, 42, .08); }
+.inv-aging__cell span { display: block; color: var(--muted); font-size: .7rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.inv-aging__cell strong { display: block; margin-top: .2rem; color: var(--ink); font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.inv-aging__cell small { display: block; color: var(--muted); font-size: .74rem; font-weight: 600; }
+.inv-aging__cell.is-active { border-color: var(--brand-strong, #0a7d36); box-shadow: 0 0 0 2px rgba(10, 125, 54, .12); }
+.inv-aging__cell--ok { border-color: #c7d6c9; background: #f5faf6; }
+.inv-aging__cell--ok strong { color: #066128; }
+.inv-aging__cell--warn { border-color: #f4d58a; background: #fffaf0; }
+.inv-aging__cell--warn strong { color: #92660a; }
+.inv-aging__cell--bad { border-color: #f3c4c4; background: #fef2f2; }
+.inv-aging__cell--bad strong { color: #b42318; }
+.inv-aging__cell--total { border-style: dashed; }
+@media (max-width: 1100px) { .inv-aging__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px)  { .inv-aging__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Periodo de vencimiento (antigüedad de cobro) */
+.inv-age-chip { display: inline-block; padding: .12rem .5rem; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-soft); font-size: .72rem; font-weight: 700; white-space: nowrap; }
+.inv-age-chip--ok { border-color: #c7d6c9; background: #f5faf6; color: #066128; }
+.inv-age-chip--warn { border-color: #f4d58a; background: #fffaf0; color: #92660a; }
+.inv-age-chip--bad { border-color: #f3c4c4; background: #fef2f2; color: #b42318; }
+.inv-age-chip--muted { border-color: var(--line); background: var(--surface-2); color: var(--muted); }
+
 /* "Son: ..." amount-in-words line on the invoice view */
 .inv-words { margin-top: 1rem; padding: .7rem .9rem; border: 1px dashed #c7d6c9; border-radius: var(--r-md); background: #f5faf6; color: var(--ink-soft); font-size: .86rem; }
 .inv-words span { color: var(--muted); font-weight: 700; text-transform: uppercase; font-size: .7rem; letter-spacing: .05em; }
