@@ -491,7 +491,7 @@ function setting_set(string $key, string $value): void
 function quote_default_terms(): string
 {
     return "1. Validez de la oferta: 30 días a partir de la fecha de emisión.\n"
-        . "2. Precios sujetos a cambio sin previo aviso por variación del proveedor o de la tasa de cambio.\n"
+        . "2. Precios sujetos a cambio por variación del proveedor.\n"
         . "3. Tiempo de entrega: según disponibilidad, confirmado al recibir la orden de compra.\n"
         . "4. Forma de pago: 50% de anticipo, 50% contra entrega.\n"
         . "5. Garantía según fabricante. No incluye trabajos civiles ni eléctricos salvo indicación expresa.\n"
