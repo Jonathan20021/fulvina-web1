@@ -731,6 +731,17 @@ function invoice_aging_text(array $inv): string
 }
 
 /**
+ * Expresión SQL de la fecha que manda para el cobro: el vencimiento real, o la
+ * emisión cuando no hay vencimiento. Se evalúa con YEAR() en lugar de comparar
+ * contra el literal '0000-00-00' porque en MySQL estricto (NO_ZERO_DATE, el
+ * modo de producción) ese literal hace fallar la consulta al prepararla.
+ */
+function invoice_due_sql(string $table = 'invoices'): string
+{
+    return "IF({$table}.due_date IS NULL OR YEAR({$table}.due_date) = 0, {$table}.issue_date, {$table}.due_date)";
+}
+
+/**
  * Cartera por antigüedad: facturas emitidas con saldo, clasificadas en tramos.
  * Fuente única del resumen en pantalla, del PDF y del export; los importes se
  * expresan en RD$ (las facturas en USD se convierten con la tasa del comprobante).
@@ -751,7 +762,7 @@ function receivables_aging(): array
         'SELECT invoices.*, clients.name AS c_name
          FROM invoices LEFT JOIN clients ON clients.id = invoices.client_id
          WHERE invoices.status = ? AND (invoices.total - invoices.itbis_retained - invoices.isr_retained - invoices.amount_paid) > 0.009
-         ORDER BY COALESCE(NULLIF(invoices.due_date, \'0000-00-00\'), invoices.issue_date) ASC, invoices.id ASC',
+         ORDER BY ' . invoice_due_sql() . ' ASC, invoices.id ASC',
         ['Emitida']
     );
     foreach ($rows as $r) {
@@ -776,7 +787,7 @@ function receivables_aging(): array
 function invoice_aging_condition(string $bucket): string
 {
     $pending = "invoices.status='Emitida' AND (invoices.total - invoices.itbis_retained - invoices.isr_retained - invoices.amount_paid) > 0.009";
-    $d = 'DATEDIFF(CURDATE(), COALESCE(NULLIF(invoices.due_date, \'0000-00-00\'), invoices.issue_date))';
+    $d = 'DATEDIFF(CURDATE(), ' . invoice_due_sql() . ')';
     return match ($bucket) {
         'por_vencer' => "{$pending} AND {$d} < 0",
         '0-30'       => "{$pending} AND {$d} BETWEEN 0 AND 30",
@@ -822,7 +833,7 @@ function client_receivables(int $clientId, array $onlyIds = []): array
         $sql .= ' AND invoices.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
         $params = array_merge($params, $ids);
     }
-    $sql .= ' ORDER BY COALESCE(NULLIF(invoices.due_date, \'0000-00-00\'), invoices.issue_date) ASC, invoices.id ASC';
+    $sql .= ' ORDER BY ' . invoice_due_sql() . ' ASC, invoices.id ASC';
 
     foreach (fetch_all($sql, $params) as $r) {
         $age = invoice_aging($r);
