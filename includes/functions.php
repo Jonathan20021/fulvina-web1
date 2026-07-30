@@ -787,6 +787,222 @@ function invoice_aging_condition(string $bucket): string
     };
 }
 
+/* ===================== Recordatorios de pago (cobranza) ===================== */
+
+/**
+ * Cartera de un cliente: comprobantes emitidos con saldo pendiente.
+ * Es la fuente del recordatorio de pago / estado de cuenta que se entrega al
+ * cliente. Con $onlyIds el recordatorio se limita a esas facturas (aviso de un
+ * solo comprobante). Los importes se acompañan de su equivalente en RD$ para
+ * poder totalizar carteras mixtas DOP/USD.
+ *
+ * Devuelve ['client', 'rows', 'count', 'total_dop', 'by_currency',
+ *           'overdue_count', 'overdue_dop', 'upcoming_dop', 'max_days', 'next_due'].
+ */
+function client_receivables(int $clientId, array $onlyIds = []): array
+{
+    $empty = [
+        'client' => null, 'rows' => [], 'count' => 0, 'total_dop' => 0.0, 'by_currency' => [],
+        'overdue_count' => 0, 'overdue_dop' => 0.0, 'upcoming_dop' => 0.0, 'max_days' => 0, 'next_due' => null,
+    ];
+    if ($clientId <= 0 || !db(false) || !table_exists('invoices')) {
+        return $empty;
+    }
+
+    $out = $empty;
+    $out['client'] = fetch_one('SELECT * FROM clients WHERE id = ?', [$clientId]);
+
+    $sql = 'SELECT invoices.* FROM invoices
+            WHERE invoices.client_id = ?
+              AND invoices.status = ?
+              AND (invoices.total - invoices.itbis_retained - invoices.isr_retained - invoices.amount_paid) > 0.009';
+    $params = [$clientId, 'Emitida'];
+    $ids = array_values(array_filter(array_map('intval', $onlyIds), fn ($i) => $i > 0));
+    if ($ids) {
+        $sql .= ' AND invoices.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
+        $params = array_merge($params, $ids);
+    }
+    $sql .= ' ORDER BY COALESCE(NULLIF(invoices.due_date, \'0000-00-00\'), invoices.issue_date) ASC, invoices.id ASC';
+
+    foreach (fetch_all($sql, $params) as $r) {
+        $age = invoice_aging($r);
+        $cur = strtoupper((string) ($r['currency'] ?? 'DOP')) === 'USD' ? 'USD' : 'DOP';
+        $rate = $cur === 'USD' ? max(1.0, (float) ($r['exchange_rate'] ?? 1)) : 1.0;
+        $dop = round((float) $age['balance'] * $rate, 2);
+        $days = $age['days'] === null ? 0 : (int) $age['days'];
+
+        $r['aging'] = $age;
+        $r['currency'] = $cur;
+        $r['balance'] = (float) $age['balance'];
+        $r['balance_dop'] = $dop;
+        $out['rows'][] = $r;
+
+        $out['count']++;
+        $out['total_dop'] += $dop;
+        $out['by_currency'][$cur] = ($out['by_currency'][$cur] ?? 0.0) + (float) $age['balance'];
+        if ($days > 0) {
+            $out['overdue_count']++;
+            $out['overdue_dop'] += $dop;
+            $out['max_days'] = max($out['max_days'], $days);
+        } else {
+            $out['upcoming_dop'] += $dop;
+            $due = invoice_valid_date((string) ($r['due_date'] ?? ''));
+            if ($due !== null && ($out['next_due'] === null || $due < $out['next_due'])) {
+                $out['next_due'] = $due;
+            }
+        }
+    }
+
+    return $out;
+}
+
+/**
+ * Clientes con saldo pendiente, agregados para la bandeja de recordatorios.
+ * Con $onlyOverdue solo entran los que ya tienen comprobantes vencidos.
+ * Orden: primero la deuda más antigua, luego el mayor importe.
+ */
+function receivables_clients(bool $onlyOverdue = false): array
+{
+    if (!db(false) || !table_exists('invoices')) {
+        return [];
+    }
+    $rows = fetch_all(
+        'SELECT invoices.*, clients.name AS c_name, clients.rnc AS c_rnc, clients.email AS c_email, clients.phone AS c_phone
+         FROM invoices LEFT JOIN clients ON clients.id = invoices.client_id
+         WHERE invoices.status = ?
+           AND (invoices.total - invoices.itbis_retained - invoices.isr_retained - invoices.amount_paid) > 0.009',
+        ['Emitida']
+    );
+
+    $byClient = [];
+    foreach ($rows as $r) {
+        $cid = (int) $r['client_id'];
+        $age = invoice_aging($r);
+        $rate = strtoupper((string) ($r['currency'] ?? 'DOP')) === 'USD' ? max(1.0, (float) ($r['exchange_rate'] ?? 1)) : 1.0;
+        $dop = round((float) $age['balance'] * $rate, 2);
+        $days = $age['days'] === null ? 0 : (int) $age['days'];
+
+        if (!isset($byClient[$cid])) {
+            $byClient[$cid] = [
+                'client_id' => $cid,
+                'name' => (string) ($r['c_name'] ?: $r['client_name'] ?: 'Cliente'),
+                'rnc' => (string) ($r['c_rnc'] ?: $r['client_rnc'] ?: ''),
+                'email' => (string) ($r['c_email'] ?? ''),
+                'phone' => (string) ($r['c_phone'] ?? ''),
+                'count' => 0, 'total_dop' => 0.0, 'overdue_count' => 0, 'overdue_dop' => 0.0, 'max_days' => 0,
+            ];
+        }
+        $byClient[$cid]['count']++;
+        $byClient[$cid]['total_dop'] += $dop;
+        if ($days > 0) {
+            $byClient[$cid]['overdue_count']++;
+            $byClient[$cid]['overdue_dop'] += $dop;
+            $byClient[$cid]['max_days'] = max($byClient[$cid]['max_days'], $days);
+        }
+    }
+
+    if ($onlyOverdue) {
+        $byClient = array_filter($byClient, fn ($c) => $c['overdue_count'] > 0);
+    }
+    $list = array_values($byClient);
+    usort($list, fn ($a, $b) => [$b['max_days'], $b['total_dop']] <=> [$a['max_days'], $a['total_dop']]);
+    return $list;
+}
+
+/**
+ * Tonos del recordatorio de pago. Cada tono cambia el encabezado, el color y la
+ * redacción del aviso: cordial (preventivo), firme (saldo vencido) y final
+ * (última gestión antes de suspender crédito). Los textos aceptan las marcas
+ * {empresa}, {cliente}, {fecha}, {total}, {dias} y {contacto}.
+ */
+function reminder_tones(): array
+{
+    return [
+        'cordial' => [
+            'label' => 'Cordial',
+            'kicker' => 'Aviso preventivo',
+            'title' => 'Recordatorio de pago',
+            'color' => '#0a7d36',
+            'soft' => '#f5faf6',
+            'line' => '#c7d6c9',
+            'subject' => 'Estado de su cuenta al {fecha} — saldo pendiente de {total}',
+            'intro' => 'Reciba un cordial saludo de parte de {empresa}. A modo de recordatorio preventivo, le compartimos el detalle de los comprobantes fiscales que figuran pendientes de pago en nuestros registros al {fecha}.',
+            'close' => 'Si el pago ya fue realizado, le agradecemos hacer caso omiso de este aviso y remitirnos el comprobante de la transferencia o el número de cheque para aplicarlo de inmediato a su cuenta. Quedamos atentos a cualquier aclaración.',
+        ],
+        'firme' => [
+            'label' => 'Firme',
+            'kicker' => 'Saldo vencido',
+            'title' => 'Recordatorio de pago',
+            'color' => '#92660a',
+            'soft' => '#fffaf0',
+            'line' => '#f4d58a',
+            'subject' => 'Saldo vencido de {total} — {dias} día(s) de atraso',
+            'intro' => 'Reciba un cordial saludo de parte de {empresa}. Al {fecha} nuestros registros muestran comprobantes fiscales vencidos por un total de {total}, con hasta {dias} día(s) de atraso. Le solicitamos gestionar el pago a la mayor brevedad para mantener su cuenta al día.',
+            'close' => 'Le agradecemos confirmar la fecha estimada de pago o, si ya fue realizado, remitirnos el comprobante para aplicarlo a su cuenta. Si existe alguna diferencia en el detalle, con gusto la revisamos con usted.',
+        ],
+        'final' => [
+            'label' => 'Último aviso',
+            'kicker' => 'Gestión final de cobro',
+            'title' => 'Último aviso de cobro',
+            'color' => '#b42318',
+            'soft' => '#fef2f2',
+            'line' => '#f3c4c4',
+            'subject' => 'Último aviso — saldo vencido de {total} con {dias} día(s) de atraso',
+            'intro' => 'Reciba un cordial saludo de parte de {empresa}. Pese a nuestras gestiones anteriores, al {fecha} continúa pendiente un saldo vencido de {total}, con hasta {dias} día(s) de atraso. Este documento constituye nuestra gestión final de cobro por la vía administrativa.',
+            'close' => 'Le solicitamos regularizar el saldo o comunicarse con nosotros dentro de los próximos cinco (5) días laborables para acordar un plan de pago. De no recibir respuesta, la cuenta será remitida al departamento legal y el crédito quedará suspendido, conforme a los términos aceptados en cada comprobante.',
+        ],
+    ];
+}
+
+/** Tono sugerido según los días de atraso del comprobante más vencido. */
+function reminder_tone_for(int $maxOverdueDays): string
+{
+    if ($maxOverdueDays <= 15) {
+        return 'cordial';
+    }
+    return $maxOverdueDays <= 60 ? 'firme' : 'final';
+}
+
+/** Instrucciones de pago del recordatorio (editables en Configuración). */
+function reminder_payment_info(): string
+{
+    $saved = trim((string) setting_get('invoice_payment_info', ''));
+    if ($saved !== '') {
+        return $saved;
+    }
+    $legal = defined('APP_LEGAL') ? APP_LEGAL : '';
+    $mail = defined('APP_EMAIL') ? APP_EMAIL : '';
+    return "Transferencia o depósito bancario a nombre de {$legal}.\n"
+        . "Cheque a nombre de {$legal}, cruzado y no negociable.\n"
+        . "Al pagar, indique el número de factura o el NCF en la descripción de la transacción.\n"
+        . ($mail !== '' ? "Remita el comprobante de pago a {$mail} para aplicarlo el mismo día." : '');
+}
+
+/** Datos de contacto de cobros que cierran el recordatorio. */
+function reminder_contact(): string
+{
+    $saved = trim((string) setting_get('reminder_contact', ''));
+    if ($saved !== '') {
+        return $saved;
+    }
+    $parts = array_filter([
+        'Departamento de Cobros',
+        defined('APP_PHONE') && APP_PHONE !== '' ? 'Tel. ' . APP_PHONE : '',
+        defined('APP_EMAIL') && APP_EMAIL !== '' ? APP_EMAIL : '',
+    ]);
+    return implode(' · ', $parts);
+}
+
+/** Sustituye las marcas {empresa}, {cliente}, {fecha}, {total}, {dias}, {contacto}. */
+function reminder_fill(string $text, array $vars): string
+{
+    $map = [];
+    foreach ($vars as $k => $v) {
+        $map['{' . $k . '}'] = (string) $v;
+    }
+    return strtr($text, $map);
+}
+
 /** Normaliza una fecha 'YYYY-MM-DD' real; null si viene vacía, cero o inválida. */
 function invoice_valid_date(string $date): ?string
 {

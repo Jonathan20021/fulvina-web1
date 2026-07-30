@@ -578,6 +578,12 @@ if ($action === 'view') {
                 <?php if ($status === 'Emitida'): ?>
                     <button type="button" class="crm-secondary-btn" onclick="document.getElementById('inv-pay').showModal()"><i data-lucide="hand-coins" class="h-4 w-4"></i>Registrar pago</button>
                 <?php endif; ?>
+                <?php if ($status === 'Emitida' && $balance > 0.009): ?>
+                    <button type="button" class="crm-secondary-btn" onclick="crmPdfPreviewOpen('<?= url('crm/recordatorio_pdf.php?id=' . (int) $inv['id']) ?>','<?= url('crm/recordatorio_pdf.php?id=' . (int) $inv['id'] . '&download=1') ?>','<?= e(addslashes((string) ($inv['invoice_number'] ?? ''))) ?>','Recordatorio de pago')"><i data-lucide="bell-ring" class="h-4 w-4"></i>Recordatorio de pago</button>
+                    <?php if ((int) ($inv['client_id'] ?? 0) > 0): ?>
+                        <button type="button" class="crm-secondary-btn" onclick="crmPdfPreviewOpen('<?= url('crm/recordatorio_pdf.php?client=' . (int) $inv['client_id']) ?>','<?= url('crm/recordatorio_pdf.php?client=' . (int) $inv['client_id'] . '&download=1') ?>','<?= e(addslashes((string) ($inv['client_name'] ?? $inv['c_name'] ?? 'Cliente'))) ?>','Estado de cuenta')"><i data-lucide="file-clock" class="h-4 w-4"></i>Estado de cuenta</button>
+                    <?php endif; ?>
+                <?php endif; ?>
                 <?php if ($status !== 'Anulada' && !$editable): ?>
                     <button type="button" class="crm-secondary-btn crm-secondary-btn--danger" onclick="document.getElementById('inv-void').showModal()"><i data-lucide="ban" class="h-4 w-4"></i>Anular</button>
                 <?php endif; ?>
@@ -822,6 +828,10 @@ if ($hasInvoices && $canCartera) {
 }
 $agingTone = ['por_vencer' => 'ok', '0-30' => 'warn', '31-60' => 'warn', '61-90' => 'bad', '90+' => 'bad'];
 
+/* Bandeja de recordatorios de pago: un cliente por fila, deuda más antigua primero. */
+$reminderClients = ($hasInvoices && $canCartera) ? receivables_clients() : [];
+$reminderOverdue = array_values(array_filter($reminderClients, fn ($c) => $c['overdue_count'] > 0));
+
 /*
  * Rango NCF vigente por serie+tipo: el mismo criterio y el mismo orden que usa
  * invoice_emit(), así que «próximo» es exactamente el NCF que se asignará.
@@ -918,6 +928,57 @@ require_once __DIR__ . '/../includes/crm_header.php';
     </article>
     <?php endif; ?>
 
+    <?php if ($hasInvoices && $canCartera && $reminderClients): ?>
+    <article class="crm-card inv-remind">
+        <div class="crm-card__head">
+            <div>
+                <h2><i data-lucide="bell-ring" class="cfg-ic"></i> Recordatorios de pago</h2>
+                <p>Estado de cuenta en PDF con el logo, los datos fiscales de la empresa y el detalle de cada comprobante pendiente. El tono del aviso se ajusta solo al atraso del documento más antiguo; puedes forzarlo antes de imprimir.</p>
+            </div>
+            <div class="crm-toolbar" style="gap:.5rem;padding:0">
+                <button type="button" class="crm-secondary-btn" onclick="crmPdfPreviewOpen('<?= url('crm/recordatorio_pdf.php?scope=all') ?>','<?= url('crm/recordatorio_pdf.php?scope=all&download=1') ?>','de <?= e((string) count($reminderClients)) ?> clientes','Lote de recordatorios')"><i data-lucide="layers" class="h-4 w-4"></i>Lote · todos (<?= e((string) count($reminderClients)) ?>)</button>
+                <?php if ($reminderOverdue): ?>
+                    <button type="button" class="crm-secondary-btn" onclick="crmPdfPreviewOpen('<?= url('crm/recordatorio_pdf.php?scope=all&vencidas=1') ?>','<?= url('crm/recordatorio_pdf.php?scope=all&vencidas=1&download=1') ?>','de <?= e((string) count($reminderOverdue)) ?> clientes en mora','Lote de recordatorios')"><i data-lucide="alarm-clock" class="h-4 w-4"></i>Solo en mora (<?= e((string) count($reminderOverdue)) ?>)</button>
+                <?php endif; ?>
+            </div>
+        </div>
+        <div class="crm-table-wrap">
+            <table class="crm-table">
+                <thead><tr><th>Cliente</th><th class="text-right">Comprobantes</th><th>Mayor atraso</th><th class="text-right">Vencido</th><th class="text-right">Saldo total</th><th class="text-right">Recordatorio</th></tr></thead>
+                <tbody>
+                <?php foreach ($reminderClients as $rc):
+                    $rcTone = $rc['max_days'] > 60 ? 'bad' : ($rc['max_days'] > 0 ? 'warn' : 'ok');
+                    $rcName = addslashes((string) $rc['name']);
+                    $rcBase = 'crm/recordatorio_pdf.php?client=' . (int) $rc['client_id']; ?>
+                    <tr>
+                        <td>
+                            <a href="<?= url('crm/cliente.php?id=' . (int) $rc['client_id']) ?>"><strong><?= e($rc['name']) ?></strong></a>
+                            <?php if ($rc['rnc'] !== '' || $rc['email'] !== ''): ?><br><span style="color:var(--muted);font-size:.78rem"><?= e(trim(implode(' · ', array_filter([$rc['rnc'], $rc['email']])))) ?></span><?php endif; ?>
+                        </td>
+                        <td class="text-right"><?= e((string) $rc['count']) ?></td>
+                        <td><span class="inv-age-chip inv-age-chip--<?= e($rcTone) ?>"><?= $rc['max_days'] > 0 ? e((string) $rc['max_days']) . ' d de atraso' : 'Sin atrasos' ?></span></td>
+                        <td class="text-right"><?= $rc['overdue_dop'] > 0 ? '<strong style="color:#b42318">' . money($rc['overdue_dop']) . '</strong>' : '<span style="color:var(--muted)">—</span>' ?></td>
+                        <td class="text-right"><strong><?= money($rc['total_dop']) ?></strong></td>
+                        <td class="text-right">
+                            <div class="crm-row-actions">
+                                <button type="button" class="crm-icon-action" title="Vista previa del recordatorio" onclick="crmPdfPreviewOpen('<?= url($rcBase) ?>','<?= url($rcBase . '&download=1') ?>','<?= e($rcName) ?>','Recordatorio de pago')"><i data-lucide="eye"></i></button>
+                                <a class="crm-icon-action" href="<?= url($rcBase . '&download=1') ?>" title="Descargar PDF"><i data-lucide="download"></i></a>
+                                <button type="button" class="crm-icon-action" title="Tono cordial (aviso preventivo)" onclick="crmPdfPreviewOpen('<?= url($rcBase . '&tono=cordial') ?>','<?= url($rcBase . '&tono=cordial&download=1') ?>','<?= e($rcName) ?>','Recordatorio cordial')"><i data-lucide="smile"></i></button>
+                                <button type="button" class="crm-icon-action" title="Tono firme (saldo vencido)" onclick="crmPdfPreviewOpen('<?= url($rcBase . '&tono=firme') ?>','<?= url($rcBase . '&tono=firme&download=1') ?>','<?= e($rcName) ?>','Recordatorio firme')"><i data-lucide="alert-triangle"></i></button>
+                                <button type="button" class="crm-icon-action crm-icon-action--danger" title="Último aviso de cobro" onclick="crmPdfPreviewOpen('<?= url($rcBase . '&tono=final') ?>','<?= url($rcBase . '&tono=final&download=1') ?>','<?= e($rcName) ?>','Último aviso de cobro')"><i data-lucide="gavel"></i></button>
+                                <?php if ($rc['email'] !== ''): ?>
+                                    <a class="crm-icon-action" href="mailto:<?= e($rc['email']) ?>?subject=<?= e(rawurlencode('Estado de cuenta ' . APP_NAME . ' — saldo pendiente al ' . date('d/m/Y'))) ?>&body=<?= e(rawurlencode("Estimados señores de " . $rc['name'] . ":\n\nAdjuntamos el estado de cuenta con los comprobantes pendientes de pago al " . date('d/m/Y') . ", por un total de RD$ " . number_format($rc['total_dop'], 2) . ".\n\nQuedamos atentos a cualquier aclaración.\n\n" . reminder_contact() . "\n" . APP_LEGAL)) ?>" title="Redactar correo al cliente (adjunta el PDF descargado)"><i data-lucide="mail"></i></a>
+                                <?php endif; ?>
+                            </div>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </article>
+    <?php endif; ?>
+
     <article class="crm-data-surface">
         <div class="crm-data-surface__head">
             <div><h3>Facturas</h3><p><?php if ($hasFilters): ?><?= e((string) $totalMatching) ?> coincidencia<?= $totalMatching === 1 ? '' : 's' ?><?php else: ?>Comprobantes fiscales, NCF, estado de cobro e impresión.<?php endif; ?></p></div>
@@ -963,6 +1024,9 @@ require_once __DIR__ . '/../includes/crm_header.php';
                                     </form>
                                 <?php endif; ?>
                                 <button type="button" class="crm-icon-action" title="Vista previa PDF" onclick="crmPdfPreviewOpen('<?= url('crm/factura_pdf.php?id=' . (int) $inv['id']) ?>','<?= url('crm/factura_pdf.php?id=' . (int) $inv['id'] . '&download=1') ?>','<?= e(addslashes((string) ($inv['ncf'] ?? $inv['invoice_number']))) ?>')"><i data-lucide="file-text"></i></button>
+                                <?php if ($hasInvoices && (string) ($inv['status'] ?? '') === 'Emitida' && ($age['balance'] ?? 0) > 0.009): ?>
+                                    <button type="button" class="crm-icon-action" title="Recordatorio de pago (PDF)" onclick="crmPdfPreviewOpen('<?= url('crm/recordatorio_pdf.php?id=' . (int) $inv['id']) ?>','<?= url('crm/recordatorio_pdf.php?id=' . (int) $inv['id'] . '&download=1') ?>','<?= e(addslashes((string) $inv['invoice_number'])) ?>','Recordatorio de pago')"><i data-lucide="bell-ring"></i></button>
+                                <?php endif; ?>
                                 <?php if ($hasInvoices && current_can('facturas.delete') && in_array((string) ($inv['status'] ?? 'Borrador'), ['Borrador', 'Anulada'], true)):
                                     $isVoided = (string) ($inv['status'] ?? '') === 'Anulada';
                                     $delMsg = $isVoided

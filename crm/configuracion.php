@@ -32,6 +32,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '')
     setting_set('invoice_default_condition', $icond);
     $idue = (int) ($_POST['invoice_due_days'] ?? 30);
     setting_set('invoice_due_days', (string) ($idue >= 0 ? $idue : 30));
+    // Datos que salen impresos en el recordatorio de pago que recibe el cliente.
+    setting_set('invoice_payment_info', trim((string) ($_POST['invoice_payment_info'] ?? '')));
+    setting_set('reminder_contact', trim((string) ($_POST['reminder_contact'] ?? '')));
     log_activity('config', null, 'facturacion_actualizada', null);
     flash('success', 'Preferencias de facturación guardadas.');
     redirect('crm/configuracion.php');
@@ -168,6 +171,8 @@ $invoiceTaxSetting = setting_get('invoice_tax_rate', $quoteTaxSetting);
 $invoiceTypeSetting = (string) setting_get('invoice_default_type', '01');
 $invoiceConditionSetting = (string) setting_get('invoice_default_condition', 'Contado');
 $invoiceDueSetting = setting_get('invoice_due_days', '30');
+$paymentInfoSetting = (string) setting_get('invoice_payment_info', '');
+$reminderContactSetting = (string) setting_get('reminder_contact', '');
 $companyDefs = company_field_defs();
 $cv = fn (string $k) => company_value($k);
 $dis = db(false) ? '' : 'disabled';
@@ -369,6 +374,16 @@ require_once __DIR__ . '/../includes/crm_header.php';
                     <span>Términos y condiciones por defecto</span>
                     <textarea name="invoice_terms" rows="6" class="crm-textarea" <?= $dis ?>><?= e($invoiceTermsSetting) ?></textarea>
                     <small class="cfg-hint">Aparecen al final del PDF de cada factura. Las secuencias NCF se gestionan en <a class="underline" href="<?= url('crm/facturas.php?action=ncf') ?>">Facturación → Secuencias NCF</a>.</small>
+                </label>
+                <label class="crm-field">
+                    <span>Formas de pago (recordatorios de cobro)</span>
+                    <textarea name="invoice_payment_info" rows="5" class="crm-textarea" placeholder="Banco Popular · Cuenta corriente 000-0000000-0 a nombre de <?= e(APP_LEGAL) ?>&#10;Banco BHD · Cuenta corriente 000-0000000-0&#10;Indique el NCF en la descripción de la transferencia" <?= $dis ?>><?= e($paymentInfoSetting) ?></textarea>
+                    <small class="cfg-hint">Cuentas bancarias e instrucciones que se imprimen en el <b>recordatorio de pago</b> que se envía al cliente. Si lo dejas vacío se usa un texto genérico con la razón social y el correo de la empresa.</small>
+                </label>
+                <label class="crm-field">
+                    <span>Contacto de cobros</span>
+                    <input name="reminder_contact" value="<?= e($reminderContactSetting) ?>" class="crm-input" placeholder="Departamento de Cobros · Tel. <?= e(APP_PHONE) ?> · <?= e(APP_EMAIL) ?>" <?= $dis ?>>
+                    <small class="cfg-hint">Firma y cierre del recordatorio de pago. Vacío = se arma solo con el teléfono y el correo de la empresa.</small>
                 </label>
                 <div class="crm-toolbar" style="justify-content:flex-end">
                     <button class="crm-primary-btn" type="submit" <?= $dis ?>><i data-lucide="save" class="h-4 w-4"></i>Guardar facturación</button>

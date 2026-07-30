@@ -462,8 +462,9 @@ window.publicTicketWizard = function publicTicketWizard(config) {
   };
 };
 
-/* PDF preview modal (iframe) for quotes */
-window.crmPdfPreviewOpen = function crmPdfPreviewOpen(viewUrl, downloadUrl, title) {
+/* PDF preview modal (iframe): quotes, invoices and payment reminders.
+   `kind` names the document in the modal header ('Cotización' by default). */
+window.crmPdfPreviewOpen = function crmPdfPreviewOpen(viewUrl, downloadUrl, title, kind) {
   const dlg = document.getElementById('crm-pdf-modal');
   if (!dlg) { window.open(viewUrl, '_blank'); return; }
   const frame = dlg.querySelector('#crm-pdf-frame');
@@ -473,7 +474,8 @@ window.crmPdfPreviewOpen = function crmPdfPreviewOpen(viewUrl, downloadUrl, titl
   if (frame) frame.src = viewUrl;
   if (dl) dl.href = downloadUrl;
   if (open) open.href = viewUrl;
-  if (tl) tl.textContent = title ? ('Cotización ' + title) : 'Vista previa de cotización';
+  const label = kind || 'Cotización';
+  if (tl) tl.textContent = title ? (label + ' ' + title) : ('Vista previa · ' + label);
   if (typeof dlg.showModal === 'function' && !dlg.open) dlg.showModal();
   if (window.lucide) window.lucide.createIcons();
 };
