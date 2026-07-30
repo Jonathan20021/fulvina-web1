@@ -20,6 +20,29 @@ require_can('facturas.view');
 use Dompdf\Dompdf;
 use Dompdf\Options;
 
+/*
+ * Si la composición del PDF falla (dompdf, memoria, datos inesperados), el
+ * servidor devolvería un 500 en blanco dentro del iframe de vista previa y no
+ * habría forma de saber por qué. Este cierre convierte cualquier error fatal en
+ * un mensaje legible: el detalle técnico solo para quien administra el sistema.
+ */
+$canSeeErrors = current_can('config.manage');
+register_shutdown_function(static function () use ($canSeeErrors): void {
+    $err = error_get_last();
+    if (!$err || !in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR], true)) {
+        return;
+    }
+    while (ob_get_level() > 0) { ob_end_clean(); }
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: text/plain; charset=utf-8');
+    }
+    echo "No se pudo generar el recordatorio de pago.\n";
+    echo $canSeeErrors
+        ? "\n" . $err['message'] . "\n@ " . $err['file'] . ':' . $err['line'] . "\n"
+        : "Avisa al administrador: el detalle quedó en el log de errores del servidor.\n";
+});
+
 $hasDb = db(false) && table_exists('invoices');
 if (db(false)) { ensure_invoice_schema(); }
 
@@ -100,10 +123,17 @@ $h = fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $m = fn ($v) => 'RD$ ' . number_format((float) $v, 2, '.', ',');
 $mc = fn ($v, $cur) => (strtoupper((string) $cur) === 'USD' ? 'US$ ' : 'RD$ ') . number_format((float) $v, 2, '.', ',');
 
+/* El logo es configurable (puede ser PNG, JPG o WEBP subido desde el CRM), así
+   que el tipo se toma del archivo real: un data URI mal etiquetado hace fallar
+   al renderizador. Si no se puede leer, el documento sale sin logo. */
 $logoData = '';
 $logoPath = __DIR__ . '/../' . APP_LOGO;
-if (is_file($logoPath)) {
-    $logoData = 'data:image/png;base64,' . base64_encode((string) file_get_contents($logoPath));
+if (is_file($logoPath) && is_readable($logoPath)) {
+    $info = @getimagesize($logoPath);
+    $mime = is_array($info) ? (string) ($info['mime'] ?? '') : '';
+    if (in_array($mime, ['image/png', 'image/jpeg', 'image/gif', 'image/webp'], true)) {
+        $logoData = 'data:' . $mime . ';base64,' . base64_encode((string) file_get_contents($logoPath));
+    }
 }
 
 $paymentInfo = reminder_payment_info();
@@ -415,16 +445,29 @@ $options->set('isHtml5ParserEnabled', true);
 $options->set('defaultFont', 'DejaVu Sans');
 $options->set('dpi', 96);
 
-$dompdf = new Dompdf($options);
-$dompdf->loadHtml($html, 'UTF-8');
-$dompdf->setPaper('A4', 'portrait');
-$dompdf->render();
+try {
+    $dompdf = new Dompdf($options);
+    $dompdf->loadHtml($html, 'UTF-8');
+    $dompdf->setPaper('A4', 'portrait');
+    $dompdf->render();
 
-$canvas = $dompdf->getCanvas();
-$font = $dompdf->getFontMetrics()->getFont('DejaVu Sans', 'normal');
-if ($font) {
-    // Justo encima de la línea del pie fijo, para que no se solape con sus datos.
-    $canvas->page_text($canvas->get_width() - 128, $canvas->get_height() - 52, 'Página {PAGE_NUM} de {PAGE_COUNT}', $font, 8, [0.36, 0.42, 0.48]);
+    $canvas = $dompdf->getCanvas();
+    $font = $dompdf->getFontMetrics()->getFont('DejaVu Sans', 'normal');
+    if ($font) {
+        // Justo encima de la línea del pie fijo, para que no se solape con sus datos.
+        $canvas->page_text($canvas->get_width() - 128, $canvas->get_height() - 52, 'Página {PAGE_NUM} de {PAGE_COUNT}', $font, 8, [0.36, 0.42, 0.48]);
+    }
+} catch (Throwable $ex) {
+    error_log('[recordatorio_pdf] ' . $ex::class . ': ' . $ex->getMessage() . ' @ ' . $ex->getFile() . ':' . $ex->getLine());
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: text/plain; charset=utf-8');
+    }
+    echo "No se pudo componer el recordatorio de pago.\n";
+    if ($canSeeErrors) {
+        echo "\n" . $ex::class . ': ' . $ex->getMessage() . "\n@ " . $ex->getFile() . ':' . $ex->getLine() . "\n";
+    }
+    exit;
 }
 
 if ($scope === 'all') {
