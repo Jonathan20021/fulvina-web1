@@ -1418,6 +1418,36 @@ function activity_recent(int $limit = 10, ?string $entityType = null, ?int $enti
     return fetch_all("SELECT a.*, {$userCol} FROM activity_log a {$userJoin} WHERE {$where} ORDER BY a.created_at DESC, a.id DESC LIMIT {$limit}", $params);
 }
 
+/**
+ * Renderiza un documento apretando la densidad hasta que quepa en una sola hoja.
+ *
+ * $build(int $level) devuelve el HTML completo, donde level 0 = densidad normal,
+ * 1 = compacta y 2 = muy compacta. Evita que una factura de pocas partidas mande
+ * las firmas solas a una segunda hoja. Si ni con la densidad máxima cabe, se
+ * devuelve la versión normal: el documento es largo de verdad y apretarlo solo lo
+ * haría ilegible.
+ */
+function pdf_render_fit(callable $build, \Dompdf\Options $options, int $maxLevel = 2): \Dompdf\Dompdf
+{
+    $render = static function (int $level) use ($build, $options): array {
+        $pdf = new \Dompdf\Dompdf($options);
+        $pdf->loadHtml($build($level), 'UTF-8');
+        $pdf->setPaper('A4', 'portrait');
+        $pdf->render();
+        return [$pdf, (int) $pdf->getCanvas()->get_page_count()];
+    };
+
+    [$pdf, $pages] = $render(0);
+    // Solo intentamos comprimir cuando falta poco: con 3+ hojas ya no se salva.
+    if ($pages !== 2) { return $pdf; }
+
+    for ($level = 1; $level <= $maxLevel; $level++) {
+        [$try, $tryPages] = $render($level);
+        if ($tryPages <= 1) { return $try; }
+    }
+    return $pdf;
+}
+
 function priority_class(string $priority): string
 {
     return match (strtolower($priority)) {

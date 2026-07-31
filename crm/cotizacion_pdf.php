@@ -70,7 +70,15 @@ $qty = fn ($v) => rtrim(rtrim(number_format((float) $v, 2, '.', ','), '0'), '.')
 $h = fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $totalWords = money_in_words((float) ($quote['total'] ?? 0), $cur);
 
-ob_start();
+$buildHtml = function (int $level) use (
+    $h, $fmt, $qty, $quote, $items, $logoData, $cur, $rate,
+    $terms, $number, $createdAt, $category, $statusColor, $totalWords
+): string {
+    // Márgenes de página por nivel de densidad (normal / compacta / muy compacta).
+    $pageTop = [32, 28, 24][$level];
+    $pageBottom = [96, 88, 82][$level];
+    $footBottom = [72, 64, 58][$level];
+    ob_start();
 ?>
 <!doctype html>
 <html lang="es">
@@ -78,7 +86,7 @@ ob_start();
 <meta charset="utf-8">
 <style>
     * { font-family: "DejaVu Sans", sans-serif; }
-    @page { margin: 32px 40px 96px; }
+    @page { margin: <?= $pageTop ?>px 40px <?= $pageBottom ?>px; }
     body { margin: 0; color: #1a2734; font-size: 10.5px; line-height: 1.45; }
     .muted { color: #5b6b7b; }
     .right { text-align: right; }
@@ -148,7 +156,9 @@ ob_start();
     .notes-box h3 { color: #8696a6; font-size: 8.5px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 4px; }
     .notes-box p { margin: 0; color: #41515f; font-size: 9.3px; line-height: 1.5; }
 
-    .lower, table.items tbody tr { page-break-inside: avoid; }
+    /* El cierre (totales + términos + firmas) viaja como un solo bloque: si no cabe
+       pasa entero a la hoja siguiente, nunca las firmas solas. */
+    .tail, .lower, table.items tbody tr { page-break-inside: avoid; }
     .terms { margin-top: 16px; border-top: 1px solid #e3eaf1; padding-top: 10px; page-break-inside: avoid; }
     .terms h3 { color: #0e1a28; font-size: 10px; font-weight: bold; margin-bottom: 5px; }
     .terms p { margin: 0; color: #5b6b7b; font-size: 8.7px; line-height: 1.7; }
@@ -161,10 +171,62 @@ ob_start();
     .sign-line span { display: block; font-size: 8.4px; color: #5b6b7b; margin-top: 1px; }
 
     /* Fixed footer */
-    .foot { position: fixed; left: -40px; right: -40px; bottom: -72px; height: 60px; }
+    .foot { position: fixed; left: -40px; right: -40px; bottom: -<?= $footBottom ?>px; height: 60px; }
     .foot-inner { border-top: 2px solid #0a7d36; margin: 0 40px; padding-top: 7px; color: #5b6b7b; font-size: 8.4px; line-height: 1.5; }
     .foot-inner table { width: 100%; border-collapse: collapse; }
     .foot-inner b { color: #0a7d36; }
+
+<?php if ($level >= 1): ?>
+    /* Densidad compacta: gana ~1 bloque de firmas sin tocar la jerarquía visual. */
+    body { font-size: 10px; }
+    .head { margin-top: 12px; }
+    .parties { margin-top: 12px; }
+    .pcard { padding: 9px 12px; min-height: 0; }
+    .subject-row { margin-top: 10px; }
+    table.items { margin-top: 11px; }
+    table.items thead th { padding: 6px 10px; }
+    table.items tbody td { padding: 6px 10px; font-size: 9.6px; }
+    .lower { margin-top: 10px; }
+    .tt td { padding: 4px 12px; font-size: 10px; }
+    .tt tr.total td { font-size: 12.5px; }
+    .words { padding: 7px 10px; }
+    .notes-box { padding: 8px 10px; }
+    .terms { margin-top: 11px; padding-top: 8px; }
+    .terms p { font-size: 8.3px; line-height: 1.55; }
+    .signs { margin-top: 20px; }
+<?php endif; ?>
+<?php if ($level >= 2): ?>
+    /* Densidad máxima: último recurso antes de dejar que pase a dos hojas. */
+    body { font-size: 9.4px; }
+    .head { margin-top: 9px; }
+    .brand-name { font-size: 17px; }
+    .brand-meta { margin-top: 4px; font-size: 8.2px; line-height: 1.4; }
+    .doc-box { padding: 7px 10px; }
+    .doc-number { font-size: 17px; }
+    .doc-meta { margin-top: 5px; font-size: 8.4px; line-height: 1.45; }
+    .parties { margin-top: 8px; }
+    .pcard { padding: 7px 10px; }
+    .pcard .name { font-size: 11px; }
+    .pcard p { font-size: 8.6px; line-height: 1.4; }
+    .subject-row { margin-top: 8px; }
+    .subject-row .v { font-size: 11.5px; }
+    table.items { margin-top: 8px; }
+    table.items thead th { padding: 5px 8px; font-size: 8.4px; }
+    table.items tbody td { padding: 4px 8px; font-size: 9px; }
+    .lower { margin-top: 8px; }
+    .tt td { padding: 3px 10px; font-size: 9.6px; }
+    .tt tr.total td { font-size: 11.5px; }
+    .words { margin-top: 5px; padding: 6px 9px; }
+    .words .v { font-size: 9px; }
+    .notes-box { padding: 7px 9px; }
+    .notes-box p { font-size: 8.6px; line-height: 1.4; }
+    .terms { margin-top: 8px; padding-top: 6px; }
+    .terms h3 { font-size: 9px; margin-bottom: 3px; }
+    .terms p { font-size: 7.9px; line-height: 1.45; }
+    .signs { margin-top: 14px; }
+    .sign-line b { font-size: 9px; }
+    .sign-line span { font-size: 8px; }
+<?php endif; ?>
 </style>
 </head>
 <body>
@@ -270,6 +332,7 @@ ob_start();
         </tbody>
     </table>
 
+    <div class="tail">
     <table class="lower">
         <tr>
             <td class="l">
@@ -305,10 +368,12 @@ ob_start();
             <td><div class="sign-line"><b>Aceptado por el cliente</b><span>Nombre, firma y fecha</span></div></td>
         </tr>
     </table>
+    </div>
 </body>
 </html>
 <?php
-$html = ob_get_clean();
+    return (string) ob_get_clean();
+};
 
 $options = new Options();
 $options->set('isRemoteEnabled', false);
@@ -316,10 +381,7 @@ $options->set('isHtml5ParserEnabled', true);
 $options->set('defaultFont', 'DejaVu Sans');
 $options->set('dpi', 96);
 
-$dompdf = new Dompdf($options);
-$dompdf->loadHtml($html, 'UTF-8');
-$dompdf->setPaper('A4', 'portrait');
-$dompdf->render();
+$dompdf = pdf_render_fit($buildHtml, $options);
 
 // Page numbers on every page
 $canvas = $dompdf->getCanvas();
