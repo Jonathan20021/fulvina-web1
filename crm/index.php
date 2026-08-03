@@ -57,8 +57,11 @@ $topTech['initials'] = $initialsOf($topTech['name']);
 
 /* ---- Best quote (real) -------------------------------------------------- */
 if ($hasDb) {
-    $bq = fetch_one('SELECT clients.name, quotes.total FROM quotes LEFT JOIN clients ON clients.id = quotes.client_id ORDER BY quotes.total DESC LIMIT 1');
-    $bestQuote = $bq ? ['client' => $bq['name'] ?? 'Cliente', 'amount' => (float) $bq['total']] : ['client' => '—', 'amount' => 0.0];
+    // Se ordena y muestra por el equivalente en RD$ para no coronar una propuesta
+    // en USD solo porque su cifra nominal es menor (o mayor) que las de pesos.
+    $dop = quote_total_dop_sql();
+    $bq = fetch_one("SELECT clients.name, {$dop} AS total_dop FROM quotes LEFT JOIN clients ON clients.id = quotes.client_id ORDER BY total_dop DESC LIMIT 1");
+    $bestQuote = $bq ? ['client' => $bq['name'] ?? 'Cliente', 'amount' => (float) $bq['total_dop']] : ['client' => '—', 'amount' => 0.0];
 } else {
     $bestQuote = ['client' => 'Hospital Metropolitano', 'amount' => 486200.0];
 }
@@ -589,7 +592,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                                 <td><?= e($quote['client_name'] ?? 'Cliente') ?></td>
                                 <td><?= e($quote['title']) ?></td>
                                 <td><span class="ops-status <?= e(status_class($quote['status'])) ?>"><?= e($quote['status']) ?></span></td>
-                                <?php if ($canFinance): ?><td class="text-right ops-nowrap"><?= money($quote['total']) ?></td><?php endif; ?>
+                                <?php if ($canFinance): ?><td class="text-right ops-nowrap"><?= money_cur($quote['total'], (string) ($quote['currency'] ?? 'DOP')) ?></td><?php endif; ?>
                                 <td class="ops-nowrap"><?= e(date_es($quote['updated_at'] ?? $quote['created_at'] ?? null)) ?></td>
                             </tr>
                         <?php endforeach; ?>

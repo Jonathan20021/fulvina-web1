@@ -147,7 +147,8 @@ function analytics_pipeline_value(): float
     }
     $in = "'" . implode("','", analytics_open_states()) . "'";
     // Exclude expired open quotes so a lapsed proposal does not inflate the pipeline.
-    $row = fetch_one("SELECT COALESCE(SUM(total),0) v FROM quotes WHERE status IN ($in) AND (valid_until IS NULL OR valid_until >= CURDATE())");
+    // Amounts are expressed in RD$: USD quotes convert with their own rate.
+    $row = fetch_one("SELECT COALESCE(SUM(" . quote_total_dop_sql() . "),0) v FROM quotes WHERE status IN ($in) AND (valid_until IS NULL OR valid_until >= CURDATE())");
     return (float) ($row['v'] ?? 0);
 }
 
@@ -164,7 +165,7 @@ function analytics_pipeline_by_stage(): array
         return $out;
     }
     foreach ($meta as $stage => $color) {
-        $row = fetch_one('SELECT COUNT(*) c, COALESCE(SUM(total),0) a FROM quotes WHERE status = ?', [$stage]);
+        $row = fetch_one("SELECT COUNT(*) c, COALESCE(SUM(" . quote_total_dop_sql() . "),0) a FROM quotes WHERE status = ?", [$stage]);
         $out[$stage] = ['count' => (int) ($row['c'] ?? 0), 'amount' => (float) ($row['a'] ?? 0), 'color' => $color];
     }
     return $out;
@@ -191,8 +192,9 @@ function analytics_kpis(array $period): array
     // Attribute won revenue by the immutable approval date when available, so a later
     // edit (which bumps updated_at) cannot silently re-date a closed sale into another period.
     $wonDate = column_exists('quotes', 'approved_at') ? 'COALESCE(approved_at, updated_at, created_at)' : 'COALESCE(updated_at, created_at)';
-    $wonCur = (float) (fetch_one("SELECT COALESCE(SUM(total),0) v FROM quotes WHERE status='Aprobado' AND DATE($wonDate) BETWEEN ? AND ?", [$f, $t])['v'] ?? 0);
-    $wonPrev = (float) (fetch_one("SELECT COALESCE(SUM(total),0) v FROM quotes WHERE status='Aprobado' AND DATE($wonDate) BETWEEN ? AND ?", [$pf, $pt])['v'] ?? 0);
+    $wonSum = 'COALESCE(SUM(' . quote_total_dop_sql() . '),0)';
+    $wonCur = (float) (fetch_one("SELECT $wonSum v FROM quotes WHERE status='Aprobado' AND DATE($wonDate) BETWEEN ? AND ?", [$f, $t])['v'] ?? 0);
+    $wonPrev = (float) (fetch_one("SELECT $wonSum v FROM quotes WHERE status='Aprobado' AND DATE($wonDate) BETWEEN ? AND ?", [$pf, $pt])['v'] ?? 0);
 
     $qCur = (int) (fetch_one('SELECT COUNT(*) c FROM quotes WHERE DATE(created_at) BETWEEN ? AND ?', [$f, $t])['c'] ?? 0);
     $qPrev = (int) (fetch_one('SELECT COUNT(*) c FROM quotes WHERE DATE(created_at) BETWEEN ? AND ?', [$pf, $pt])['c'] ?? 0);
@@ -210,7 +212,7 @@ function analytics_kpis(array $period): array
 
     $res = analytics_resolution($period);
 
-    $avgTicket = $won > 0 ? round((float) (fetch_one("SELECT COALESCE(AVG(total),0) v FROM quotes WHERE status='Aprobado'")['v'] ?? 0), 2) : 0.0;
+    $avgTicket = $won > 0 ? round((float) (fetch_one("SELECT COALESCE(AVG(" . quote_total_dop_sql() . "),0) v FROM quotes WHERE status='Aprobado'")['v'] ?? 0), 2) : 0.0;
 
     return [
         // Pipeline is an undated snapshot of open quotes; it has no meaningful period delta.
@@ -259,7 +261,7 @@ function analytics_monthly_trend(int $months = 6): array
     $res = array_fill_keys($keys, 0);
 
     $wonDate = column_exists('quotes', 'approved_at') ? 'COALESCE(approved_at, updated_at, created_at)' : 'COALESCE(updated_at, created_at)';
-    foreach (fetch_all("SELECT DATE_FORMAT($wonDate,'%Y-%m') m, COALESCE(SUM(total),0) v FROM quotes WHERE status='Aprobado' GROUP BY m") as $r) {
+    foreach (fetch_all("SELECT DATE_FORMAT($wonDate,'%Y-%m') m, COALESCE(SUM(" . quote_total_dop_sql() . "),0) v FROM quotes WHERE status='Aprobado' GROUP BY m") as $r) {
         if (isset($ingresos[$r['m']])) $ingresos[$r['m']] = (float) $r['v'];
     }
     foreach (fetch_all("SELECT DATE_FORMAT(created_at,'%Y-%m') m, COUNT(*) c FROM quotes GROUP BY m") as $r) {
@@ -313,7 +315,7 @@ function analytics_revenue_by_line(?array $period = null): array
     }
 
     $rows = column_exists('quotes', 'category')
-        ? fetch_all("SELECT COALESCE(NULLIF(category,''),'Sin categoría') line, COUNT(*) c, COALESCE(SUM(total),0) a FROM quotes WHERE $where GROUP BY line ORDER BY a DESC", $params)
+        ? fetch_all("SELECT COALESCE(NULLIF(category,''),'Sin categoría') line, COUNT(*) c, COALESCE(SUM(" . quote_total_dop_sql() . "),0) a FROM quotes WHERE $where GROUP BY line ORDER BY a DESC", $params)
         : [];
 
     $total = array_sum(array_map(fn ($r) => (float) $r['a'], $rows)) ?: 1;
@@ -339,7 +341,7 @@ function analytics_top_clients(int $limit = 10): array
     return fetch_all("SELECT c.id, c.name,
         $eq AS equipment_count,
         $tk AS ticket_count,
-        (SELECT COALESCE(SUM(q.total),0) FROM quotes q WHERE q.client_id=c.id) AS quote_value
+        (SELECT COALESCE(SUM(" . quote_total_dop_sql('q') . "),0) FROM quotes q WHERE q.client_id=c.id) AS quote_value
         FROM clients c
         ORDER BY quote_value DESC, ticket_count DESC, equipment_count DESC
         LIMIT $limit");
@@ -425,7 +427,7 @@ function analytics_team_performance(int $limit = 8): array
     $hasQuotes = analytics_has('quotes');
     $hasTickets = analytics_has('tickets');
     $cot = $hasQuotes ? '(SELECT COUNT(*) FROM quotes q WHERE q.created_by=u.id)' : '0';
-    $ing = $hasQuotes ? "(SELECT COALESCE(SUM(q.total),0) FROM quotes q WHERE q.created_by=u.id AND q.status='Aprobado')" : '0';
+    $ing = $hasQuotes ? "(SELECT COALESCE(SUM(" . quote_total_dop_sql('q') . "),0) FROM quotes q WHERE q.created_by=u.id AND q.status='Aprobado')" : '0';
     $res = $hasTickets ? "(SELECT COUNT(*) FROM tickets t WHERE t.assigned_to=u.id AND t.status IN ('Resuelto','Cerrado'))" : '0';
     return fetch_all("SELECT u.id, u.name, u.role,
         $ing AS ingresos, $cot AS cotizaciones, $res AS resueltos

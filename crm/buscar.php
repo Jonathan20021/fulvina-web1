@@ -16,7 +16,8 @@ if ($hasDb && $q !== '') {
         $results['equipment'] = fetch_all('SELECT equipment.id, equipment.name, equipment.serial, equipment.status, clients.name AS client_name FROM equipment LEFT JOIN clients ON clients.id = equipment.client_id WHERE equipment.name LIKE ? OR equipment.serial LIKE ? OR equipment.brand LIKE ? OR equipment.model LIKE ? ORDER BY equipment.name LIMIT 8', [$like, $like, $like, $like]);
     }
     if (current_can('cotizaciones.view')) {
-        $results['quotes'] = fetch_all('SELECT quotes.id, quotes.quote_number, quotes.title, quotes.status, quotes.total, clients.name AS client_name FROM quotes LEFT JOIN clients ON clients.id = quotes.client_id WHERE quotes.quote_number LIKE ? OR quotes.title LIKE ? OR clients.name LIKE ? ORDER BY quotes.created_at DESC LIMIT 8', [$like, $like, $like]);
+        $qCur = column_exists('quotes', 'currency') ? 'quotes.currency,' : '';
+        $results['quotes'] = fetch_all("SELECT quotes.id, quotes.quote_number, quotes.title, quotes.status, quotes.total, {$qCur} clients.name AS client_name FROM quotes LEFT JOIN clients ON clients.id = quotes.client_id WHERE quotes.quote_number LIKE ? OR quotes.title LIKE ? OR clients.name LIKE ? ORDER BY quotes.created_at DESC LIMIT 8", [$like, $like, $like]);
     }
     if (current_can('tickets.view')) {
         $results['tickets'] = fetch_all('SELECT tickets.id, tickets.subject, tickets.status, tickets.priority, clients.name AS client_name FROM tickets LEFT JOIN clients ON clients.id = tickets.client_id WHERE tickets.subject LIKE ? OR tickets.description LIKE ? OR clients.name LIKE ? ORDER BY tickets.created_at DESC LIMIT 8', [$like, $like, $like]);
@@ -82,7 +83,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                             <a class="search-hit" href="<?= url('crm/cotizaciones.php?action=view&id=' . (int) $r['id']) ?>">
                                 <span class="search-hit__icon"><i data-lucide="file-text"></i></span>
                                 <span class="search-hit__body"><b><?= e($r['quote_number']) ?> &middot; <?= e($r['title']) ?></b><span><?= e($r['client_name'] ?? 'Cliente') ?></span></span>
-                                <span class="search-hit__meta"><b style="color:var(--ink)"><?= money($r['total']) ?></b></span>
+                                <span class="search-hit__meta"><b style="color:var(--ink)"><?= money_cur($r['total'], (string) ($r['currency'] ?? 'DOP')) ?></b></span>
                             </a>
                         <?php else: ?>
                             <a class="search-hit" href="<?= url('crm/tickets.php?id=' . (int) $r['id']) ?>">

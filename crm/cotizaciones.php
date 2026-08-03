@@ -373,7 +373,8 @@ if ($hasDb) {
     $quoteTotal = (int) (fetch_one('SELECT COUNT(*) c FROM quotes')['c'] ?? 0);
     $quoteOpen = db_count('quotes', "status IN ('Borrador','Enviado','Cotizado','Negociacion')");
     $quoteApproved = db_count('quotes', "status='Aprobado'");
-    $quoteValue = (float) (fetch_one("SELECT COALESCE(SUM(total),0) v FROM quotes WHERE status IN ('Borrador','Enviado','Cotizado','Negociacion','Aprobado') AND (valid_until IS NULL OR valid_until >= CURDATE())")['v'] ?? 0);
+    // Valor en RD$: las propuestas en USD se convierten con su propia tasa.
+    $quoteValue = (float) (fetch_one("SELECT COALESCE(SUM(" . quote_total_dop_sql() . "),0) v FROM quotes WHERE status IN ('Borrador','Enviado','Cotizado','Negociacion','Aprobado') AND (valid_until IS NULL OR valid_until >= CURDATE())")['v'] ?? 0);
     $quoteExpiring = db_count('quotes', "valid_until IS NOT NULL AND valid_until >= CURDATE() AND valid_until <= DATE_ADD(CURDATE(), INTERVAL 10 DAY) AND status IN ('Borrador','Enviado','Cotizado','Negociacion')");
 } else {
     $quotes = [
@@ -478,7 +479,9 @@ require_once __DIR__ . '/../includes/crm_header.php';
                             <?php endif; ?>
                             <?php if ($isExpired): ?><span class="status-chip bg-red-50 text-red-700 ring-1 ring-red-200" title="Venció el <?= e(date_es($quote['valid_until'])) ?>">Vencida</span><?php endif; ?>
                         </td>
-                        <td class="text-right"><strong><?= money($quote['total']) ?></strong></td>
+                        <td class="text-right"><strong><?= money_cur($quote['total'], (string) ($quote['currency'] ?? 'DOP')) ?></strong>
+                            <?php if (strtoupper((string) ($quote['currency'] ?? 'DOP')) === 'USD'): ?><small class="crm-cell-note"><?= money(quote_total_dop($quote)) ?></small><?php endif; ?>
+                        </td>
                         <td class="text-right">
                             <div class="crm-row-actions">
                                 <a class="crm-icon-action" href="<?= url('crm/cotizaciones.php?action=view&id=' . (int) $quote['id']) ?>" title="Ver"><i data-lucide="eye"></i></a>

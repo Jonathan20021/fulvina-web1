@@ -800,9 +800,11 @@ if ($hasInvoices) {
 
     $invTotal = (int) (fetch_one('SELECT COUNT(*) c FROM invoices')['c'] ?? 0);
     $invPending = db_count('invoices', "status='Emitida'");
-    $invBilled = (float) (fetch_one("SELECT COALESCE(SUM(total),0) v FROM invoices WHERE status IN ('Emitida','Pagada')")['v'] ?? 0);
-    $invCollected = (float) (fetch_one("SELECT COALESCE(SUM(amount_paid),0) v FROM invoices WHERE status IN ('Emitida','Pagada')")['v'] ?? 0);
-    $invReceivable = (float) (fetch_one("SELECT COALESCE(SUM(total - itbis_retained - isr_retained - amount_paid),0) v FROM invoices WHERE status='Emitida'")['v'] ?? 0);
+    // KPIs en RD$: los comprobantes en USD se convierten con su propia tasa.
+    $rateSql = invoice_rate_sql();
+    $invBilled = (float) (fetch_one("SELECT COALESCE(SUM(total * {$rateSql}),0) v FROM invoices WHERE status IN ('Emitida','Pagada')")['v'] ?? 0);
+    $invCollected = (float) (fetch_one("SELECT COALESCE(SUM(amount_paid * {$rateSql}),0) v FROM invoices WHERE status IN ('Emitida','Pagada')")['v'] ?? 0);
+    $invReceivable = (float) (fetch_one("SELECT COALESCE(SUM((total - itbis_retained - isr_retained - amount_paid) * {$rateSql}),0) v FROM invoices WHERE status='Emitida'")['v'] ?? 0);
     $invOverdue = db_count('invoices', "status='Emitida' AND due_date IS NOT NULL AND due_date < CURDATE() AND (total - itbis_retained - isr_retained - amount_paid) > 0.009");
 } else {
     $invoices = [

@@ -429,6 +429,37 @@ function ensure_quote_schema(): void
 }
 
 /**
+ * Moneda y tasa efectivas de una cotización. Devuelve ['DOP'|'USD', tasa], donde
+ * la tasa es 1 para pesos y nunca menor que 1 para dólares (una tasa 0 guardada
+ * por error no debe borrar el monto al convertir).
+ */
+function quote_currency(array $quote): array
+{
+    $cur = strtoupper((string) ($quote['currency'] ?? 'DOP')) === 'USD' ? 'USD' : 'DOP';
+    return [$cur, $cur === 'USD' ? max(1.0, (float) ($quote['exchange_rate'] ?? 1)) : 1.0];
+}
+
+/** Total de una cotización llevado a RD$ (las de USD, con la tasa del documento). */
+function quote_total_dop(array $quote): float
+{
+    [, $rate] = quote_currency($quote);
+    return round((float) ($quote['total'] ?? 0) * $rate, 2);
+}
+
+/**
+ * La misma conversión en SQL, para que los agregados (pipeline, KPIs, reportes)
+ * sumen una sola moneda en carteras mixtas DOP/USD. Sin la columna `currency`
+ * todos los totales ya están en pesos y la expresión se reduce a la columna.
+ */
+function quote_total_dop_sql(string $table = 'quotes'): string
+{
+    if (!column_exists('quotes', 'currency') || !column_exists('quotes', 'exchange_rate')) {
+        return "{$table}.total";
+    }
+    return "({$table}.total * IF(UPPER({$table}.currency) = 'USD', GREATEST({$table}.exchange_rate, 1), 1))";
+}
+
+/**
  * RBAC schema: widen users.role from ENUM to VARCHAR so custom roles can be
  * assigned. Idempotent — only alters when the column is still an ENUM.
  */
@@ -739,6 +770,19 @@ function invoice_aging_text(array $inv): string
 function invoice_due_sql(string $table = 'invoices'): string
 {
     return "IF({$table}.due_date IS NULL OR YEAR({$table}.due_date) = 0, {$table}.issue_date, {$table}.due_date)";
+}
+
+/**
+ * Tasa SQL del comprobante para llevar cualquier importe suyo a RD$ (1 en pesos).
+ * Es el equivalente en consulta de la conversión que hace receivables_aging(),
+ * para que los KPIs no sumen dólares y pesos como si fueran la misma moneda.
+ */
+function invoice_rate_sql(string $table = 'invoices'): string
+{
+    if (!column_exists('invoices', 'currency') || !column_exists('invoices', 'exchange_rate')) {
+        return '1';
+    }
+    return "IF(UPPER({$table}.currency) = 'USD', GREATEST({$table}.exchange_rate, 1), 1)";
 }
 
 /**

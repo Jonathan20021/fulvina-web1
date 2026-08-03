@@ -2704,6 +2704,8 @@ footer.sch-footer {
   text-decoration: none;
 }
 .crm-table a:hover { text-decoration: underline; }
+/* Equivalente en RD$ bajo un monto en moneda extranjera. */
+.crm-cell-note { display: block; color: var(--muted); font-size: .72rem; font-weight: 600; margin-top: .12rem; }
 
 .crm-toolbar { display: flex; align-items: center; gap: .55rem; flex-wrap: wrap; }
 

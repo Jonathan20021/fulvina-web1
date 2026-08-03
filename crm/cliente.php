@@ -80,8 +80,10 @@ if ($demo) {
 
 /* ---- Stats -------------------------------------------------------------- */
 $openStates = analytics_open_states();
-$pipelineValue = array_sum(array_map(fn ($q) => in_array((string) $q['status'], $openStates, true) ? (float) $q['total'] : 0, $quotes));
-$wonValue = array_sum(array_map(fn ($q) => (string) $q['status'] === 'Aprobado' ? (float) $q['total'] : 0, $quotes));
+// Los montos del cliente se totalizan en RD$; las cotizaciones en USD se
+// convierten con la tasa de su propio documento.
+$pipelineValue = array_sum(array_map(fn ($q) => in_array((string) $q['status'], $openStates, true) ? quote_total_dop($q) : 0, $quotes));
+$wonValue = array_sum(array_map(fn ($q) => (string) $q['status'] === 'Aprobado' ? quote_total_dop($q) : 0, $quotes));
 $openTickets = count(array_filter($tickets, fn ($t) => !in_array((string) $t['status'], ['Resuelto', 'Cerrado'], true)));
 $warrantySoon = count(array_filter($equipment, function ($e) {
     $ts = !empty($e['warranty_until']) ? strtotime((string) $e['warranty_until']) : false;
@@ -93,7 +95,7 @@ $initials = strtoupper(mb_substr(preg_replace('/^(Hospital|Centro|Clínica|Clini
 /* ---- Activity timeline (quotes + tickets merged) ------------------------ */
 $timeline = [];
 foreach ($quotes as $q) {
-    $timeline[] = ['ts' => strtotime((string) ($q['created_at'] ?? 'now')), 'icon' => 'file-text', 'color' => '#0a7d36', 'title' => 'Cotización ' . ($q['quote_number'] ?? '') . ' · ' . money($q['total'] ?? 0), 'sub' => ($q['title'] ?? '') . ' · ' . ($q['status'] ?? ''), 'href' => url('crm/cotizaciones.php?action=view&id=' . (int) ($q['id'] ?? 0))];
+    $timeline[] = ['ts' => strtotime((string) ($q['created_at'] ?? 'now')), 'icon' => 'file-text', 'color' => '#0a7d36', 'title' => 'Cotización ' . ($q['quote_number'] ?? '') . ' · ' . money_cur($q['total'] ?? 0, (string) ($q['currency'] ?? 'DOP')), 'sub' => ($q['title'] ?? '') . ' · ' . ($q['status'] ?? ''), 'href' => url('crm/cotizaciones.php?action=view&id=' . (int) ($q['id'] ?? 0))];
 }
 foreach ($tickets as $t) {
     $timeline[] = ['ts' => strtotime((string) ($t['created_at'] ?? 'now')), 'icon' => 'life-buoy', 'color' => '#0666b3', 'title' => 'Ticket TK-' . date('Y', strtotime((string) ($t['created_at'] ?? 'now'))) . '-' . str_pad((string) ($t['id'] ?? 0), 4, '0', STR_PAD_LEFT) . ' · ' . ($t['priority'] ?? ''), 'sub' => ($t['subject'] ?? '') . ' · ' . ($t['status'] ?? ''), 'href' => url('crm/tickets.php?id=' . (int) ($t['id'] ?? 0))];
@@ -187,7 +189,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                                     <td><a href="<?= url('crm/cotizaciones.php?action=view&id=' . (int) $q['id']) ?>"><strong><?= e($q['quote_number']) ?></strong></a></td>
                                     <td><?= e($q['title']) ?></td>
                                     <td><span class="status-chip <?= e(status_class($q['status'])) ?>"><?= e($q['status']) ?></span></td>
-                                    <td class="text-right"><strong><?= money($q['total']) ?></strong></td>
+                                    <td class="text-right"><strong><?= money_cur($q['total'], (string) ($q['currency'] ?? 'DOP')) ?></strong></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
