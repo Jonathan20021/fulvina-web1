@@ -4450,6 +4450,43 @@ html { scroll-padding-top: 74px; }
   .qb__row > button { justify-self: end; }
 }
 
+/* ----- Anexo fotográfico: bloque del documento + gestor de subida ---------- */
+.quote-annex { margin-top: 1.4rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.quote-annex h3 { font-size: .95rem; font-weight: 700; color: var(--ink); margin-bottom: .8rem; }
+.quote-annex__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: .9rem; }
+.quote-annex figure { margin: 0; border: 1px solid var(--line-soft); border-radius: 10px; padding: .5rem; background: #fff; }
+.quote-annex figure img { display: block; width: 100%; height: 150px; object-fit: contain; background: var(--surface-soft, #f7faf8); border-radius: 6px; }
+.quote-annex figcaption { margin-top: .45rem; font-size: .76rem; line-height: 1.4; color: var(--muted); }
+.quote-annex figcaption b { color: var(--brand-strong, #0a7d36); }
+
+.annex-upload { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; padding: 0 0 .9rem; }
+.annex-drop {
+  flex: 1 1 320px; display: flex; align-items: center; gap: .7rem; cursor: pointer;
+  border: 1.5px dashed var(--line); border-radius: 12px; padding: .75rem .9rem;
+  transition: border-color .15s ease, background .15s ease;
+}
+.annex-drop:hover { border-color: var(--brand-strong, #0a7d36); background: var(--surface-soft, #f7faf8); }
+.annex-drop i { width: 20px; height: 20px; color: var(--brand-strong, #0a7d36); flex: none; }
+.annex-drop span { display: grid; gap: .12rem; min-width: 0; }
+.annex-drop b { font-size: .85rem; color: var(--ink); }
+.annex-drop small { font-size: .74rem; color: var(--muted); }
+.annex-drop input[type="file"] { display: none; }
+
+.annex-list { display: grid; gap: .6rem; }
+.annex-item { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; gap: .8rem; align-items: center; border: 1px solid var(--line-soft); border-radius: 10px; padding: .55rem; }
+.annex-item img { display: block; width: 92px; height: 68px; object-fit: cover; border-radius: 7px; background: var(--surface-soft, #f7faf8); }
+.annex-item__body { display: grid; gap: .3rem; min-width: 0; }
+.annex-item__num { font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--brand-strong, #0a7d36); }
+.annex-item__body small { font-size: .72rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.annex-item__actions { display: flex; gap: .25rem; }
+.annex-item__actions button[disabled] { opacity: .35; cursor: not-allowed; }
+.annex-manage__foot { display: flex; justify-content: flex-end; padding-top: .8rem; }
+@media (max-width: 620px) {
+  .annex-item { grid-template-columns: 68px minmax(0, 1fr); }
+  .annex-item img { width: 68px; height: 52px; }
+  .annex-item__actions { grid-column: 1 / -1; justify-content: flex-end; }
+}
+
 /* Quote summary equivalent + document currency/terms */
 .quote-summary__equiv { display: flex; justify-content: space-between; gap: 1rem; padding-top: .6rem; margin-top: .1rem; border-top: 1px dashed var(--line); color: var(--muted); font-size: .82rem; }
 .quote-summary__equiv strong { color: var(--ink-soft); font-weight: 700; }

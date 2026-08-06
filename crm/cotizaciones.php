@@ -1,6 +1,14 @@
 <?php
 require_once __DIR__ . '/../includes/bootstrap.php';
 require_can('cotizaciones.view');
+
+// Si la carga supera post_max_size, PHP descarta $_POST completo (incluido el
+// token CSRF). Sin este aviso el usuario vería «token inválido» al subir fotos
+// pesadas, que no explica nada. Va antes de verify_csrf() a propósito.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$_POST && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
+    flash('warning', 'La carga supera el máximo que acepta el servidor de una sola vez (' . upload_limit_label() . '). Sube las fotos en tandas más pequeñas.');
+    redirect('crm/cotizaciones.php');
+}
 verify_csrf();
 
 $hasDb = db(false) && table_exists('quotes');
@@ -9,6 +17,7 @@ $hasQuoteCurrency = $hasDb && column_exists('quotes', 'currency');
 $hasCategory = $hasDb && column_exists('quotes', 'category');
 $hasApproved = $hasDb && column_exists('quotes', 'approved_at');
 $hasDiscount = $hasDb && column_exists('quotes', 'discount_amount') && column_exists('quote_items', 'discount');
+$hasPhotos = $hasDb && table_exists('quote_attachments');
 $defaultQuoteTerms = setting_get('quote_terms', quote_default_terms());
 $defaultQuoteRate = (float) (setting_get('quote_exchange_rate', '60') ?: 60);
 $defaultQuoteTax = (float) setting_get('quote_tax_rate', '18');
@@ -64,6 +73,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         if (!current_can('cotizaciones.delete')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/cotizaciones.php'); }
         $did = (int) $_POST['delete_id'];
         if ($did > 0) {
+            // Las filas del anexo caen por FK, pero los archivos hay que borrarlos.
+            if ($hasPhotos) {
+                foreach (fetch_all('SELECT * FROM quote_attachments WHERE quote_id=?', [$did]) as $att) {
+                    quote_delete_photo_file($att);
+                }
+                @rmdir(quote_photos_dir($did));
+            }
             db()->prepare('DELETE FROM quotes WHERE id=?')->execute([$did]);
             log_activity('quote', $did, 'cotizacion_eliminada', null);
             flash('success', 'Cotización eliminada.');
@@ -129,12 +145,114 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
             foreach ($items as $it) {
                 $itemStmt->execute(array_merge([$newId], array_map(fn ($c) => $it[$c], $itemCols)));
             }
+            // El anexo viaja con la copia: se duplica el archivo, no sólo la fila,
+            // para que borrar una de las dos cotizaciones no deje a la otra sin foto.
+            if ($hasPhotos) {
+                $attStmt = $pdo->prepare('INSERT INTO quote_attachments (quote_id, file, original_name, mime, size, width, height, caption, sort_order, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())');
+                $destDir = quote_photos_dir($newId, true);
+                foreach (fetch_all('SELECT * FROM quote_attachments WHERE quote_id=? ORDER BY sort_order ASC, id ASC', [$sid]) as $att) {
+                    $srcPath = quote_photo_path($att);
+                    if ($srcPath === null) { continue; }
+                    $copyName = basename($srcPath);
+                    if (is_file($destDir . '/' . $copyName)) { $copyName = uniqid('c', true) . '.jpg'; }
+                    if (!@copy($srcPath, $destDir . '/' . $copyName)) { continue; }
+                    $attStmt->execute([$newId, $copyName, $att['original_name'], $att['mime'], $att['size'], $att['width'], $att['height'], $att['caption'], $att['sort_order'], current_user()['id'] ?? null]);
+                }
+            }
             $pdo->commit();
             log_activity('quote', $newId, 'cotizacion_duplicada', null);
             flash('success', 'Cotización duplicada como borrador.');
             redirect('crm/cotizaciones.php?action=view&id=' . $newId);
         }
         redirect('crm/cotizaciones.php');
+    }
+
+    /* ---- Anexo fotográfico --------------------------------------------- */
+    if (in_array($form, ['fotos', 'foto_delete', 'foto_captions', 'foto_move'], true)) {
+        if (!current_can('cotizaciones.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/cotizaciones.php'); }
+        $qid = (int) ($_POST['quote_id'] ?? 0);
+        $back = 'crm/cotizaciones.php?action=view&id=' . $qid;
+        if ($qid <= 0 || !$hasPhotos || !fetch_one('SELECT id FROM quotes WHERE id=?', [$qid])) {
+            flash('warning', 'No se pudo identificar la cotización.');
+            redirect('crm/cotizaciones.php');
+        }
+
+        if ($form === 'fotos') {
+            $files = $_FILES['fotos'] ?? null;
+            $names = (array) ($files['name'] ?? []);
+            $already = (int) (fetch_one('SELECT COUNT(*) c FROM quote_attachments WHERE quote_id=?', [$qid])['c'] ?? 0);
+            $next = (int) (fetch_one('SELECT COALESCE(MAX(sort_order),0) s FROM quote_attachments WHERE quote_id=?', [$qid])['s'] ?? 0);
+            $stmt = db()->prepare('INSERT INTO quote_attachments (quote_id, file, original_name, mime, size, width, height, caption, sort_order, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())');
+            $saved = 0;
+            $errors = [];
+            foreach ($names as $i => $originalName) {
+                if (($files['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) { continue; }
+                if ($already + $saved >= QUOTE_PHOTO_MAX_COUNT) {
+                    $errors[] = 'se alcanzó el máximo de ' . QUOTE_PHOTO_MAX_COUNT . ' fotos';
+                    break;
+                }
+                $one = ['name' => $originalName, 'type' => $files['type'][$i] ?? '', 'tmp_name' => $files['tmp_name'][$i] ?? '', 'error' => $files['error'][$i] ?? UPLOAD_ERR_NO_FILE, 'size' => $files['size'][$i] ?? 0];
+                $res = quote_store_photo($one, $qid);
+                if (is_string($res)) {
+                    $errors[] = '«' . mb_substr((string) $originalName, 0, 40) . '» ' . $res;
+                    continue;
+                }
+                $stmt->execute([$qid, $res['file'], mb_substr((string) $originalName, 0, 190), $res['mime'], $res['size'], $res['width'], $res['height'], null, ++$next, current_user()['id'] ?? null]);
+                $saved++;
+            }
+            if ($saved > 0) {
+                log_activity('quote', $qid, 'fotos_adjuntadas', $saved . ' foto' . ($saved === 1 ? '' : 's'));
+                flash('success', $saved === 1 ? 'Foto adjuntada.' : $saved . ' fotos adjuntadas.');
+            }
+            if ($errors) {
+                flash('warning', 'No se adjuntaron algunas imágenes: ' . implode('; ', array_slice($errors, 0, 3)) . '.');
+            } elseif ($saved === 0) {
+                flash('warning', 'Selecciona al menos una imagen.');
+            }
+            redirect($back);
+        }
+
+        if ($form === 'foto_delete') {
+            $aid = (int) ($_POST['id'] ?? 0);
+            $att = $aid > 0 ? fetch_one('SELECT * FROM quote_attachments WHERE id=? AND quote_id=?', [$aid, $qid]) : null;
+            if ($att) {
+                quote_delete_photo_file($att);
+                db()->prepare('DELETE FROM quote_attachments WHERE id=?')->execute([$aid]);
+                log_activity('quote', $qid, 'foto_eliminada', $att['original_name'] ?? null);
+                flash('success', 'Foto eliminada del anexo.');
+            }
+            redirect($back);
+        }
+
+        if ($form === 'foto_captions') {
+            $captions = (array) ($_POST['caption'] ?? []);
+            $stmt = db()->prepare('UPDATE quote_attachments SET caption=? WHERE id=? AND quote_id=?');
+            foreach ($captions as $aid => $text) {
+                $text = trim((string) $text);
+                $stmt->execute([$text === '' ? null : mb_substr($text, 0, 190), (int) $aid, $qid]);
+            }
+            log_activity('quote', $qid, 'anexo_actualizado', null);
+            flash('success', 'Descripciones del anexo guardadas.');
+            redirect($back);
+        }
+
+        if ($form === 'foto_move') {
+            // Intercambia el orden con la foto vecina en la dirección pedida.
+            $aid = (int) ($_POST['id'] ?? 0);
+            $dir = ($_POST['dir'] ?? 'up') === 'down' ? 'down' : 'up';
+            $cur = $aid > 0 ? fetch_one('SELECT * FROM quote_attachments WHERE id=? AND quote_id=?', [$aid, $qid]) : null;
+            if ($cur) {
+                $neighbour = $dir === 'up'
+                    ? fetch_one('SELECT * FROM quote_attachments WHERE quote_id=? AND (sort_order < ? OR (sort_order = ? AND id < ?)) ORDER BY sort_order DESC, id DESC LIMIT 1', [$qid, $cur['sort_order'], $cur['sort_order'], $aid])
+                    : fetch_one('SELECT * FROM quote_attachments WHERE quote_id=? AND (sort_order > ? OR (sort_order = ? AND id > ?)) ORDER BY sort_order ASC, id ASC LIMIT 1', [$qid, $cur['sort_order'], $cur['sort_order'], $aid]);
+                if ($neighbour) {
+                    $stmt = db()->prepare('UPDATE quote_attachments SET sort_order=? WHERE id=?');
+                    $stmt->execute([(int) $neighbour['sort_order'], (int) $cur['id']]);
+                    $stmt->execute([(int) $cur['sort_order'], (int) $neighbour['id']]);
+                }
+            }
+            redirect($back);
+        }
     }
 
     /* ---- Create / Update (save) ---------------------------------------- */
@@ -277,6 +395,9 @@ if ($action === 'view') {
     $qDisc = (float) ($quote['discount_amount'] ?? 0);
     if ($qDisc <= 0) { $qDisc = (float) array_sum(array_map(fn ($it) => (float) ($it['discount'] ?? 0), $items)); }
     $qGross = (float) ($quote['subtotal'] ?? 0) + $qDisc;
+    $photos = $hasPhotos && (int) ($quote['id'] ?? 0) > 0
+        ? fetch_all('SELECT * FROM quote_attachments WHERE quote_id=? ORDER BY sort_order ASC, id ASC', [(int) $quote['id']])
+        : [];
 
     $crmTitle = 'Cotización ' . $number;
     require_once __DIR__ . '/../includes/crm_header.php';
@@ -367,7 +488,95 @@ if ($action === 'view') {
                 <h3>Términos y condiciones</h3>
                 <p><?= nl2br(e($qTerms)) ?></p>
             </div>
+
+            <?php if ($photos): ?>
+                <section class="quote-annex">
+                    <h3>Anexo fotográfico</h3>
+                    <div class="quote-annex__grid">
+                        <?php foreach ($photos as $n => $photo): ?>
+                            <figure>
+                                <img src="<?= url('crm/adjunto.php?thumb=1&id=' . (int) $photo['id']) ?>" alt="<?= e($photo['caption'] ?: 'Foto ' . ($n + 1)) ?>" loading="lazy">
+                                <figcaption><b>Fig. <?= (int) ($n + 1) ?></b><?= $photo['caption'] ? ' · ' . e($photo['caption']) : '' ?></figcaption>
+                            </figure>
+                        <?php endforeach; ?>
+                    </div>
+                </section>
+            <?php endif; ?>
         </article>
+
+        <?php if ($hasPhotos && (int) ($quote['id'] ?? 0) > 0 && current_can('cotizaciones.edit')): ?>
+            <article class="crm-data-surface print:hidden" style="margin-top:1.1rem">
+                <div class="crm-data-surface__head">
+                    <div>
+                        <h3>Anexo fotográfico</h3>
+                        <p><?= $photos ? count($photos) . ' foto' . (count($photos) === 1 ? '' : 's') . ' · salen numeradas al final del PDF' : 'Adjunta fotos del equipo, el sitio o la instalación: se imprimen al final del PDF.' ?></p>
+                    </div>
+                </div>
+
+                <form method="post" enctype="multipart/form-data" class="annex-upload">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="form" value="fotos">
+                    <input type="hidden" name="quote_id" value="<?= (int) $quote['id'] ?>">
+                    <label class="annex-drop">
+                        <i data-lucide="image-plus"></i>
+                        <span><b>Elegir fotos</b><small data-hint>JPG, PNG o WEBP · puedes seleccionar varias · máximo <?= e(upload_limit_label()) ?> por carga</small></span>
+                        <input type="file" name="fotos[]" accept="image/jpeg,image/png,image/webp" multiple required
+                               data-limit="<?= (int) upload_limit_bytes() ?>" onchange="crmAnnexPick(this)">
+                    </label>
+                    <button type="submit" class="crm-primary-btn annex-upload__go" disabled><i data-lucide="upload" class="h-4 w-4"></i>Subir</button>
+                </form>
+
+                <?php if ($photos): ?>
+                    <form method="post" class="annex-manage">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="form" value="foto_captions">
+                        <input type="hidden" name="quote_id" value="<?= (int) $quote['id'] ?>">
+                        <div class="annex-list">
+                            <?php foreach ($photos as $n => $photo): ?>
+                                <div class="annex-item">
+                                    <a href="<?= url('crm/adjunto.php?id=' . (int) $photo['id']) ?>" target="_blank" rel="noopener" title="Ver tamaño completo">
+                                        <img src="<?= url('crm/adjunto.php?thumb=1&id=' . (int) $photo['id']) ?>" alt="<?= e($photo['original_name'] ?? '') ?>" loading="lazy">
+                                    </a>
+                                    <div class="annex-item__body">
+                                        <span class="annex-item__num">Fig. <?= (int) ($n + 1) ?></span>
+                                        <input class="crm-input" name="caption[<?= (int) $photo['id'] ?>]" value="<?= e($photo['caption'] ?? '') ?>" maxlength="190" placeholder="Descripción que saldrá bajo la foto (opcional)">
+                                        <small><?= e($photo['original_name'] ?? '') ?> · <?= e(number_format(((int) $photo['size']) / 1024, 0)) ?> KB · <?= (int) $photo['width'] ?>×<?= (int) $photo['height'] ?></small>
+                                    </div>
+                                    <div class="annex-item__actions">
+                                        <button type="submit" form="annex-move-<?= (int) $photo['id'] ?>-up" class="crm-icon-action" title="Subir" <?= $n === 0 ? 'disabled' : '' ?>><i data-lucide="chevron-up"></i></button>
+                                        <button type="submit" form="annex-move-<?= (int) $photo['id'] ?>-down" class="crm-icon-action" title="Bajar" <?= $n === count($photos) - 1 ? 'disabled' : '' ?>><i data-lucide="chevron-down"></i></button>
+                                        <button type="submit" form="annex-del-<?= (int) $photo['id'] ?>" class="crm-icon-action crm-icon-action--danger" title="Quitar del anexo" onclick="return confirm('¿Quitar esta foto del anexo?');"><i data-lucide="trash-2"></i></button>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="annex-manage__foot">
+                            <button type="submit" class="crm-primary-btn"><i data-lucide="save" class="h-4 w-4"></i>Guardar descripciones</button>
+                        </div>
+                    </form>
+
+                    <?php // Formularios sueltos: los botones de cada tarjeta los invocan por id,
+                          // así no quedan <form> anidados dentro del de descripciones. ?>
+                    <?php foreach ($photos as $photo): ?>
+                        <?php foreach (['up', 'down'] as $dir): ?>
+                            <form id="annex-move-<?= (int) $photo['id'] ?>-<?= $dir ?>" method="post" class="hidden">
+                                <?= csrf_field() ?>
+                                <input type="hidden" name="form" value="foto_move">
+                                <input type="hidden" name="quote_id" value="<?= (int) $quote['id'] ?>">
+                                <input type="hidden" name="id" value="<?= (int) $photo['id'] ?>">
+                                <input type="hidden" name="dir" value="<?= $dir ?>">
+                            </form>
+                        <?php endforeach; ?>
+                        <form id="annex-del-<?= (int) $photo['id'] ?>" method="post" class="hidden">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="form" value="foto_delete">
+                            <input type="hidden" name="quote_id" value="<?= (int) $quote['id'] ?>">
+                            <input type="hidden" name="id" value="<?= (int) $photo['id'] ?>">
+                        </form>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </article>
+        <?php endif; ?>
     </section>
     <?php
     require_once __DIR__ . '/../includes/crm_footer.php';

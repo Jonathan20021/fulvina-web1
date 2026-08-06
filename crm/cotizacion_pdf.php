@@ -77,9 +77,23 @@ $discount = (float) ($quote['discount_amount'] ?? 0);
 if ($discount <= 0) { $discount = (float) array_sum(array_map(fn ($it) => (float) ($it['discount'] ?? 0), $items)); }
 $gross = (float) ($quote['subtotal'] ?? 0) + $discount;
 
+// Anexo fotográfico: se incrusta cada foto ya reducida al tamaño impreso.
+// Marco de 236×168 pt: dos columnas por hoja y tres filas por página.
+const ANNEX_BOX_W = 236;
+const ANNEX_BOX_H = 168;
+$photos = [];
+if ($hasDb && $quote && table_exists('quote_attachments')) {
+    foreach (fetch_all('SELECT * FROM quote_attachments WHERE quote_id=? ORDER BY sort_order ASC, id ASC', [$id]) as $att) {
+        $uri = quote_photo_data_uri($att, 900);
+        if ($uri === null) { continue; }   // archivo ausente: se omite, no rompe el PDF
+        $fit = quote_photo_fit($att, ANNEX_BOX_W, ANNEX_BOX_H);
+        $photos[] = ['uri' => $uri, 'w' => $fit['w'], 'h' => $fit['h'], 'n' => count($photos) + 1, 'caption' => trim((string) ($att['caption'] ?? ''))];
+    }
+}
+
 $buildHtml = function (int $level) use (
     $h, $fmt, $qty, $quote, $items, $logoData, $cur, $rate,
-    $terms, $number, $createdAt, $category, $statusColor, $totalWords, $discount, $gross
+    $terms, $number, $createdAt, $category, $statusColor, $totalWords, $discount, $gross, $photos
 ): string {
     // Márgenes de página por nivel de densidad (normal / compacta / muy compacta).
     $pageTop = [32, 28, 24][$level];
@@ -169,6 +183,22 @@ $buildHtml = function (int $level) use (
     .terms { margin-top: 16px; border-top: 1px solid #e3eaf1; padding-top: 10px; page-break-inside: avoid; }
     .terms h3 { color: #0e1a28; font-size: 10px; font-weight: bold; margin-bottom: 5px; }
     .terms p { margin: 0; color: #5b6b7b; font-size: 8.7px; line-height: 1.7; }
+
+    /* Anexo fotográfico: hoja propia, dos columnas, celdas de alto fijo para que
+       los pies de figura queden alineados aunque las fotos tengan proporciones
+       distintas (retrato y paisaje mezclados). */
+    .annex { page-break-before: always; }
+    .annex-head { border-bottom: 2px solid #0a7d36; padding-bottom: 7px; margin-bottom: 14px; }
+    .annex-head .t { font-size: 14px; font-weight: bold; color: #0e1a28; }
+    .annex-head .s { color: #5b6b7b; font-size: 9px; margin-top: 2px; }
+    table.annex-grid { width: 100%; border-collapse: separate; border-spacing: 9px; }
+    table.annex-grid td { width: 50%; vertical-align: top; page-break-inside: avoid; }
+    .fig { border: 1px solid #e3eaf1; border-radius: 8px; padding: 8px; }
+    /* Tabla de una celda: es la forma fiable de centrar vertical en dompdf. */
+    table.fig-frame { width: 100%; height: <?= ANNEX_BOX_H ?>px; border-collapse: collapse; background: #f7faf8; }
+    table.fig-frame td { text-align: center; vertical-align: middle; padding: 0; }
+    .fig-cap { margin-top: 7px; color: #41515f; font-size: 8.8px; line-height: 1.4; }
+    .fig-cap b { color: #0a7d36; }
 
     /* Signatures */
     .signs { width: 100%; border-collapse: collapse; margin-top: 34px; page-break-inside: avoid; }
@@ -381,6 +411,30 @@ $buildHtml = function (int $level) use (
         </tr>
     </table>
     </div>
+
+    <?php if ($photos): ?>
+        <div class="annex">
+            <div class="annex-head">
+                <div class="t">Anexo fotográfico</div>
+                <div class="s">Cotización <?= $h($number) ?> · <?= $h($quote['client_name'] ?? 'Cliente') ?> · <?= $h($quote['title'] ?? '') ?></div>
+            </div>
+            <table class="annex-grid">
+                <?php foreach (array_chunk($photos, 2) as $row): ?>
+                    <tr>
+                        <?php foreach ($row as $photo): ?>
+                            <td>
+                                <div class="fig">
+                                    <table class="fig-frame"><tr><td><img src="<?= $photo['uri'] ?>" width="<?= (int) $photo['w'] ?>" height="<?= (int) $photo['h'] ?>"></td></tr></table>
+                                    <div class="fig-cap"><b>Fig. <?= (int) $photo['n'] ?></b><?= $photo['caption'] !== '' ? ' · ' . $h($photo['caption']) : '' ?></div>
+                                </div>
+                            </td>
+                        <?php endforeach; ?>
+                        <?php if (count($row) === 1): ?><td></td><?php endif; ?>
+                    </tr>
+                <?php endforeach; ?>
+            </table>
+        </div>
+    <?php endif; ?>
 </body>
 </html>
 <?php
@@ -393,7 +447,9 @@ $options->set('isHtml5ParserEnabled', true);
 $options->set('defaultFont', 'DejaVu Sans');
 $options->set('dpi', 96);
 
-$dompdf = pdf_render_fit($buildHtml, $options);
+// Con anexo el documento ocupa dos hojas por diseño: comprimir para "salvar" la
+// segunda no tiene sentido y costaría dos renders extra con imágenes incrustadas.
+$dompdf = pdf_render_fit($buildHtml, $options, $photos ? 0 : 2);
 
 // Page numbers on every page
 $canvas = $dompdf->getCanvas();

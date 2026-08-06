@@ -431,7 +431,258 @@ function ensure_quote_schema(): void
         try { $pdo->exec("ALTER TABLE quote_items ADD COLUMN discount DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER unit_price"); } catch (Throwable) { /* ignore */ }
     }
 
+    // Anexo fotográfico de la cotización.
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS quote_attachments (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            quote_id INT UNSIGNED NOT NULL,
+            file VARCHAR(190) NOT NULL,
+            original_name VARCHAR(190) NULL,
+            mime VARCHAR(60) NULL,
+            size INT UNSIGNED NOT NULL DEFAULT 0,
+            width SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+            height SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+            caption VARCHAR(190) NULL,
+            sort_order INT NOT NULL DEFAULT 0,
+            created_by INT UNSIGNED NULL,
+            created_at DATETIME NULL,
+            FOREIGN KEY (quote_id) REFERENCES quotes(id) ON DELETE CASCADE,
+            INDEX idx_quote_attachments (quote_id, sort_order)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Throwable) { /* ignore */ }
+
     ensure_settings_schema();
+}
+
+/* =========================================================================
+   ANEXO FOTOGRÁFICO DE COTIZACIONES
+   Las fotos se normalizan a JPEG al subirlas: se corrige la orientación EXIF,
+   se limita el lado mayor y se re-codifica. Re-codificar descarta metadatos y
+   cualquier carga incrustada en el archivo original, y deja un formato que
+   dompdf siempre sabe incrustar (WEBP no lo soporta de forma fiable).
+   ========================================================================= */
+
+const QUOTE_PHOTO_MAX_BYTES = 12582912;   // 12 MB por archivo
+const QUOTE_PHOTO_MAX_SIDE = 1600;        // lado mayor almacenado
+const QUOTE_PHOTO_MAX_COUNT = 40;         // tope por cotización
+
+/** Convierte valores de php.ini tipo "40M" / "512K" a bytes. */
+function ini_bytes(string $value): int
+{
+    $value = trim($value);
+    if ($value === '') { return 0; }
+    $unit = strtolower($value[strlen($value) - 1]);
+    $n = (int) $value;
+    return match ($unit) {
+        'g' => $n * 1024 * 1024 * 1024,
+        'm' => $n * 1024 * 1024,
+        'k' => $n * 1024,
+        default => $n,
+    };
+}
+
+/**
+ * Cuánto acepta este servidor en una sola carga. Manda el menor entre
+ * post_max_size y upload_max_filesize; superar post_max_size vacía $_POST.
+ */
+function upload_limit_bytes(): int
+{
+    $post = ini_bytes((string) ini_get('post_max_size'));
+    $file = ini_bytes((string) ini_get('upload_max_filesize'));
+    $limits = array_filter([$post, $file]);
+    return $limits ? (int) min($limits) : 8 * 1024 * 1024;
+}
+
+/** El mismo límite, ya redactado para mostrarlo ("40 MB"). */
+function upload_limit_label(): string
+{
+    return number_format(upload_limit_bytes() / (1024 * 1024), 0) . ' MB';
+}
+
+/** Carpeta física de las fotos de una cotización (se crea si falta). */
+function quote_photos_dir(int $quoteId, bool $create = false): string
+{
+    $dir = dirname(__DIR__) . '/uploads/cotizaciones/' . $quoteId;
+    if ($create && !is_dir($dir)) {
+        @mkdir($dir, 0775, true);
+        // Defensa en profundidad: aunque la carpeta cuelgue del webroot, las
+        // fotos sólo se sirven por crm/adjunto.php, que exige sesión.
+        $root = dirname(__DIR__) . '/uploads';
+        if (!is_file($root . '/.htaccess')) {
+            @file_put_contents($root . '/.htaccess', "Require all denied\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n");
+        }
+        if (!is_file($root . '/index.php')) {
+            @file_put_contents($root . '/index.php', "<?php http_response_code(404); exit;\n");
+        }
+    }
+    return $dir;
+}
+
+/** Ruta absoluta de un adjunto, o null si el registro apunta a un archivo ausente. */
+function quote_photo_path(array $attachment): ?string
+{
+    $file = basename((string) ($attachment['file'] ?? ''));
+    if ($file === '') { return null; }
+    $path = quote_photos_dir((int) ($attachment['quote_id'] ?? 0)) . '/' . $file;
+    return is_file($path) ? $path : null;
+}
+
+/** Rota según la orientación EXIF; devuelve la imagen (posiblemente nueva). */
+function image_apply_exif_orientation(GdImage $img, string $path): GdImage
+{
+    if (!function_exists('exif_read_data')) { return $img; }
+    $exif = @exif_read_data($path);
+    $orientation = (int) ($exif['Orientation'] ?? 0);
+    $angle = match ($orientation) { 3 => 180, 6 => -90, 8 => 90, default => 0 };
+    if ($angle === 0) { return $img; }
+    $rotated = @imagerotate($img, $angle, 0);
+    if ($rotated instanceof GdImage) {
+        imagedestroy($img);
+        return $rotated;
+    }
+    return $img;
+}
+
+/** Reescala manteniendo proporción si excede $maxSide. Devuelve la imagen a usar. */
+function image_scale_to_max(GdImage $img, int $maxSide): GdImage
+{
+    $w = imagesx($img);
+    $h = imagesy($img);
+    $long = max($w, $h);
+    if ($long <= $maxSide) { return $img; }
+    $ratio = $maxSide / $long;
+    $nw = max(1, (int) round($w * $ratio));
+    $nh = max(1, (int) round($h * $ratio));
+    $dst = imagecreatetruecolor($nw, $nh);
+    imagefill($dst, 0, 0, imagecolorallocate($dst, 255, 255, 255));
+    imagecopyresampled($dst, $img, 0, 0, 0, 0, $nw, $nh, $w, $h);
+    imagedestroy($img);
+    return $dst;
+}
+
+/** Carga un archivo de imagen con GD según su mime real. */
+function image_load(string $path, string $mime): ?GdImage
+{
+    $img = match ($mime) {
+        'image/jpeg' => @imagecreatefromjpeg($path),
+        'image/png' => @imagecreatefrompng($path),
+        'image/webp' => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($path) : false,
+        default => false,
+    };
+    return $img instanceof GdImage ? $img : null;
+}
+
+/**
+ * Valida y guarda una foto subida. Devuelve los datos del archivo escrito o un
+ * mensaje de error listo para mostrar al usuario.
+ *
+ * @return array{file:string,mime:string,size:int,width:int,height:int}|string
+ */
+function quote_store_photo(array $upload, int $quoteId): array|string
+{
+    $err = (int) ($upload['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($err === UPLOAD_ERR_INI_SIZE || $err === UPLOAD_ERR_FORM_SIZE) {
+        return 'supera el tamaño máximo que permite el servidor';
+    }
+    if ($err !== UPLOAD_ERR_OK || !is_uploaded_file((string) ($upload['tmp_name'] ?? ''))) {
+        return 'no se pudo recibir el archivo';
+    }
+    if ((int) $upload['size'] > QUOTE_PHOTO_MAX_BYTES) {
+        return 'pesa más de 12 MB';
+    }
+
+    $tmp = (string) $upload['tmp_name'];
+    $info = @getimagesize($tmp);
+    $mime = (string) ($info['mime'] ?? '');
+    if (!$info || !in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+        return 'no es una imagen JPG, PNG o WEBP válida';
+    }
+
+    $dir = quote_photos_dir($quoteId, true);
+    if (!is_dir($dir) || !is_writable($dir)) {
+        return 'no se pudo escribir en la carpeta de subidas';
+    }
+
+    try { $name = bin2hex(random_bytes(8)); } catch (Throwable) { $name = uniqid('f', true); }
+
+    // Camino normal: re-codificar a JPEG con GD.
+    if (extension_loaded('gd') && ($img = image_load($tmp, $mime)) !== null) {
+        if ($mime === 'image/jpeg') { $img = image_apply_exif_orientation($img, $tmp); }
+        $img = image_scale_to_max($img, QUOTE_PHOTO_MAX_SIDE);
+        // Fondo blanco: el JPEG no tiene canal alfa y un PNG transparente
+        // saldría con el fondo en negro.
+        $flat = imagecreatetruecolor(imagesx($img), imagesy($img));
+        imagefill($flat, 0, 0, imagecolorallocate($flat, 255, 255, 255));
+        imagecopy($flat, $img, 0, 0, 0, 0, imagesx($img), imagesy($img));
+        imagedestroy($img);
+        $file = $name . '.jpg';
+        $ok = @imagejpeg($flat, $dir . '/' . $file, 82);
+        $w = imagesx($flat);
+        $h = imagesy($flat);
+        imagedestroy($flat);
+        if (!$ok) { return 'no se pudo procesar la imagen'; }
+        return ['file' => $file, 'mime' => 'image/jpeg', 'size' => (int) @filesize($dir . '/' . $file), 'width' => $w, 'height' => $h];
+    }
+
+    // Reserva sin GD: guardar el original ya validado por getimagesize().
+    $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'][$mime];
+    $file = $name . '.' . $ext;
+    if (!@move_uploaded_file($tmp, $dir . '/' . $file)) {
+        return 'no se pudo guardar el archivo';
+    }
+    return ['file' => $file, 'mime' => $mime, 'size' => (int) $upload['size'], 'width' => (int) $info[0], 'height' => (int) $info[1]];
+}
+
+/** Borra una foto del disco (la fila la limpia quien llama). */
+function quote_delete_photo_file(array $attachment): void
+{
+    $path = quote_photo_path($attachment);
+    if ($path !== null) { @unlink($path); }
+}
+
+/**
+ * data: URI de la foto reducida al tamaño que realmente ocupa en el PDF. Sin
+ * esto un anexo de 10 fotos produciría un PDF de decenas de MB.
+ */
+function quote_photo_data_uri(array $attachment, int $maxSide = 900): ?string
+{
+    $path = quote_photo_path($attachment);
+    if ($path === null) { return null; }
+
+    if (extension_loaded('gd')) {
+        $img = image_load($path, (string) ($attachment['mime'] ?? 'image/jpeg'));
+        if ($img !== null) {
+            $img = image_scale_to_max($img, $maxSide);
+            ob_start();
+            $ok = @imagejpeg($img, null, 78);
+            $bytes = (string) ob_get_clean();
+            imagedestroy($img);
+            if ($ok && $bytes !== '') {
+                return 'data:image/jpeg;base64,' . base64_encode($bytes);
+            }
+        }
+    }
+
+    $raw = @file_get_contents($path);
+    if ($raw === false) { return null; }
+    return 'data:' . ($attachment['mime'] ?? 'image/jpeg') . ';base64,' . base64_encode($raw);
+}
+
+/**
+ * Medidas de una foto ajustada dentro de un marco, conservando la proporción.
+ * dompdf no tiene object-fit: si sólo se fija el ancho, las fotos verticales se
+ * desbordan, y si se fijan ambos lados se deforman. Se calcula aquí.
+ *
+ * @return array{w:int,h:int}
+ */
+function quote_photo_fit(array $attachment, int $boxW, int $boxH): array
+{
+    $w = (int) ($attachment['width'] ?? 0);
+    $h = (int) ($attachment['height'] ?? 0);
+    if ($w <= 0 || $h <= 0) { return ['w' => $boxW, 'h' => $boxH]; }
+    $scale = min($boxW / $w, $boxH / $h);
+    if ($scale > 1) { $scale = 1; }   // no ampliamos fotos pequeñas
+    return ['w' => max(1, (int) round($w * $scale)), 'h' => max(1, (int) round($h * $scale))];
 }
 
 /**
