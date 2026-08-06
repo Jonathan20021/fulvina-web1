@@ -55,10 +55,14 @@ $crmNavGroups = [
     ],
 ];
 // Filter by capability; drop any group left empty.
-foreach ($crmNavGroups as $g => $items) {
-    $crmNavGroups[$g] = array_filter($items, fn ($it) => empty($it[4]) || current_can($it[4]));
-    if (!$crmNavGroups[$g]) { unset($crmNavGroups[$g]); }
+// Ojo: este archivo se incluye desde el ámbito global de cada página, así que las
+// variables de trabajo llevan prefijo. Un `$items` aquí pisaba las partidas ya
+// cargadas por cotizaciones/facturas y sus tablas salían en blanco.
+foreach ($crmNavGroups as $crmNavGroup => $crmNavItems) {
+    $crmNavGroups[$crmNavGroup] = array_filter($crmNavItems, fn ($it) => empty($it[4]) || current_can($it[4]));
+    if (!$crmNavGroups[$crmNavGroup]) { unset($crmNavGroups[$crmNavGroup]); }
 }
+unset($crmNavGroup, $crmNavItems);
 ?>
 <!doctype html>
 <html lang="es">

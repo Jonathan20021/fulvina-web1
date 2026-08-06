@@ -417,12 +417,18 @@ function ensure_quote_schema(): void
         'terms' => "ALTER TABLE quotes ADD COLUMN terms TEXT NULL AFTER notes",
         'category' => "ALTER TABLE quotes ADD COLUMN category VARCHAR(80) NULL AFTER title",
         'approved_at' => "ALTER TABLE quotes ADD COLUMN approved_at DATETIME NULL AFTER status",
+        'discount_amount' => "ALTER TABLE quotes ADD COLUMN discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER valid_until",
     ];
 
     foreach ($columns as $column => $statement) {
         if (!column_exists('quotes', $column)) {
             try { $pdo->exec($statement); } catch (Throwable) { /* ignore */ }
         }
+    }
+
+    // Descuento por partida (el encabezado sólo guarda la suma, informativa).
+    if (table_exists('quote_items') && !column_exists('quote_items', 'discount')) {
+        try { $pdo->exec("ALTER TABLE quote_items ADD COLUMN discount DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER unit_price"); } catch (Throwable) { /* ignore */ }
     }
 
     ensure_settings_schema();

@@ -761,12 +761,13 @@ $prefillPayload = null;
 if ($hasInvoices && !$editPayload && ($fromQuote = (int) ($_GET['from_quote'] ?? 0)) > 0 && table_exists('quotes')) {
     $q = fetch_one('SELECT quotes.*, clients.name AS client_name FROM quotes LEFT JOIN clients ON clients.id = quotes.client_id WHERE quotes.id=?', [$fromQuote]);
     if ($q) {
-        $qItems = fetch_all('SELECT description, quantity, unit_price FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$fromQuote]);
+        $qHasDiscount = column_exists('quote_items', 'discount');
+        $qItems = fetch_all('SELECT description, quantity, unit_price' . ($qHasDiscount ? ', discount' : '') . ' FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$fromQuote]);
         $prefillPayload = [
             'client_id' => (string) $q['client_id'], 'title' => (string) $q['title'],
             'tax_rate' => (float) ($q['tax_rate'] ?? $defaultTax), 'currency' => (string) ($q['currency'] ?? 'DOP'),
             'exchange_rate' => (float) ($q['exchange_rate'] ?? 1), 'notes' => 'Generada desde la cotización ' . (string) $q['quote_number'] . '.',
-            'items' => array_map(fn ($it) => ['d' => $it['description'], 'q' => (float) $it['quantity'], 'p' => (float) $it['unit_price'], 'disc' => 0, 'exempt' => false], $qItems),
+            'items' => array_map(fn ($it) => ['d' => $it['description'], 'q' => (float) $it['quantity'], 'p' => (float) $it['unit_price'], 'disc' => (float) ($it['discount'] ?? 0), 'exempt' => false], $qItems),
         ];
     }
 }

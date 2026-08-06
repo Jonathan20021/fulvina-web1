@@ -8,6 +8,7 @@ if ($hasDb) { ensure_quote_schema(); }
 $hasQuoteCurrency = $hasDb && column_exists('quotes', 'currency');
 $hasCategory = $hasDb && column_exists('quotes', 'category');
 $hasApproved = $hasDb && column_exists('quotes', 'approved_at');
+$hasDiscount = $hasDb && column_exists('quotes', 'discount_amount') && column_exists('quote_items', 'discount');
 $defaultQuoteTerms = setting_get('quote_terms', quote_default_terms());
 $defaultQuoteRate = (float) (setting_get('quote_exchange_rate', '60') ?: 60);
 $defaultQuoteTax = (float) setting_get('quote_tax_rate', '18');
@@ -26,12 +27,17 @@ function next_quote_number(): string
     return 'SCH-' . $year . '-' . str_pad((string) $n, 4, '0', STR_PAD_LEFT);
 }
 
-/** Parse posted line items into normalized rows. */
+/**
+ * Parse posted line items into normalized rows. El descuento va por partida y se
+ * expresa en el monto de la moneda del documento; nunca puede dejar la línea en
+ * negativo ni superar su importe bruto.
+ */
 function quote_parse_items(): array
 {
     $descriptions = (array) ($_POST['item_description'] ?? []);
     $quantities = (array) ($_POST['item_quantity'] ?? []);
     $prices = (array) ($_POST['item_price'] ?? []);
+    $discounts = (array) ($_POST['item_discount'] ?? []);
     $items = [];
     foreach ($descriptions as $i => $description) {
         $description = trim((string) $description);
@@ -40,7 +46,12 @@ function quote_parse_items(): array
         if ($description === '' || $qty <= 0) {
             continue;
         }
-        $items[] = ['description' => $description, 'quantity' => $qty, 'unit_price' => $price, 'total' => $qty * $price];
+        $gross = $qty * $price;
+        $discount = min($gross, max(0, (float) ($discounts[$i] ?? 0)));
+        $items[] = [
+            'description' => $description, 'quantity' => $qty, 'unit_price' => $price,
+            'discount' => round($discount, 2), 'total' => round($gross - $discount, 2),
+        ];
     }
     return $items;
 }
@@ -85,22 +96,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         if ($src) {
             $pdo = db();
             $pdo->beginTransaction();
+            $data = [
+                'client_id' => $src['client_id'],
+                'quote_number' => next_quote_number(),
+                'title' => $src['title'] . ' (copia)',
+                'status' => 'Borrador',
+                'valid_until' => date('Y-m-d', strtotime('+30 days')),
+                'subtotal' => $src['subtotal'],
+                'tax_rate' => $src['tax_rate'],
+                'tax_amount' => $src['tax_amount'],
+                'total' => $src['total'],
+                'notes' => $src['notes'] ?? '',
+                'created_by' => current_user()['id'] ?? null,
+            ];
+            if ($hasCategory) { $data['category'] = $src['category'] ?? null; }
+            if ($hasDiscount) { $data['discount_amount'] = $src['discount_amount'] ?? 0; }
             if ($hasQuoteCurrency) {
-                $cat = $hasCategory ? ($src['category'] ?? null) : null;
-                $stmt = $pdo->prepare('INSERT INTO quotes (client_id, quote_number, title, ' . ($hasCategory ? 'category, ' : '') . 'status, valid_until, subtotal, tax_rate, tax_amount, total, currency, exchange_rate, notes, terms, created_by, created_at, updated_at) VALUES (?, ?, ?, ' . ($hasCategory ? '?, ' : '') . '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
-                $params = [$src['client_id'], next_quote_number(), $src['title'] . ' (copia)'];
-                if ($hasCategory) { $params[] = $cat; }
-                array_push($params, 'Borrador', date('Y-m-d', strtotime('+30 days')), $src['subtotal'], $src['tax_rate'], $src['tax_amount'], $src['total'], $src['currency'] ?? 'DOP', $src['exchange_rate'] ?? 1, $src['notes'] ?? '', $src['terms'] ?? '', current_user()['id'] ?? null);
-                $stmt->execute($params);
-            } else {
-                $stmt = $pdo->prepare('INSERT INTO quotes (client_id, quote_number, title, status, valid_until, subtotal, tax_rate, tax_amount, total, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
-                $stmt->execute([$src['client_id'], next_quote_number(), $src['title'] . ' (copia)', 'Borrador', date('Y-m-d', strtotime('+30 days')), $src['subtotal'], $src['tax_rate'], $src['tax_amount'], $src['total'], $src['notes'] ?? '', current_user()['id'] ?? null]);
+                $data['currency'] = $src['currency'] ?? 'DOP';
+                $data['exchange_rate'] = $src['exchange_rate'] ?? 1;
+                $data['terms'] = $src['terms'] ?? '';
             }
+            $cols = implode(', ', array_keys($data));
+            $ph = implode(', ', array_fill(0, count($data), '?'));
+            $pdo->prepare("INSERT INTO quotes ({$cols}, created_at, updated_at) VALUES ({$ph}, NOW(), NOW())")->execute(array_values($data));
             $newId = (int) $pdo->lastInsertId();
-            $items = fetch_all('SELECT description, quantity, unit_price, total FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$sid]);
-            $itemStmt = $pdo->prepare('INSERT INTO quote_items (quote_id, description, quantity, unit_price, total) VALUES (?, ?, ?, ?, ?)');
+            $itemCols = $hasDiscount
+                ? ['description', 'quantity', 'unit_price', 'discount', 'total']
+                : ['description', 'quantity', 'unit_price', 'total'];
+            $items = fetch_all('SELECT ' . implode(', ', $itemCols) . ' FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$sid]);
+            $itemPh = implode(', ', array_fill(0, count($itemCols) + 1, '?'));
+            $itemStmt = $pdo->prepare('INSERT INTO quote_items (quote_id, ' . implode(', ', $itemCols) . ") VALUES ({$itemPh})");
             foreach ($items as $it) {
-                $itemStmt->execute([$newId, $it['description'], $it['quantity'], $it['unit_price'], $it['total']]);
+                $itemStmt->execute(array_merge([$newId], array_map(fn ($c) => $it[$c], $itemCols)));
             }
             $pdo->commit();
             log_activity('quote', $newId, 'cotizacion_duplicada', null);
@@ -132,22 +159,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         if ($clientId <= 0 || $title === '' || count($items) === 0) {
             flash('warning', 'Selecciona cliente, título y al menos una línea de cotización.');
         } else {
-            $subtotal = array_sum(array_column($items, 'total'));
-            $tax = $subtotal * ($taxRate / 100);
-            $total = $subtotal + $tax;
+            // El descuento se captura por partida: el importe de cada línea ya viene
+            // neto y el encabezado sólo guarda la suma descontada (informativa).
+            $discountTotal = round(array_sum(array_column($items, 'discount')), 2);
+            $subtotal = round(array_sum(array_column($items, 'total')), 2);
+            $tax = round($subtotal * ($taxRate / 100), 2);
+            $total = round($subtotal + $tax, 2);
             $pdo = db();
             $pdo->beginTransaction();
 
+            $data = [
+                'client_id' => $clientId,
+                'title' => $title,
+                'status' => $status,
+                'valid_until' => $validUntil,
+                'subtotal' => $subtotal,
+                'tax_rate' => $taxRate,
+                'tax_amount' => $tax,
+                'total' => $total,
+                'notes' => $notes,
+            ];
+            if ($hasCategory) { $data['category'] = $category; }
+            if ($hasDiscount) { $data['discount_amount'] = $discountTotal; }
+            if ($hasQuoteCurrency) {
+                $data['currency'] = $currency;
+                $data['exchange_rate'] = $exchangeRate;
+                $data['terms'] = $terms;
+            }
+
             if ($editId > 0 && fetch_one('SELECT id FROM quotes WHERE id=?', [$editId])) {
-                $sets = 'client_id=?, title=?, ' . ($hasCategory ? 'category=?, ' : '') . 'status=?, valid_until=?, subtotal=?, tax_rate=?, tax_amount=?, total=?, ' . ($hasQuoteCurrency ? 'currency=?, exchange_rate=?, ' : '') . 'notes=?, ' . ($hasQuoteCurrency ? 'terms=?, ' : '') . 'updated_at=NOW()';
-                $params = [$clientId, $title];
-                if ($hasCategory) { $params[] = $category; }
-                array_push($params, $status, $validUntil, $subtotal, $taxRate, $tax, $total);
-                if ($hasQuoteCurrency) { array_push($params, $currency, $exchangeRate); }
-                $params[] = $notes;
-                if ($hasQuoteCurrency) { $params[] = $terms; }
+                $sets = implode(', ', array_map(fn ($c) => $c . '=?', array_keys($data)));
+                $params = array_values($data);
                 $params[] = $editId;
-                $pdo->prepare("UPDATE quotes SET $sets WHERE id=?")->execute($params);
+                $pdo->prepare("UPDATE quotes SET {$sets}, updated_at=NOW() WHERE id=?")->execute($params);
                 $pdo->prepare('DELETE FROM quote_items WHERE quote_id=?')->execute([$editId]);
                 $quoteId = $editId;
                 $flashMsg = 'Cotización actualizada.';
@@ -158,17 +202,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
                 // the transaction usable after a duplicate-key error).
                 for ($attempt = 0; ; $attempt++) {
                     try {
-                        if ($hasQuoteCurrency) {
-                            $cols = 'client_id, quote_number, title, ' . ($hasCategory ? 'category, ' : '') . 'status, valid_until, subtotal, tax_rate, tax_amount, total, currency, exchange_rate, notes, terms, created_by, created_at, updated_at';
-                            $ph = '?, ?, ?, ' . ($hasCategory ? '?, ' : '') . '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW()';
-                            $params = [$clientId, next_quote_number(), $title];
-                            if ($hasCategory) { $params[] = $category; }
-                            array_push($params, $status, $validUntil, $subtotal, $taxRate, $tax, $total, $currency, $exchangeRate, $notes, $terms, current_user()['id'] ?? null);
-                            $pdo->prepare("INSERT INTO quotes ($cols) VALUES ($ph)")->execute($params);
-                        } else {
-                            $pdo->prepare('INSERT INTO quotes (client_id, quote_number, title, status, valid_until, subtotal, tax_rate, tax_amount, total, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())')
-                                ->execute([$clientId, next_quote_number(), $title, $status, $validUntil, $subtotal, $taxRate, $tax, $total, $notes, current_user()['id'] ?? null]);
-                        }
+                        $insert = $data + ['quote_number' => next_quote_number(), 'created_by' => current_user()['id'] ?? null];
+                        $cols = implode(', ', array_keys($insert));
+                        $ph = implode(', ', array_fill(0, count($insert), '?'));
+                        $pdo->prepare("INSERT INTO quotes ({$cols}, created_at, updated_at) VALUES ({$ph}, NOW(), NOW())")->execute(array_values($insert));
                         break;
                     } catch (PDOException $e) {
                         if ($e->getCode() === '23000' && $attempt < 4) { continue; }
@@ -180,9 +217,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
                 $logAction = 'cotizacion_creada';
             }
 
-            $stmt = $pdo->prepare('INSERT INTO quote_items (quote_id, description, quantity, unit_price, total) VALUES (?, ?, ?, ?, ?)');
-            foreach ($items as $item) {
-                $stmt->execute([$quoteId, $item['description'], $item['quantity'], $item['unit_price'], $item['total']]);
+            if ($hasDiscount) {
+                $stmt = $pdo->prepare('INSERT INTO quote_items (quote_id, description, quantity, unit_price, discount, total) VALUES (?, ?, ?, ?, ?, ?)');
+                foreach ($items as $item) {
+                    $stmt->execute([$quoteId, $item['description'], $item['quantity'], $item['unit_price'], $item['discount'], $item['total']]);
+                }
+            } else {
+                $stmt = $pdo->prepare('INSERT INTO quote_items (quote_id, description, quantity, unit_price, total) VALUES (?, ?, ?, ?, ?)');
+                foreach ($items as $item) {
+                    $stmt->execute([$quoteId, $item['description'], $item['quantity'], $item['unit_price'], $item['total']]);
+                }
             }
             if ($hasApproved && $status === 'Aprobado') {
                 $pdo->prepare('UPDATE quotes SET approved_at=COALESCE(approved_at, NOW()) WHERE id=?')->execute([$quoteId]);
@@ -227,6 +271,12 @@ if ($action === 'view') {
     if ($qTerms === '') { $qTerms = $defaultQuoteTerms; }
     $qCat = trim((string) ($quote['category'] ?? ''));
     $number = (string) ($quote['quote_number'] ?? 'COT');
+    // Descuento: el encabezado manda; si falta (cotización anterior a la columna)
+    // se reconstruye sumando las partidas. El subtotal mostrado es el bruto para
+    // que la resta cuadre a la vista del cliente.
+    $qDisc = (float) ($quote['discount_amount'] ?? 0);
+    if ($qDisc <= 0) { $qDisc = (float) array_sum(array_map(fn ($it) => (float) ($it['discount'] ?? 0), $items)); }
+    $qGross = (float) ($quote['subtotal'] ?? 0) + $qDisc;
 
     $crmTitle = 'Cotización ' . $number;
     require_once __DIR__ . '/../includes/crm_header.php';
@@ -281,7 +331,7 @@ if ($action === 'view') {
             <div class="crm-table-wrap">
                 <table class="crm-table quote-doc__table">
                     <thead>
-                        <tr><th>Descripción</th><th class="text-right">Cant.</th><th class="text-right">Precio</th><th class="text-right">Total</th></tr>
+                        <tr><th>Descripción</th><th class="text-right">Cant.</th><th class="text-right">Precio</th><?php if ($qDisc > 0): ?><th class="text-right">Desc.</th><?php endif; ?><th class="text-right">Total</th></tr>
                     </thead>
                     <tbody>
                         <?php foreach ($items as $item): ?>
@@ -289,18 +339,20 @@ if ($action === 'view') {
                                 <td><strong><?= e($item['description'] ?? '') ?></strong></td>
                                 <td class="text-right"><?= e((string) ($item['quantity'] ?? '')) ?></td>
                                 <td class="text-right"><?= money_cur($item['unit_price'] ?? 0, $qCur) ?></td>
+                                <?php if ($qDisc > 0): ?><td class="text-right"><?= (float) ($item['discount'] ?? 0) > 0 ? '− ' . money_cur($item['discount'], $qCur) : '—' ?></td><?php endif; ?>
                                 <td class="text-right"><strong><?= money_cur($item['total'] ?? 0, $qCur) ?></strong></td>
                             </tr>
                         <?php endforeach; ?>
                         <?php if (!$items): ?>
-                            <tr><td colspan="4" class="text-center" style="color:var(--muted);padding:1.2rem">Esta cotización no tiene partidas registradas.</td></tr>
+                            <tr><td colspan="<?= $qDisc > 0 ? 5 : 4 ?>" class="text-center" style="color:var(--muted);padding:1.2rem">Esta cotización no tiene partidas registradas.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
             </div>
 
             <div class="quote-doc__totals">
-                <div><span>Subtotal</span><strong><?= money_cur($quote['subtotal'] ?? 0, $qCur) ?></strong></div>
+                <div><span>Subtotal</span><strong><?= money_cur($qGross, $qCur) ?></strong></div>
+                <?php if ($qDisc > 0): ?><div><span>Descuento</span><strong>− <?= money_cur($qDisc, $qCur) ?></strong></div><?php endif; ?>
                 <div><span>ITBIS <?= e((string) ($quote['tax_rate'] ?? 18)) ?>%</span><strong><?= money_cur($quote['tax_amount'] ?? 0, $qCur) ?></strong></div>
                 <div><span>Total</span><strong><?= money_cur($quote['total'] ?? 0, $qCur) ?></strong></div>
                 <?php if ($qCur === 'USD'): ?>
@@ -327,7 +379,7 @@ $editPayload = null;
 if ($hasDb && $editId > 0) {
     $eq = fetch_one('SELECT * FROM quotes WHERE id=?', [$editId]);
     if ($eq) {
-        $eItems = fetch_all('SELECT description, quantity, unit_price FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$editId]);
+        $eItems = fetch_all('SELECT description, quantity, unit_price' . ($hasDiscount ? ', discount' : '') . ' FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$editId]);
         $editPayload = [
             'id' => (int) $eq['id'],
             'client_id' => (string) $eq['client_id'],
@@ -340,7 +392,7 @@ if ($hasDb && $editId > 0) {
             'exchange_rate' => (float) ($eq['exchange_rate'] ?? 1),
             'notes' => (string) ($eq['notes'] ?? ''),
             'terms' => (string) ($eq['terms'] ?? ''),
-            'items' => array_map(fn ($it) => ['d' => $it['description'], 'q' => (float) $it['quantity'], 'p' => (float) $it['unit_price']], $eItems),
+            'items' => array_map(fn ($it) => ['d' => $it['description'], 'q' => (float) $it['quantity'], 'p' => (float) $it['unit_price'], 'disc' => (float) ($it['discount'] ?? 0)], $eItems),
         ];
     }
 }
@@ -554,14 +606,15 @@ require_once __DIR__ . '/../includes/crm_header.php';
                     <p class="dash-section-label" style="margin:.2rem 0 .5rem">Partidas</p>
                     <div class="qb">
                         <div class="qb__head">
-                            <span>Descripción</span><span>Cant.</span><span>Precio</span><span>Total</span><span></span>
+                            <span>Descripción</span><span>Cant.</span><span>Precio</span><span>Desc.</span><span>Total</span><span></span>
                         </div>
                         <template x-for="(item,index) in items" :key="index">
                             <div class="qb__row">
                                 <input class="crm-input qb__desc" name="item_description[]" x-model="item.d" placeholder="Equipo o servicio">
                                 <input class="crm-input text-right" type="number" step="0.01" min="0" name="item_quantity[]" x-model.number="item.q" aria-label="Cantidad">
                                 <input class="crm-input text-right" type="number" step="0.01" min="0" name="item_price[]" x-model.number="item.p" aria-label="Precio">
-                                <span class="qb__total" x-text="fmt((Number(item.q)||0)*(Number(item.p)||0))">RD$ 0.00</span>
+                                <input class="crm-input text-right" type="number" step="0.01" min="0" name="item_discount[]" x-model.number="item.disc" aria-label="Descuento" title="Descuento de la partida, en el monto de la moneda">
+                                <span class="qb__total" x-text="fmt(lineNet(item))">RD$ 0.00</span>
                                 <button type="button" class="crm-icon-action crm-icon-action--danger" @click="removeLine(index)" title="Quitar partida"><i data-lucide="trash-2"></i></button>
                             </div>
                         </template>
@@ -575,7 +628,8 @@ require_once __DIR__ . '/../includes/crm_header.php';
                         <label class="crm-field"><span>Términos y condiciones (editable)</span><textarea name="terms" rows="6" x-model="form.terms" class="crm-textarea"></textarea></label>
                     </div>
                     <div class="quote-summary" style="align-self:start">
-                        <div><span>Subtotal</span><strong x-text="fmt(subtotal())">RD$ 0.00</strong></div>
+                        <div><span>Subtotal</span><strong x-text="fmt(subtotalGross())">RD$ 0.00</strong></div>
+                        <div x-show="discountTotal()>0" x-cloak><span>Descuento</span><strong x-text="'− ' + fmt(discountTotal())">RD$ 0.00</strong></div>
                         <div><span x-text="'ITBIS ' + (Number(tax)||0) + '%'">ITBIS 18%</span><strong x-text="fmt(taxAmount())">RD$ 0.00</strong></div>
                         <div><span>Total</span><strong x-text="fmt(total())">RD$ 0.00</strong></div>
                         <div class="quote-summary__equiv" x-show="currency==='USD'" x-cloak><span>Equivalente (RD$)</span><strong x-text="altFmt(altTotal())">RD$ 0.00</strong></div>

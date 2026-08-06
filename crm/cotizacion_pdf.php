@@ -70,9 +70,16 @@ $qty = fn ($v) => rtrim(rtrim(number_format((float) $v, 2, '.', ','), '0'), '.')
 $h = fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $totalWords = money_in_words((float) ($quote['total'] ?? 0), $cur);
 
+// Descuento del documento: el encabezado manda y, si falta (cotización previa a la
+// columna), se reconstruye desde las partidas. El subtotal impreso es el bruto para
+// que "Subtotal − Descuento + ITBIS = Total" cuadre en el papel.
+$discount = (float) ($quote['discount_amount'] ?? 0);
+if ($discount <= 0) { $discount = (float) array_sum(array_map(fn ($it) => (float) ($it['discount'] ?? 0), $items)); }
+$gross = (float) ($quote['subtotal'] ?? 0) + $discount;
+
 $buildHtml = function (int $level) use (
     $h, $fmt, $qty, $quote, $items, $logoData, $cur, $rate,
-    $terms, $number, $createdAt, $category, $statusColor, $totalWords
+    $terms, $number, $createdAt, $category, $statusColor, $totalWords, $discount, $gross
 ): string {
     // Márgenes de página por nivel de densidad (normal / compacta / muy compacta).
     $pageTop = [32, 28, 24][$level];
@@ -313,6 +320,7 @@ $buildHtml = function (int $level) use (
                 <th>Descripción</th>
                 <th class="r">Cant.</th>
                 <th class="r">Precio unit.</th>
+                <?php if ($discount > 0): ?><th class="r">Desc.</th><?php endif; ?>
                 <th class="r">Importe</th>
             </tr>
         </thead>
@@ -323,11 +331,12 @@ $buildHtml = function (int $level) use (
                     <td><span class="item-name"><?= $h($item['description'] ?? '') ?></span></td>
                     <td class="r"><?= $h($qty($item['quantity'] ?? 0)) ?></td>
                     <td class="r"><?= $h($fmt($item['unit_price'] ?? 0)) ?></td>
+                    <?php if ($discount > 0): ?><td class="r"><?= (float) ($item['discount'] ?? 0) > 0 ? '− ' . $h($fmt($item['discount'])) : '—' ?></td><?php endif; ?>
                     <td class="r"><?= $h($fmt($item['total'] ?? 0)) ?></td>
                 </tr>
             <?php endforeach; ?>
             <?php if (!$items): ?>
-                <tr><td colspan="5" class="center muted" style="padding: 16px;">Esta cotización no tiene partidas registradas.</td></tr>
+                <tr><td colspan="<?= $discount > 0 ? 6 : 5 ?>" class="center muted" style="padding: 16px;">Esta cotización no tiene partidas registradas.</td></tr>
             <?php endif; ?>
         </tbody>
     </table>
@@ -346,7 +355,10 @@ $buildHtml = function (int $level) use (
             </td>
             <td class="r">
                 <table class="tt">
-                    <tr><td class="k">Subtotal</td><td class="v"><?= $h($fmt($quote['subtotal'] ?? 0)) ?></td></tr>
+                    <tr><td class="k">Subtotal</td><td class="v"><?= $h($fmt($gross)) ?></td></tr>
+                    <?php if ($discount > 0): ?>
+                        <tr><td class="k">Descuento</td><td class="v">− <?= $h($fmt($discount)) ?></td></tr>
+                    <?php endif; ?>
                     <tr class="sep"><td class="k">ITBIS (<?= $h((string) ($quote['tax_rate'] ?? 18)) ?>%)</td><td class="v"><?= $h($fmt($quote['tax_amount'] ?? 0)) ?></td></tr>
                     <tr class="total"><td class="k">TOTAL</td><td class="v"><?= $h($fmt($quote['total'] ?? 0)) ?></td></tr>
                     <?php if ($cur === 'USD'): ?>

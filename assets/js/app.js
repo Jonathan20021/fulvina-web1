@@ -500,13 +500,13 @@ window.crmQuoteModal = function crmQuoteModal(opts) {
   var defaults = opts.defaults || {};
   return {
     form: {},
-    items: [{ d: '', q: 1, p: 0 }],
+    items: [{ d: '', q: 1, p: 0, disc: 0 }],
     tax: 18,
     currency: 'DOP',
     rate: Number(defaults.rate) > 0 ? Number(defaults.rate) : 60,
     reset() {
       this.form = { id: 0, client_id: '', title: '', category: '', status: 'Borrador', valid_until: defaults.validUntil || '', notes: '', terms: defaults.terms || '' };
-      this.items = [{ d: '', q: 1, p: 0 }];
+      this.items = [{ d: '', q: 1, p: 0, disc: 0 }];
       this.tax = (defaults.tax !== undefined && Number(defaults.tax) >= 0) ? Number(defaults.tax) : 18;
       this.currency = 'DOP';
       this.rate = Number(defaults.rate) > 0 ? Number(defaults.rate) : 60;
@@ -516,7 +516,13 @@ window.crmQuoteModal = function crmQuoteModal(opts) {
     nf(n) { return (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
     fmt(n) { return this.sym() + ' ' + this.nf(n); },
     altFmt(n) { return this.altSym() + ' ' + this.nf(n); },
-    subtotal() { return this.items.reduce((s, i) => s + (Number(i.q) || 0) * (Number(i.p) || 0), 0); },
+    lineGross(item) { return (Number(item.q) || 0) * (Number(item.p) || 0); },
+    /* El descuento nunca deja la partida en negativo (mismo tope que el servidor). */
+    lineDiscount(item) { return Math.min(this.lineGross(item), Math.max(0, Number(item.disc) || 0)); },
+    lineNet(item) { return this.lineGross(item) - this.lineDiscount(item); },
+    subtotalGross() { return this.items.reduce((s, i) => s + this.lineGross(i), 0); },
+    discountTotal() { return this.items.reduce((s, i) => s + this.lineDiscount(i), 0); },
+    subtotal() { return this.items.reduce((s, i) => s + this.lineNet(i), 0); },
     taxAmount() { return this.subtotal() * (Number(this.tax) || 0) / 100; },
     total() { return this.subtotal() + this.taxAmount(); },
     altTotal() {
@@ -524,7 +530,7 @@ window.crmQuoteModal = function crmQuoteModal(opts) {
       if (this.currency === 'USD') return this.total() * r;
       return r > 0 ? this.total() / r : 0;
     },
-    addLine() { this.items.push({ d: '', q: 1, p: 0 }); this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); },
+    addLine() { this.items.push({ d: '', q: 1, p: 0, disc: 0 }); this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); },
     removeLine(index) { if (this.items.length > 1) this.items.splice(index, 1); },
     openNew() { this.reset(); this.open(); },
     openEdit(d) {
@@ -534,7 +540,7 @@ window.crmQuoteModal = function crmQuoteModal(opts) {
         status: d.status || 'Borrador', valid_until: d.valid_until || (defaults.validUntil || ''),
         notes: d.notes || '', terms: (d.terms && d.terms.length) ? d.terms : (defaults.terms || '')
       };
-      this.items = (d.items && d.items.length) ? d.items.map(function (it) { return { d: it.d || '', q: Number(it.q) || 0, p: Number(it.p) || 0 }; }) : [{ d: '', q: 1, p: 0 }];
+      this.items = (d.items && d.items.length) ? d.items.map(function (it) { return { d: it.d || '', q: Number(it.q) || 0, p: Number(it.p) || 0, disc: Number(it.disc) || 0 }; }) : [{ d: '', q: 1, p: 0, disc: 0 }];
       this.tax = Number(d.tax_rate) >= 0 && d.tax_rate !== undefined && d.tax_rate !== '' ? Number(d.tax_rate) : 18;
       this.currency = d.currency === 'USD' ? 'USD' : 'DOP';
       this.rate = Number(d.exchange_rate) > 0 ? Number(d.exchange_rate) : (Number(defaults.rate) > 0 ? Number(defaults.rate) : 60);

@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS quotes (
   status VARCHAR(40) NOT NULL DEFAULT 'Borrador',
   approved_at DATETIME NULL,
   valid_until DATE NULL,
+  discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
   subtotal DECIMAL(12,2) NOT NULL DEFAULT 0,
   tax_rate DECIMAL(5,2) NOT NULL DEFAULT 18,
   tax_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
@@ -98,6 +99,7 @@ CREATE TABLE IF NOT EXISTS quote_items (
   description TEXT NOT NULL,
   quantity DECIMAL(10,2) NOT NULL DEFAULT 1,
   unit_price DECIMAL(12,2) NOT NULL DEFAULT 0,
+  discount DECIMAL(12,2) NOT NULL DEFAULT 0,
   total DECIMAL(12,2) NOT NULL DEFAULT 0,
   FOREIGN KEY (quote_id) REFERENCES quotes(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
