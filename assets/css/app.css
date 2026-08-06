@@ -4472,6 +4472,9 @@ html { scroll-padding-top: 74px; }
 .annex-drop small { font-size: .74rem; color: var(--muted); }
 .annex-drop input[type="file"] { display: none; }
 
+.annex-note { display: flex; align-items: flex-start; gap: .4rem; margin: .5rem 0 0; font-size: .76rem; line-height: 1.45; color: var(--muted); }
+.annex-note i { width: 14px; height: 14px; flex: none; margin-top: .12rem; }
+
 .annex-list { display: grid; gap: .6rem; }
 .annex-item { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; gap: .8rem; align-items: center; border: 1px solid var(--line-soft); border-radius: 10px; padding: .55rem; }
 .annex-item img { display: block; width: 92px; height: 68px; object-fit: cover; border-radius: 7px; background: var(--surface-soft, #f7faf8); }

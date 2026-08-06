@@ -16,5 +16,7 @@ config/database.php
 .DS_Store
 Thumbs.db
 
-# Fotos del anexo de cotizaciones: contenido por servidor, nunca en git.
-uploads/
+# Anexo de cotizaciones: la carpeta y su protección SÍ viajan en git (así el
+# deploy no depende de que PHP pueda crearlas). Las fotos, no: son por servidor.
+uploads/cotizaciones/*
+!uploads/cotizaciones/.gitkeep

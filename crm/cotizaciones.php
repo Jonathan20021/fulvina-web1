@@ -65,6 +65,51 @@ function quote_parse_items(): array
     return $items;
 }
 
+/**
+ * Guarda las fotos recibidas y las añade al final del anexo de la cotización.
+ * La usan tanto el gestor de la ficha como el modal de alta/edición.
+ *
+ * @return array{0:int,1:string[]} [guardadas, errores legibles]
+ */
+function quote_attach_uploads(int $quoteId, ?array $files): array
+{
+    $names = (array) ($files['name'] ?? []);
+    if ($quoteId <= 0 || !$names || !table_exists('quote_attachments')) {
+        return [0, []];
+    }
+
+    $already = (int) (fetch_one('SELECT COUNT(*) c FROM quote_attachments WHERE quote_id=?', [$quoteId])['c'] ?? 0);
+    $next = (int) (fetch_one('SELECT COALESCE(MAX(sort_order),0) s FROM quote_attachments WHERE quote_id=?', [$quoteId])['s'] ?? 0);
+    $stmt = db()->prepare('INSERT INTO quote_attachments (quote_id, file, original_name, mime, size, width, height, caption, sort_order, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())');
+    $saved = 0;
+    $errors = [];
+
+    foreach ($names as $i => $originalName) {
+        if (($files['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) { continue; }
+        if ($already + $saved >= QUOTE_PHOTO_MAX_COUNT) {
+            $errors[] = 'se alcanzó el máximo de ' . QUOTE_PHOTO_MAX_COUNT . ' fotos';
+            break;
+        }
+        $one = [
+            'name' => $originalName, 'type' => $files['type'][$i] ?? '',
+            'tmp_name' => $files['tmp_name'][$i] ?? '', 'error' => $files['error'][$i] ?? UPLOAD_ERR_NO_FILE,
+            'size' => $files['size'][$i] ?? 0,
+        ];
+        $res = quote_store_photo($one, $quoteId);
+        if (is_string($res)) {
+            $errors[] = '«' . mb_substr((string) $originalName, 0, 40) . '» ' . $res;
+            continue;
+        }
+        $stmt->execute([$quoteId, $res['file'], mb_substr((string) $originalName, 0, 190), $res['mime'], $res['size'], $res['width'], $res['height'], null, ++$next, current_user()['id'] ?? null]);
+        $saved++;
+    }
+
+    if ($saved > 0) {
+        log_activity('quote', $quoteId, 'fotos_adjuntadas', $saved . ' foto' . ($saved === 1 ? '' : 's'));
+    }
+    return [$saved, $errors];
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
     $form = (string) ($_POST['form'] ?? 'save');
 
@@ -178,30 +223,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         }
 
         if ($form === 'fotos') {
-            $files = $_FILES['fotos'] ?? null;
-            $names = (array) ($files['name'] ?? []);
-            $already = (int) (fetch_one('SELECT COUNT(*) c FROM quote_attachments WHERE quote_id=?', [$qid])['c'] ?? 0);
-            $next = (int) (fetch_one('SELECT COALESCE(MAX(sort_order),0) s FROM quote_attachments WHERE quote_id=?', [$qid])['s'] ?? 0);
-            $stmt = db()->prepare('INSERT INTO quote_attachments (quote_id, file, original_name, mime, size, width, height, caption, sort_order, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())');
-            $saved = 0;
-            $errors = [];
-            foreach ($names as $i => $originalName) {
-                if (($files['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) { continue; }
-                if ($already + $saved >= QUOTE_PHOTO_MAX_COUNT) {
-                    $errors[] = 'se alcanzó el máximo de ' . QUOTE_PHOTO_MAX_COUNT . ' fotos';
-                    break;
-                }
-                $one = ['name' => $originalName, 'type' => $files['type'][$i] ?? '', 'tmp_name' => $files['tmp_name'][$i] ?? '', 'error' => $files['error'][$i] ?? UPLOAD_ERR_NO_FILE, 'size' => $files['size'][$i] ?? 0];
-                $res = quote_store_photo($one, $qid);
-                if (is_string($res)) {
-                    $errors[] = '«' . mb_substr((string) $originalName, 0, 40) . '» ' . $res;
-                    continue;
-                }
-                $stmt->execute([$qid, $res['file'], mb_substr((string) $originalName, 0, 190), $res['mime'], $res['size'], $res['width'], $res['height'], null, ++$next, current_user()['id'] ?? null]);
-                $saved++;
-            }
+            [$saved, $errors] = quote_attach_uploads($qid, $_FILES['fotos'] ?? null);
             if ($saved > 0) {
-                log_activity('quote', $qid, 'fotos_adjuntadas', $saved . ' foto' . ($saved === 1 ? '' : 's'));
                 flash('success', $saved === 1 ? 'Foto adjuntada.' : $saved . ' fotos adjuntadas.');
             }
             if ($errors) {
@@ -351,7 +374,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
             }
             $pdo->commit();
             log_activity('quote', $quoteId, $logAction ?? 'cotizacion_guardada', $title);
-            flash('success', $flashMsg);
+
+            // Fotos adjuntadas desde el modal. Va después del commit a propósito:
+            // escribir archivos no es transaccional y una imagen corrupta no debe
+            // tumbar el guardado de la cotización.
+            $photoNote = '';
+            if ($hasPhotos) {
+                [$photosSaved, $photoErrors] = quote_attach_uploads($quoteId, $_FILES['fotos'] ?? null);
+                if ($photosSaved > 0) {
+                    $photoNote = ' ' . $photosSaved . ' foto' . ($photosSaved === 1 ? '' : 's') . ' al anexo.';
+                }
+                if ($photoErrors) {
+                    flash('warning', 'No se adjuntaron algunas imágenes: ' . implode('; ', array_slice($photoErrors, 0, 3)) . '.');
+                }
+            }
+
+            flash('success', $flashMsg . $photoNote);
             redirect('crm/cotizaciones.php?action=view&id=' . $quoteId);
         }
     }
@@ -773,7 +811,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
     </article>
 
     <dialog x-ref="dlg" class="crm-modal crm-modal--wide" @click.self="close()" @cancel.prevent="close()">
-        <form method="post" class="crm-modal__form">
+        <form method="post" enctype="multipart/form-data" class="crm-modal__form">
             <?= csrf_field() ?>
             <input type="hidden" name="form" value="save">
             <input type="hidden" name="id" :value="form.id">
@@ -830,6 +868,22 @@ require_once __DIR__ . '/../includes/crm_header.php';
                     </div>
                     <button type="button" @click="addLine()" class="crm-secondary-btn" style="margin-top:.6rem"><i data-lucide="plus" class="h-4 w-4"></i>Agregar línea</button>
                 </div>
+
+                <?php if ($hasPhotos): ?>
+                    <div>
+                        <p class="dash-section-label" style="margin:.2rem 0 .5rem">Anexo fotográfico <span style="font-weight:500;text-transform:none;letter-spacing:0">(opcional)</span></p>
+                        <label class="annex-drop">
+                            <i data-lucide="image-plus"></i>
+                            <span>
+                                <b>Adjuntar fotos</b>
+                                <small data-hint>Salen numeradas en una hoja final del PDF · JPG, PNG o WEBP · máximo <?= e(upload_limit_label()) ?> por carga</small>
+                            </span>
+                            <input type="file" name="fotos[]" accept="image/jpeg,image/png,image/webp" multiple
+                                   data-limit="<?= (int) upload_limit_bytes() ?>" onchange="crmAnnexPick(this, true)">
+                        </label>
+                        <p class="annex-note" x-show="form.id" x-cloak><i data-lucide="info"></i>Las fotos que elijas aquí se suman a las que ya tenga el anexo. Para renombrarlas, reordenarlas o quitarlas, usa la ficha de la cotización.</p>
+                    </div>
+                <?php endif; ?>
 
                 <div class="grid gap-4 lg:grid-cols-[1fr_320px]">
                     <div class="grid gap-3" style="align-content:start">

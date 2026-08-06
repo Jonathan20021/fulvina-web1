@@ -494,29 +494,37 @@ window.crmToggleNav = function crmToggleNav() {
   if (window.lucide) window.lucide.createIcons();
 };
 
-/* Quote editor inside a modal (cotizaciones) — create + edit with line items */
 /* Anexo fotográfico: resumen de la selección y aviso antes de chocar con el
    límite del servidor, que descartaría el POST entero sin explicación. */
-window.crmAnnexPick = function crmAnnexPick(input) {
+window.crmAnnexPick = function crmAnnexPick(input, inModal) {
   var files = Array.prototype.slice.call(input.files || []);
   var hint = input.closest('.annex-drop').querySelector('[data-hint]');
-  var button = input.form.querySelector('.annex-upload__go');
+  // En el modal el botón envía toda la cotización, así que sólo se bloquea si la
+  // selección es imposible; en el gestor sirve únicamente para subir fotos.
+  var button = input.form.querySelector('.annex-upload__go')
+    || input.form.querySelector('.crm-modal__foot button[type="submit"]');
   var limit = Number(input.dataset.limit) || 0;
   var total = files.reduce(function (s, f) { return s + f.size; }, 0);
   var mb = function (n) { return (n / 1048576).toFixed(1) + ' MB'; };
+  var idle = inModal
+    ? 'Salen numeradas en una hoja final del PDF · JPG, PNG o WEBP'
+    : 'JPG, PNG o WEBP · puedes seleccionar varias';
+
+  hint.style.color = '';
+  if (button) { button.disabled = !inModal; }
 
   if (!files.length) {
-    hint.textContent = 'JPG, PNG o WEBP · puedes seleccionar varias';
-    button.disabled = true;
+    hint.textContent = idle;
     return;
   }
   var tooBig = limit > 0 && total > limit;
   hint.textContent = files.length + (files.length === 1 ? ' foto · ' : ' fotos · ') + mb(total)
     + (tooBig ? ' · excede el máximo de ' + mb(limit) + ': selecciona menos fotos' : '');
-  hint.style.color = tooBig ? '#b91c1c' : '';
-  button.disabled = tooBig;
+  if (tooBig) { hint.style.color = '#b91c1c'; }
+  if (button) { button.disabled = tooBig; }
 };
 
+/* Quote editor inside a modal (cotizaciones) — create + edit with line items */
 window.crmQuoteModal = function crmQuoteModal(opts) {
   opts = opts || {};
   var defaults = opts.defaults || {};
