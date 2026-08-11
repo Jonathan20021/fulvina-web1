@@ -892,6 +892,29 @@ function ncf_prefixes(): array
     return ['B' => 'B — Comprobante Fiscal', 'E' => 'E — Comprobante Fiscal Electrónico (e-CF)'];
 }
 
+/**
+ * Series ofrecidas al crear una factura. Además de las dos series fiscales,
+ * «P» es la FACTURA PROFORMA: una cotización formal con formato de factura que
+ * NO consume NCF, no se transmite a la DGII y no puede emitirse. No es una
+ * serie de la DGII, por eso no aparece en «Secuencias NCF» (ncf_prefixes()).
+ */
+function invoice_series_options(): array
+{
+    return ncf_prefixes() + ['P' => 'P — Factura Proforma (sin valor fiscal)'];
+}
+
+/** ¿La fila de factura es una proforma (documento sin valor fiscal)? */
+function invoice_is_proforma(?array $inv): bool
+{
+    return !empty($inv['is_proforma']);
+}
+
+/** Encabezado del documento: la proforma nunca se rotula como comprobante fiscal. */
+function invoice_doc_heading(?array $inv): string
+{
+    return invoice_is_proforma($inv) ? 'FACTURA PROFORMA' : ncf_doc_heading((string) ($inv['ncf_type'] ?? '02'));
+}
+
 /** Sequence width: e-CF (E) uses 10 digits, the vigente (B) uses 8. */
 function ncf_seq_width(string $prefix): int
 {
@@ -1391,6 +1414,11 @@ function invoice_emit(int $invoiceId): array
     if (!invoice_is_editable($inv['status'])) {
         return ['ok' => false, 'message' => 'Esta factura ya fue emitida.', 'ncf' => ''];
     }
+    // Una proforma no consume NCF: para convertirla en comprobante fiscal hay que
+    // editarla y cambiar la serie a B (fiscal) o E (e-CF).
+    if (invoice_is_proforma($inv)) {
+        return ['ok' => false, 'message' => 'Una factura proforma no lleva NCF. Edítala y cambia la «Serie NCF» a B o E para poder emitirla como comprobante fiscal.', 'ncf' => ''];
+    }
     if ((int) (fetch_one('SELECT COUNT(*) c FROM invoice_items WHERE invoice_id=?', [$invoiceId])['c'] ?? 0) === 0) {
         return ['ok' => false, 'message' => 'Agrega al menos una partida antes de emitir.', 'ncf' => ''];
     }
@@ -1477,6 +1505,7 @@ function ensure_invoice_schema(): void
             ncf VARCHAR(19) NULL,
             ncf_type VARCHAR(2) NOT NULL DEFAULT '02',
             ncf_prefix VARCHAR(2) NOT NULL DEFAULT 'B',
+            is_proforma TINYINT(1) NOT NULL DEFAULT 0,
             is_ecf TINYINT(1) NOT NULL DEFAULT 0,
             ecf_status VARCHAR(30) NULL,
             ecf_track_id VARCHAR(60) NULL,
@@ -1554,6 +1583,8 @@ function ensure_invoice_schema(): void
         // electronic comprobantes existed. They sit ready for manual capture now
         // and for the DGII e-CF transmission integration later.
         $ecfColumns = [
+            // Proforma: documento con formato de factura pero sin NCF ni valor fiscal.
+            'is_proforma' => "ALTER TABLE invoices ADD COLUMN is_proforma TINYINT(1) NOT NULL DEFAULT 0 AFTER ncf_prefix",
             'is_ecf' => "ALTER TABLE invoices ADD COLUMN is_ecf TINYINT(1) NOT NULL DEFAULT 0 AFTER ncf_prefix",
             'ecf_status' => "ALTER TABLE invoices ADD COLUMN ecf_status VARCHAR(30) NULL AFTER is_ecf",
             'ecf_track_id' => "ALTER TABLE invoices ADD COLUMN ecf_track_id VARCHAR(60) NULL AFTER ecf_status",

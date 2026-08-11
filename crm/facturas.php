@@ -284,10 +284,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
             foreach ($rows as $r) {
                 $stmt->execute([$newId, $r['description'], $r['quantity'], $r['unit_price'], $r['discount'], $r['is_exempt'], $r['total']]);
             }
-            $pdo->prepare('UPDATE invoices SET is_ecf=?, ecf_status=? WHERE id=?')->execute([($src['ncf_prefix'] ?? 'B') === 'E' ? 1 : 0, ($src['ncf_prefix'] ?? 'B') === 'E' ? 'Manual' : null, $newId]);
+            $srcProforma = invoice_is_proforma($src) ? 1 : 0;
+            $srcEcf = (!$srcProforma && ($src['ncf_prefix'] ?? 'B') === 'E') ? 1 : 0;
+            $pdo->prepare('UPDATE invoices SET is_proforma=?, is_ecf=?, ecf_status=? WHERE id=?')->execute([$srcProforma, $srcEcf, $srcEcf ? 'Manual' : null, $newId]);
             $pdo->commit();
             log_activity('invoice', $newId, 'factura_duplicada', null);
-            flash('success', 'Factura duplicada como borrador (sin NCF).');
+            flash('success', $srcProforma ? 'Proforma duplicada.' : 'Factura duplicada como borrador (sin NCF).');
             redirect('crm/facturas.php?action=view&id=' . $newId);
         }
         redirect('crm/facturas.php');
@@ -305,14 +307,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
 
         $clientId = (int) ($_POST['client_id'] ?? 0);
         $title = trim((string) ($_POST['title'] ?? ''));
-        $prefix = strtoupper(trim((string) ($_POST['ncf_prefix'] ?? 'B'))) === 'E' ? 'E' : 'B';
+        // Serie «P» = proforma: no es una serie de la DGII, se guarda como bandera y
+        // el comprobante queda neutro (B/02) para no ensuciar el resto del módulo.
+        $seriesPick = strtoupper(trim((string) ($_POST['ncf_prefix'] ?? 'B')));
+        $isProforma = $seriesPick === 'P' ? 1 : 0;
+        $prefix = $seriesPick === 'E' ? 'E' : 'B';
         $type = substr(preg_replace('/\D/', '', (string) ($_POST['ncf_type'] ?? '')) ?: '', 0, 2);
         $type = ncf_normalize_type($type, $prefix);
+        if ($isProforma) { $type = '02'; }
         $condition = in_array((string) ($_POST['payment_condition'] ?? ''), $payConditions, true) ? (string) $_POST['payment_condition'] : 'Contado';
         $method = trim((string) ($_POST['payment_method'] ?? ''));
         $issueDate = trim((string) ($_POST['issue_date'] ?? '')) ?: null;
         $dueDate = trim((string) ($_POST['due_date'] ?? '')) ?: null;
-        $modifiesNcf = in_array($type, ['03', '04', '33', '34'], true) ? trim((string) ($_POST['modifies_ncf'] ?? '')) : '';
+        $modifiesNcf = (!$isProforma && in_array($type, ['03', '04', '33', '34'], true)) ? trim((string) ($_POST['modifies_ncf'] ?? '')) : '';
         $taxRate = (float) ($_POST['tax_rate'] ?? $defaultTax);
         $isc = (float) ($_POST['isc_amount'] ?? 0);
         $itbisRet = (float) ($_POST['itbis_retained'] ?? 0);
@@ -344,8 +351,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
                     ->execute([$clientId, $title, $type, $prefix, $condition, $method, $issueDate, $dueDate, $modifiesNcf, $t['taxed_base'], $t['exempt_base'], $t['discount_amount'], $t['subtotal'], $taxRate, $t['tax_amount'], $t['isc_amount'], $t['itbis_retained'], $t['isr_retained'], $t['total'], $currency, $rate, $notes, $terms, $clientName, $clientRnc, $clientAddress, $editId]);
                 $pdo->prepare('DELETE FROM invoice_items WHERE invoice_id=?')->execute([$editId]);
                 $invoiceId = $editId;
-                $flashMsg = 'Factura actualizada.';
-                $logAction = 'factura_actualizada';
+                $flashMsg = $isProforma ? 'Factura proforma actualizada.' : 'Factura actualizada.';
+                $logAction = $isProforma ? 'proforma_actualizada' : 'factura_actualizada';
             } else {
                 for ($attempt = 0; ; $attempt++) {
                     try {
@@ -358,20 +365,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
                     }
                 }
                 $invoiceId = (int) $pdo->lastInsertId();
-                $flashMsg = 'Factura creada como borrador. Revísala y púlsala «Emitir» para asignar el NCF.';
-                $logAction = 'factura_creada';
+                $flashMsg = $isProforma
+                    ? 'Factura proforma creada. No consume NCF ni tiene valor fiscal; si el cliente la aprueba, edítala, cambia la serie a B o E y emítela.'
+                    : 'Factura creada como borrador. Revísala y púlsala «Emitir» para asignar el NCF.';
+                $logAction = $isProforma ? 'proforma_creada' : 'factura_creada';
             }
 
             $stmt = $pdo->prepare('INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, discount, is_exempt, total) VALUES (?, ?, ?, ?, ?, ?, ?)');
             foreach ($items as $it) {
                 $stmt->execute([$invoiceId, $it['description'], $it['quantity'], $it['unit_price'], $it['discount'], $it['is_exempt'], $it['total']]);
             }
-            // Mark the e-CF flag/status (manual capture until DGII transmission exists).
-            $pdo->prepare('UPDATE invoices SET is_ecf=?, ecf_status=? WHERE id=?')->execute([$prefix === 'E' ? 1 : 0, $prefix === 'E' ? 'Manual' : null, $invoiceId]);
+            // Mark the proforma / e-CF flags (e-CF sigue siendo captura manual hasta
+            // que exista la transmisión a la DGII). Una proforma nunca es e-CF.
+            $isEcf = (!$isProforma && $prefix === 'E') ? 1 : 0;
+            $pdo->prepare('UPDATE invoices SET is_proforma=?, is_ecf=?, ecf_status=? WHERE id=?')->execute([$isProforma, $isEcf, $isEcf ? 'Manual' : null, $invoiceId]);
             $pdo->commit();
             log_activity('invoice', $invoiceId, $logAction, $title);
             // "Guardar y emitir": assign the NCF right away instead of leaving a draft.
-            if ((string) ($_POST['emit_now'] ?? '') === '1') {
+            // Una proforma no se emite: se queda como documento sin valor fiscal.
+            if (!$isProforma && (string) ($_POST['emit_now'] ?? '') === '1') {
                 $res = invoice_emit($invoiceId);
                 flash($res['ok'] ? 'success' : 'warning', $res['ok'] ? $res['message'] : 'Factura guardada como borrador, pero no se pudo emitir: ' . $res['message']);
             } else {
@@ -517,9 +529,10 @@ if ($action === 'view') {
     $terms = trim((string) ($inv['terms'] ?? '')) ?: $defaultTerms;
     $status = (string) ($inv['status'] ?? 'Borrador');
     $editable = invoice_is_editable($status);
+    $isProforma = invoice_is_proforma($inv);
     $net = round((float) $inv['total'] - (float) $inv['itbis_retained'] - (float) $inv['isr_retained'], 2);
     $balance = round($net - (float) ($inv['amount_paid'] ?? 0), 2);
-    $hasActiveSeq = $hasInvoices ? invoice_has_sequence((string) ($inv['ncf_prefix'] ?? 'B'), (string) ($inv['ncf_type'] ?? '02')) : true;
+    $hasActiveSeq = ($hasInvoices && !$isProforma) ? invoice_has_sequence((string) ($inv['ncf_prefix'] ?? 'B'), (string) ($inv['ncf_type'] ?? '02')) : true;
     $overdue = invoice_is_overdue($inv);
     // Reconciliación partidas ↔ encabezado: detecta facturas sin sus líneas.
     $itemsSum = 0.0;
@@ -551,7 +564,11 @@ if ($action === 'view') {
             </div>
         </div>
 
-        <?php if ($editable && !$hasActiveSeq && current_can('facturas.edit')): ?>
+        <?php if ($isProforma): ?>
+            <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800"><i data-lucide="file-clock" style="width:15px;height:15px;vertical-align:-2px"></i> <b>Factura proforma</b> — documento sin validez fiscal. No consume NCF ni se reporta a la DGII; sirve como oferta formal con formato de factura.<?php if ($editable && current_can('facturas.edit')): ?> Si el cliente la aprueba, <a class="underline" href="<?= url('crm/facturas.php?edit=' . (int) $inv['id']) ?>">edítala</a> y cambia la «Serie NCF» a B o E para poder emitirla como comprobante fiscal.<?php endif; ?></div>
+        <?php endif; ?>
+
+        <?php if ($editable && !$isProforma && !$hasActiveSeq && current_can('facturas.edit')): ?>
             <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">No hay secuencia NCF disponible para <b><?= e(($inv['ncf_prefix'] ?? 'B') . ($inv['ncf_type'] ?? '02')) ?></b> (<?= e(ncf_type_label((string) ($inv['ncf_type'] ?? '02'))) ?>). El rango debe existir con esa misma serie y tipo, estar marcado como activo, no estar agotado y no estar vencido. <a class="underline" href="<?= url('crm/facturas.php?action=ncf') ?>">Revisar secuencias NCF</a>.</div>
         <?php endif; ?>
 
@@ -560,6 +577,7 @@ if ($action === 'view') {
         <div class="inv-actionbar print:hidden">
             <div class="inv-actionbar__state">
                 <span class="status-chip <?= e(status_class($status)) ?>"><?= e($status) ?></span>
+                <?php if ($isProforma): ?><span class="status-chip bg-amber-50 text-amber-800 ring-1 ring-amber-200" title="Documento sin validez fiscal">Proforma</span><?php endif; ?>
                 <?php if ($overdue): ?><span class="status-chip bg-red-50 text-red-700 ring-1 ring-red-200">Vencida</span><?php endif; ?>
                 <?php if ($canCartera && $status !== 'Borrador' && $status !== 'Anulada'): $age = invoice_aging($inv); ?>
                     <span class="inv-age-chip inv-age-chip--<?= e($age['tone']) ?>" title="Periodo de vencimiento">Vencimiento: <?= e($age['label']) ?></span>
@@ -569,7 +587,9 @@ if ($action === 'view') {
                 <?php endif; ?>
             </div>
             <div class="inv-actionbar__btns">
-                <?php if ($editable): ?>
+                <?php if ($editable && $isProforma): ?>
+                    <a href="<?= url('crm/facturas.php?edit=' . (int) $inv['id']) ?>" class="crm-primary-btn"><i data-lucide="badge-check" class="h-4 w-4"></i>Convertir en factura fiscal</a>
+                <?php elseif ($editable): ?>
                     <form method="post" onsubmit="return confirm('Al emitir se asignará el NCF y la factura quedará bloqueada. ¿Continuar?');">
                         <?= csrf_field() ?><input type="hidden" name="form" value="emit"><input type="hidden" name="id" value="<?= (int) $inv['id'] ?>">
                         <button type="submit" class="crm-primary-btn" <?= $hasActiveSeq ? '' : 'disabled title="Configura una secuencia NCF"' ?>><i data-lucide="badge-check" class="h-4 w-4"></i>Emitir y asignar NCF</button>
@@ -604,14 +624,15 @@ if ($action === 'view') {
                     <p><?= e(APP_LEGAL) ?><?php if (APP_RNC !== ''): ?> · RNC: <?= e(APP_RNC) ?><?php endif; ?><br><?= e(APP_ADDRESS) ?> · Tel. <?= e(APP_PHONE) ?></p>
                 </div>
                 <div>
-                    <span><?= e(ncf_doc_heading((string) $inv['ncf_type'])) ?></span>
+                    <span><?= e(invoice_doc_heading($inv)) ?></span>
                     <h1><?= e($inv['invoice_number'] ?? '') ?></h1>
                     <span class="status-chip <?= e(status_class($status)) ?>"><?= e($status) ?></span>
+                    <?php if ($isProforma): ?><span class="status-chip bg-amber-50 text-amber-800 ring-1 ring-amber-200">Sin valor fiscal</span><?php endif; ?>
                     <?php if (!empty($inv['is_ecf'])): ?><span class="status-chip bg-blue-50 text-blue-700 ring-1 ring-blue-200" title="Comprobante fiscal electrónico">e-CF · <?= e($inv['ecf_status'] ?: 'Manual') ?></span><?php endif; ?>
                     <div class="inv-ncf-box">
                         <span>NCF</span>
-                        <strong><?= e((string) ($inv['ncf'] ?? '')) ?: 'Pendiente de emisión' ?></strong>
-                        <small><?= e($inv['ncf_type']) ?> · <?= e(ncf_type_label((string) $inv['ncf_type'])) ?></small>
+                        <strong><?= $isProforma ? 'No aplica' : (e((string) ($inv['ncf'] ?? '')) ?: 'Pendiente de emisión') ?></strong>
+                        <small><?= $isProforma ? 'Proforma — documento sin validez fiscal' : e($inv['ncf_type']) . ' · ' . e(ncf_type_label((string) $inv['ncf_type'])) ?></small>
                     </div>
                     <p class="quote-doc__currency">Moneda: <strong><?= e($cur) ?></strong><?php if ($cur === 'USD'): ?> · US$ 1 = RD$ <?= e(number_format($rate, 2)) ?><?php endif; ?></p>
                 </div>
@@ -741,7 +762,9 @@ if ($hasInvoices && $editId > 0) {
         $eItems = fetch_all('SELECT description, quantity, unit_price, discount, is_exempt FROM invoice_items WHERE invoice_id=? ORDER BY id ASC', [$editId]);
         $editPayload = [
             'id' => (int) $ei['id'], 'client_id' => (string) $ei['client_id'], 'title' => (string) $ei['title'],
-            'ncf_type' => (string) $ei['ncf_type'], 'ncf_prefix' => (string) $ei['ncf_prefix'],
+            'ncf_type' => (string) $ei['ncf_type'],
+            // La proforma viaja al modal como serie «P» (no existe en la DGII).
+            'ncf_prefix' => invoice_is_proforma($ei) ? 'P' : (string) $ei['ncf_prefix'],
             'payment_condition' => (string) $ei['payment_condition'], 'payment_method' => (string) ($ei['payment_method'] ?? ''),
             'issue_date' => (string) ($ei['issue_date'] ?? ''), 'due_date' => (string) ($ei['due_date'] ?? ''),
             'modifies_ncf' => (string) ($ei['modifies_ncf'] ?? ''), 'tax_rate' => (float) $ei['tax_rate'],
@@ -799,7 +822,8 @@ if ($hasInvoices) {
     $totalPages = max(1, (int) ceil($totalMatching / $perPage));
     $invoices = fetch_all("SELECT invoices.*, clients.name AS c_name FROM invoices LEFT JOIN clients ON clients.id = invoices.client_id WHERE {$where} ORDER BY invoices.created_at DESC, invoices.id DESC LIMIT {$perPage} OFFSET {$offset}", $params);
 
-    $invTotal = (int) (fetch_one('SELECT COUNT(*) c FROM invoices')['c'] ?? 0);
+    // Las proformas no son comprobantes: quedan fuera del KPI de facturas.
+    $invTotal = (int) (fetch_one('SELECT COUNT(*) c FROM invoices WHERE is_proforma=0')['c'] ?? 0);
     $invPending = db_count('invoices', "status='Emitida'");
     // KPIs en RD$: los comprobantes en USD se convierten con su propia tasa.
     $rateSql = invoice_rate_sql();
@@ -999,12 +1023,12 @@ require_once __DIR__ . '/../includes/crm_header.php';
         <table class="crm-table crm-data-table">
             <thead><tr><th>Comprobante</th><th>Cliente</th><th>Tipo</th><th>Estado</th><?php if ($canCartera): ?><th>Vencimiento</th><?php endif; ?><th class="text-right">Total</th><th class="text-right">Acción</th></tr></thead>
             <tbody>
-                <?php foreach ($invoices as $inv): $ov = invoice_is_overdue($inv); $age = invoice_aging($inv); ?>
+                <?php foreach ($invoices as $inv): $ov = invoice_is_overdue($inv); $age = invoice_aging($inv); $rowProforma = invoice_is_proforma($inv); ?>
                     <tr>
-                        <td><strong><?= e($inv['invoice_number'] ?? '') ?></strong><?php if (!empty($inv['ncf'])): ?><br><span class="inv-ncf-chip"><?= e($inv['ncf']) ?></span><?php else: ?><br><span style="color:var(--muted);font-size:.78rem">Sin NCF</span><?php endif; ?></td>
+                        <td><strong><?= e($inv['invoice_number'] ?? '') ?></strong><?php if (!empty($inv['ncf'])): ?><br><span class="inv-ncf-chip"><?= e($inv['ncf']) ?></span><?php else: ?><br><span style="color:var(--muted);font-size:.78rem"><?= $rowProforma ? 'Sin NCF · proforma' : 'Sin NCF' ?></span><?php endif; ?></td>
                         <td><?= e($inv['client_name'] ?? $inv['c_name'] ?? 'Cliente') ?><?php if (!empty($inv['title'])): ?><br><span style="color:var(--muted);font-size:.8rem"><?= e($inv['title']) ?></span><?php endif; ?></td>
-                        <td><span class="inv-type-chip"><?= e(($inv['ncf_type'] ?? '') . ' · ' . ncf_type_label((string) ($inv['ncf_type'] ?? ''))) ?></span></td>
-                        <td><span class="status-chip <?= e(status_class($inv['status'] ?? 'Borrador')) ?>"><?= e($inv['status'] ?? 'Borrador') ?></span><?php if ($ov): ?> <span class="status-chip bg-red-50 text-red-700 ring-1 ring-red-200" title="Vencida el <?= e(date_es($inv['due_date'])) ?>">Vencida</span><?php endif; ?></td>
+                        <td><span class="inv-type-chip"><?= $rowProforma ? 'Factura Proforma' : e(($inv['ncf_type'] ?? '') . ' · ' . ncf_type_label((string) ($inv['ncf_type'] ?? ''))) ?></span></td>
+                        <td><span class="status-chip <?= e(status_class($inv['status'] ?? 'Borrador')) ?>"><?= e($inv['status'] ?? 'Borrador') ?></span><?php if ($rowProforma): ?> <span class="status-chip bg-amber-50 text-amber-800 ring-1 ring-amber-200" title="Documento sin validez fiscal">Proforma</span><?php endif; ?><?php if ($ov): ?> <span class="status-chip bg-red-50 text-red-700 ring-1 ring-red-200" title="Vencida el <?= e(date_es($inv['due_date'])) ?>">Vencida</span><?php endif; ?></td>
                         <?php if ($canCartera): ?>
                         <td>
                             <span class="inv-age-chip inv-age-chip--<?= e($age['tone']) ?>"><?= e($age['label']) ?></span>
@@ -1018,7 +1042,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                             <div class="crm-row-actions">
                                 <a class="crm-icon-action" href="<?= url('crm/facturas.php?action=view&id=' . (int) $inv['id']) ?>" title="Ver"><i data-lucide="eye"></i></a>
                                 <?php if ($hasInvoices && invoice_is_editable($inv['status'] ?? '') && current_can('facturas.edit')): ?><a class="crm-icon-action" href="<?= url('crm/facturas.php?edit=' . (int) $inv['id']) ?>" title="Editar"><i data-lucide="pencil"></i></a><?php endif; ?>
-                                <?php if ($hasInvoices && invoice_is_editable($inv['status'] ?? '') && current_can('facturas.edit')):
+                                <?php if ($hasInvoices && !$rowProforma && invoice_is_editable($inv['status'] ?? '') && current_can('facturas.edit')):
                                     $pair = (string) ($inv['ncf_prefix'] ?? 'B') . (string) ($inv['ncf_type'] ?? '');
                                     $canEmit = isset($activeSeqPairs[$pair]); ?>
                                     <form method="post" style="display:inline" onsubmit="return confirm('Se asignará el NCF de la secuencia <?= e($pair) ?> y la factura quedará bloqueada. ¿Emitir <?= e(addslashes((string) $inv['invoice_number'])) ?>?');">
@@ -1064,8 +1088,9 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <header class="crm-modal__head">
                 <span class="crm-modal__icon"><i data-lucide="receipt"></i></span>
                 <div class="crm-modal__titles">
-                    <h2 x-text="form.id ? 'Editar factura (borrador)' : 'Nueva factura'">Nueva factura</h2>
-                    <p>«Crear borrador» lo deja editable sin consumir NCF; «Guardar y emitir NCF» toma el número de tu secuencia autorizada al instante.</p>
+                    <h2 x-text="form.id ? (isProforma() ? 'Editar factura proforma' : 'Editar factura (borrador)') : 'Nueva factura'">Nueva factura</h2>
+                    <p x-show="!isProforma()">«Crear borrador» lo deja editable sin consumir NCF; «Guardar y emitir NCF» toma el número de tu secuencia autorizada al instante.</p>
+                    <p x-show="isProforma()" x-cloak>La proforma es una oferta formal con formato de factura: no consume NCF, no se reporta a la DGII y puede editarse siempre.</p>
                 </div>
                 <button type="button" class="crm-modal__close" @click="close()" aria-label="Cerrar"><i data-lucide="x"></i></button>
             </header>
@@ -1080,16 +1105,30 @@ require_once __DIR__ . '/../includes/crm_header.php';
                     <label class="crm-field"><span>Concepto / título</span><input name="title" x-model="form.title" placeholder="Ej. Equipamiento quirófano 2" class="crm-input"></label>
                 </div>
                 <div class="crm-form-grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
-                    <label class="crm-field"><span class="required">Serie NCF</span><select name="ncf_prefix" x-model="form.ncf_prefix" @change="syncType()" class="crm-select"><?php foreach ($ncfPrefixes as $k => $lbl): ?><option value="<?= e($k) ?>"><?= e($lbl) ?></option><?php endforeach; ?></select></label>
-                    <label class="crm-field"><span class="required">Tipo de comprobante</span>
+                    <label class="crm-field"><span class="required">Serie NCF</span><select name="ncf_prefix" x-model="form.ncf_prefix" @change="syncType()" class="crm-select"><?php foreach (invoice_series_options() as $k => $lbl): ?><option value="<?= e($k) ?>"><?= e($lbl) ?></option><?php endforeach; ?></select></label>
+                    <label class="crm-field" x-show="!isProforma()">
+                        <span class="required">Tipo de comprobante</span>
                         <select name="ncf_type" x-model="form.ncf_type" class="crm-select">
                             <template x-for="t in availableTypes()" :key="t.code"><option :value="t.code" x-text="t.code + ' — ' + t.label"></option></template>
                         </select>
                     </label>
+                    <label class="crm-field" x-show="isProforma()" x-cloak>
+                        <span>Tipo de documento</span>
+                        <input class="crm-input" value="Factura Proforma (sin NCF)" disabled>
+                    </label>
                     <label class="crm-field"><span>Condición de pago</span><select name="payment_condition" x-model="form.payment_condition" class="crm-select"><?php foreach ($payConditions as $c): ?><option value="<?= e($c) ?>"><?= e($c) ?></option><?php endforeach; ?></select></label>
                 </div>
+                <!-- Proforma: sin NCF, sin DGII. Sustituye a la vista previa del comprobante. -->
+                <div class="inv-ncf-preview is-warn" x-show="isProforma()" x-cloak>
+                    <span class="inv-ncf-preview__ic"><i data-lucide="file-clock"></i></span>
+                    <div class="inv-ncf-preview__body">
+                        <span class="inv-ncf-preview__k">Documento sin validez fiscal</span>
+                        <strong class="inv-ncf-preview__v">FACTURA PROFORMA — sin NCF</strong>
+                        <small>No consume ningún número de tu secuencia autorizada ni se reporta a la DGII, y no entra en cuentas por cobrar. Si el cliente la aprueba, edítala, cambia la serie a B o E y emítela como comprobante fiscal.</small>
+                    </div>
+                </div>
                 <!-- NCF que tomará esta factura: el próximo número del rango autorizado. -->
-                <div class="inv-ncf-preview" :class="seqInfo() ? 'is-ok' : 'is-warn'" x-show="form.client_id" x-cloak>
+                <div class="inv-ncf-preview" :class="seqInfo() ? 'is-ok' : 'is-warn'" x-show="form.client_id && !isProforma()" x-cloak>
                     <span class="inv-ncf-preview__ic"><i data-lucide="hash"></i></span>
                     <div class="inv-ncf-preview__body">
                         <span class="inv-ncf-preview__k" x-text="seqInfo() ? 'NCF que se asignará al emitir' : 'Sin secuencia NCF disponible'"></span>
@@ -1100,7 +1139,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 </div>
                 <p class="inv-ecf-note" x-show="form.ncf_prefix==='E'" x-cloak><i data-lucide="zap"></i> e-CF (comprobante fiscal electrónico): por ahora se captura de forma manual; la transmisión y validación con la DGII se integrará más adelante.</p>
                 <p class="inv-rnc-warn" x-show="requiresRnc() && form.client_id && !clientRnc()" x-cloak><i data-lucide="alert-triangle"></i> Este tipo de comprobante exige el RNC/Cédula del cliente y la ficha del cliente no lo tiene: complétalo antes de emitir.</p>
-                <div class="crm-form-grid" x-show="['03','04','33','34'].includes(form.ncf_type)" x-cloak>
+                <div class="crm-form-grid" x-show="!isProforma() && ['03','04','33','34'].includes(form.ncf_type)" x-cloak>
                     <label class="crm-field"><span>NCF que modifica (nota de crédito/débito)</span><input name="modifies_ncf" x-model="form.modifies_ncf" placeholder="Ej. B0100000123" class="crm-input"></label>
                 </div>
                 <div class="crm-form-grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
@@ -1161,8 +1200,8 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <footer class="crm-modal__foot">
                 <input type="hidden" name="emit_now" value="0">
                 <button type="button" class="crm-secondary-btn" @click="close()">Cancelar</button>
-                <button type="submit" class="crm-secondary-btn" onclick="this.form.emit_now.value='0'"><i data-lucide="save" class="h-4 w-4"></i><span x-text="form.id ? 'Guardar cambios' : 'Crear borrador'">Crear borrador</span></button>
-                <button type="submit" class="crm-primary-btn" onclick="if(!confirm('Se guardará la factura y se le asignará el NCF de tu secuencia autorizada. Una vez emitida no se puede editar. ¿Continuar?')){return false;} this.form.emit_now.value='1';"><i data-lucide="badge-check" class="h-4 w-4"></i>Guardar y emitir NCF</button>
+                <button type="submit" :class="isProforma() ? 'crm-primary-btn' : 'crm-secondary-btn'" onclick="this.form.emit_now.value='0'"><i data-lucide="save" class="h-4 w-4"></i><span x-text="isProforma() ? (form.id ? 'Guardar proforma' : 'Crear proforma') : (form.id ? 'Guardar cambios' : 'Crear borrador')">Crear borrador</span></button>
+                <button type="submit" class="crm-primary-btn" x-show="!isProforma()" onclick="if(!confirm('Se guardará la factura y se le asignará el NCF de tu secuencia autorizada. Una vez emitida no se puede editar. ¿Continuar?')){return false;} this.form.emit_now.value='1';"><i data-lucide="badge-check" class="h-4 w-4"></i>Guardar y emitir NCF</button>
             </footer>
         </form>
     </dialog>

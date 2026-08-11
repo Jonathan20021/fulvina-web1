@@ -200,6 +200,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   ncf VARCHAR(19) NULL,
   ncf_type VARCHAR(2) NOT NULL DEFAULT '02',
   ncf_prefix VARCHAR(2) NOT NULL DEFAULT 'B',
+  is_proforma TINYINT(1) NOT NULL DEFAULT 0,
   is_ecf TINYINT(1) NOT NULL DEFAULT 0,
   ecf_status VARCHAR(30) NULL,
   ecf_track_id VARCHAR(60) NULL,

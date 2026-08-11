@@ -603,9 +603,11 @@ window.crmInvoiceModal = function crmInvoiceModal(opts) {
     isrRet: 0,
     currency: 'DOP',
     rate: Number(defaults.rate) > 0 ? Number(defaults.rate) : 60,
+    /* Serie válida para el <select>: B (fiscal), E (e-CF) o P (proforma sin NCF). */
+    normSeries(v) { return v === 'E' ? 'E' : (v === 'P' ? 'P' : 'B'); },
     reset() {
       this.form = {
-        id: 0, client_id: '', title: '', ncf_type: defaults.type || '01', ncf_prefix: defaults.prefix === 'E' ? 'E' : 'B',
+        id: 0, client_id: '', title: '', ncf_type: defaults.type || '01', ncf_prefix: this.normSeries(defaults.prefix),
         payment_condition: defaults.condition || 'Contado', payment_method: '',
         issue_date: defaults.issueDate || '', due_date: defaults.dueDate || '', modifies_ncf: '',
         notes: '', terms: defaults.terms || ''
@@ -616,8 +618,11 @@ window.crmInvoiceModal = function crmInvoiceModal(opts) {
       this.currency = 'DOP';
       this.rate = Number(defaults.rate) > 0 ? Number(defaults.rate) : 60;
     },
+    /* La proforma no lleva comprobante fiscal: ni tipo, ni NCF, ni RNC obligatorio. */
+    isProforma() { return this.form.ncf_prefix === 'P'; },
     availableTypes() { var p = this.form.ncf_prefix === 'E' ? 'E' : 'B'; return types.filter(function (t) { return t.series === p; }); },
     syncType() {
+      if (this.isProforma()) { return; }
       var want = this.form.ncf_prefix === 'E' ? 'E' : 'B';
       var cur = this.form.ncf_type;
       var t = types.find(function (x) { return x.code === cur; });
@@ -628,9 +633,9 @@ window.crmInvoiceModal = function crmInvoiceModal(opts) {
       if (!next || !types.find(function (x) { return x.code === next && x.series === want; })) { next = want === 'E' ? '31' : '01'; }
       this.form.ncf_type = next;
     },
-    requiresRnc() { var t = types.find((x) => x.code === this.form.ncf_type); return !!(t && t.rnc); },
+    requiresRnc() { if (this.isProforma()) { return false; } var t = types.find((x) => x.code === this.form.ncf_type); return !!(t && t.rnc); },
     /* Rango vigente para la serie+tipo elegidos: mismo que consumirá la emisión. */
-    seqInfo() { return sequences[(this.form.ncf_prefix || 'B') + (this.form.ncf_type || '')] || null; },
+    seqInfo() { if (this.isProforma()) { return null; } return sequences[(this.form.ncf_prefix || 'B') + (this.form.ncf_type || '')] || null; },
     /* RNC del cliente seleccionado ('' si la ficha no lo tiene). */
     clientRnc() { return clientRncMap[String(this.form.client_id || '')] || ''; },
     sym() { return this.currency === 'USD' ? 'US$' : 'RD$'; },
@@ -657,7 +662,7 @@ window.crmInvoiceModal = function crmInvoiceModal(opts) {
       d = d || {};
       this.form = {
         id: d.id || 0, client_id: d.client_id || '', title: d.title || '',
-        ncf_type: d.ncf_type || defaults.type || '01', ncf_prefix: d.ncf_prefix === 'E' ? 'E' : 'B',
+        ncf_type: d.ncf_type || defaults.type || '01', ncf_prefix: this.normSeries(d.ncf_prefix),
         payment_condition: d.payment_condition || defaults.condition || 'Contado', payment_method: d.payment_method || '',
         issue_date: d.issue_date || defaults.issueDate || '', due_date: d.due_date || defaults.dueDate || '',
         modifies_ncf: d.modifies_ncf || '', notes: d.notes || '', terms: (d.terms && d.terms.length) ? d.terms : (defaults.terms || '')

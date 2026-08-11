@@ -48,7 +48,9 @@ $type = (string) ($inv['ncf_type'] ?? '02');
 $ncf = trim((string) ($inv['ncf'] ?? ''));
 $status = (string) ($inv['status'] ?? 'Borrador');
 $number = (string) ($inv['invoice_number'] ?? 'FAC');
-$heading = ncf_doc_heading($type);
+// La proforma nunca se rotula como comprobante fiscal ni muestra un tipo de NCF.
+$isProforma = invoice_is_proforma($inv);
+$heading = invoice_doc_heading($inv);
 $net = round((float) $inv['total'] - (float) $inv['itbis_retained'] - (float) $inv['isr_retained'], 2);
 $hasRet = (float) $inv['itbis_retained'] > 0 || (float) $inv['isr_retained'] > 0;
 
@@ -73,7 +75,7 @@ $totalWords = money_in_words((float) ($inv['total'] ?? 0), $cur);
 
 $buildHtml = function (int $level) use (
     $h, $fmt, $qty, $inv, $items, $logoData, $cur, $rate, $terms,
-    $type, $ncf, $status, $number, $heading, $net, $hasRet, $statusColor, $totalWords
+    $type, $ncf, $status, $number, $heading, $net, $hasRet, $statusColor, $totalWords, $isProforma
 ): string {
     // Márgenes de página por nivel de densidad (normal / compacta / muy compacta).
     $pageTop = [32, 28, 24][$level];
@@ -267,10 +269,16 @@ $buildHtml = function (int $level) use (
                     <div class="doc-label"><?= $h($heading) ?></div>
                     <div class="doc-number"><?= $h($number) ?></div>
                     <div><span class="badge" style="background: <?= $statusColor ?>;"><?= $h($status) ?></span></div>
-                    <div class="ncf-box">
-                        <div class="k">NCF — Comprobante fiscal</div>
-                        <div class="v"><?= $ncf !== '' ? $h($ncf) : 'PENDIENTE' ?></div>
-                        <div class="t"><?= $h($type) ?> · <?= $h(ncf_type_label($type)) ?></div>
+                    <div class="ncf-box"<?= $isProforma ? ' style="border-color:#e3d4a8;background:#fffaf0;"' : '' ?>>
+                        <?php if ($isProforma): ?>
+                            <div class="k" style="color:#92660a">Comprobante fiscal</div>
+                            <div class="v" style="color:#a8790f">NO APLICA</div>
+                            <div class="t">Proforma · documento sin validez fiscal</div>
+                        <?php else: ?>
+                            <div class="k">NCF — Comprobante fiscal</div>
+                            <div class="v"><?= $ncf !== '' ? $h($ncf) : 'PENDIENTE' ?></div>
+                            <div class="t"><?= $h($type) ?> · <?= $h(ncf_type_label($type)) ?></div>
+                        <?php endif; ?>
                     </div>
                     <div class="doc-meta">
                         Emitida: <b><?= $h(date_es($inv['issue_date'] ?? null)) ?></b><br>
@@ -283,7 +291,9 @@ $buildHtml = function (int $level) use (
         </tr>
     </table>
 
-    <?php if ($ncf === '' && strtolower($status) === 'borrador'): ?>
+    <?php if ($isProforma): ?>
+        <div class="proforma">FACTURA PROFORMA — DOCUMENTO SIN VALIDEZ FISCAL. No sustituye un comprobante fiscal (NCF) ni ampara crédito de ITBIS; se entrega como oferta formal de precios.</div>
+    <?php elseif ($ncf === '' && strtolower($status) === 'borrador'): ?>
         <div class="proforma">PROFORMA — DOCUMENTO SIN VALIDEZ FISCAL. El NCF se asigna al emitir la factura.</div>
     <?php elseif (strtolower($status) === 'anulada'): ?>
         <div class="voided">COMPROBANTE ANULADO<?php if (!empty($inv['void_reason'])): ?> — <?= $h($inv['void_reason']) ?><?php endif; ?></div>
@@ -427,6 +437,6 @@ if ($font) {
 }
 
 $base = $ncf !== '' ? $ncf : $number;
-$filename = 'Factura-' . preg_replace('/[^A-Za-z0-9_-]/', '', $base) . '.pdf';
+$filename = ($isProforma ? 'Proforma-' : 'Factura-') . preg_replace('/[^A-Za-z0-9_-]/', '', $base) . '.pdf';
 $dompdf->stream($filename, ['Attachment' => $download ? 1 : 0]);
 exit;
