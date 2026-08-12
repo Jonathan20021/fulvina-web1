@@ -4431,7 +4431,7 @@ html { scroll-padding-top: 74px; }
 .qb { display: grid; gap: .4rem; }
 .qb__head, .qb__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 72px 108px 100px 116px 36px;
+  grid-template-columns: minmax(0, 1fr) 68px 100px 132px 116px 36px;
   gap: .5rem;
   align-items: center;
 }
@@ -4439,7 +4439,14 @@ html { scroll-padding-top: 74px; }
 .qb__head span { color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .qb__head span:nth-child(2), .qb__head span:nth-child(3), .qb__head span:nth-child(4), .qb__head span:nth-child(5) { text-align: right; }
 .qb__row .crm-input { height: 40px; padding: .5rem .6rem; }
+/* Descuento: importe + unidad (% o moneda) en una sola celda. */
+.qb__disc { display: flex; gap: .3rem; min-width: 0; }
+.qb__disc .crm-input { flex: 1 1 auto; min-width: 0; }
+.qb__discmode { flex: 0 0 60px; height: 40px; padding: .5rem .25rem; text-align: center; font-size: .8rem; font-weight: 600; }
 .qb__total { text-align: right; font-weight: 700; color: var(--ink); font-size: .86rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.qb__hint { display: flex; align-items: flex-start; gap: .4rem; margin: .55rem 0 0; color: var(--muted); font-size: .78rem; line-height: 1.45; }
+.qb__hint i, .qb__hint svg { width: 14px; height: 14px; flex: 0 0 14px; margin-top: .18rem; }
+.qb__hint b { color: var(--ink); font-weight: 700; }
 @media (max-width: 620px) {
   .qb__head { display: none; }
   /* Descripción a lo ancho, cant./precio/desc. en una fila y el importe con el
@@ -4448,6 +4455,7 @@ html { scroll-padding-top: 74px; }
   .qb__row .qb__desc { grid-column: 1 / -1; }
   .qb__row .qb__total { grid-column: 1 / 3; text-align: left; }
   .qb__row > button { justify-self: end; }
+  .qb__discmode { flex: 0 0 48px; padding: .5rem .2rem; }
 }
 
 /* ----- Anexo fotográfico: bloque del documento + gestor de subida ---------- */

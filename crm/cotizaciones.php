@@ -17,6 +17,7 @@ $hasQuoteCurrency = $hasDb && column_exists('quotes', 'currency');
 $hasCategory = $hasDb && column_exists('quotes', 'category');
 $hasApproved = $hasDb && column_exists('quotes', 'approved_at');
 $hasDiscount = $hasDb && column_exists('quotes', 'discount_amount') && column_exists('quote_items', 'discount');
+$hasDiscountPct = $hasDiscount && column_exists('quote_items', 'discount_pct');
 $hasPhotos = $hasDb && table_exists('quote_attachments');
 $defaultQuoteTerms = setting_get('quote_terms', quote_default_terms());
 $defaultQuoteRate = (float) (setting_get('quote_exchange_rate', '60') ?: 60);
@@ -38,8 +39,10 @@ function next_quote_number(): string
 
 /**
  * Parse posted line items into normalized rows. El descuento va por partida y se
- * expresa en el monto de la moneda del documento; nunca puede dejar la línea en
- * negativo ni superar su importe bruto.
+ * captura en porcentaje o en monto de la moneda del documento (lo dice el select
+ * que acompaña al campo). Se guarda siempre el monto resuelto —es lo que restan
+ * totales, ficha y PDF— más el % tecleado cuando el modo fue porcentual. Nunca
+ * puede dejar la línea en negativo ni superar su importe bruto.
  */
 function quote_parse_items(): array
 {
@@ -47,6 +50,7 @@ function quote_parse_items(): array
     $quantities = (array) ($_POST['item_quantity'] ?? []);
     $prices = (array) ($_POST['item_price'] ?? []);
     $discounts = (array) ($_POST['item_discount'] ?? []);
+    $modes = (array) ($_POST['item_discount_mode'] ?? []);
     $items = [];
     foreach ($descriptions as $i => $description) {
         $description = trim((string) $description);
@@ -56,10 +60,14 @@ function quote_parse_items(): array
             continue;
         }
         $gross = $qty * $price;
-        $discount = min($gross, max(0, (float) ($discounts[$i] ?? 0)));
+        $typed = max(0, (float) ($discounts[$i] ?? 0));
+        $isPct = ((string) ($modes[$i] ?? 'amount')) === 'pct';
+        $pct = $isPct ? min(100, $typed) : 0.0;
+        $discount = $isPct ? $gross * $pct / 100 : min($gross, $typed);
         $items[] = [
             'description' => $description, 'quantity' => $qty, 'unit_price' => $price,
-            'discount' => round($discount, 2), 'total' => round($gross - $discount, 2),
+            'discount' => round($discount, 2), 'discount_pct' => round($pct, 3),
+            'total' => round($gross - $discount, 2),
         ];
     }
     return $items;
@@ -181,9 +189,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
             $ph = implode(', ', array_fill(0, count($data), '?'));
             $pdo->prepare("INSERT INTO quotes ({$cols}, created_at, updated_at) VALUES ({$ph}, NOW(), NOW())")->execute(array_values($data));
             $newId = (int) $pdo->lastInsertId();
-            $itemCols = $hasDiscount
-                ? ['description', 'quantity', 'unit_price', 'discount', 'total']
-                : ['description', 'quantity', 'unit_price', 'total'];
+            $itemCols = ['description', 'quantity', 'unit_price'];
+            if ($hasDiscount) { $itemCols[] = 'discount'; }
+            if ($hasDiscountPct) { $itemCols[] = 'discount_pct'; }
+            $itemCols[] = 'total';
             $items = fetch_all('SELECT ' . implode(', ', $itemCols) . ' FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$sid]);
             $itemPh = implode(', ', array_fill(0, count($itemCols) + 1, '?'));
             $itemStmt = $pdo->prepare('INSERT INTO quote_items (quote_id, ' . implode(', ', $itemCols) . ") VALUES ({$itemPh})");
@@ -358,16 +367,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
                 $logAction = 'cotizacion_creada';
             }
 
-            if ($hasDiscount) {
-                $stmt = $pdo->prepare('INSERT INTO quote_items (quote_id, description, quantity, unit_price, discount, total) VALUES (?, ?, ?, ?, ?, ?)');
-                foreach ($items as $item) {
-                    $stmt->execute([$quoteId, $item['description'], $item['quantity'], $item['unit_price'], $item['discount'], $item['total']]);
-                }
-            } else {
-                $stmt = $pdo->prepare('INSERT INTO quote_items (quote_id, description, quantity, unit_price, total) VALUES (?, ?, ?, ?, ?)');
-                foreach ($items as $item) {
-                    $stmt->execute([$quoteId, $item['description'], $item['quantity'], $item['unit_price'], $item['total']]);
-                }
+            $itemCols = ['description', 'quantity', 'unit_price'];
+            if ($hasDiscount) { $itemCols[] = 'discount'; }
+            if ($hasDiscountPct) { $itemCols[] = 'discount_pct'; }
+            $itemCols[] = 'total';
+            $stmt = $pdo->prepare('INSERT INTO quote_items (quote_id, ' . implode(', ', $itemCols) . ') VALUES (' . implode(', ', array_fill(0, count($itemCols) + 1, '?')) . ')');
+            foreach ($items as $item) {
+                $stmt->execute(array_merge([$quoteId], array_map(fn ($c) => $item[$c], $itemCols)));
             }
             if ($hasApproved && $status === 'Aprobado') {
                 $pdo->prepare('UPDATE quotes SET approved_at=COALESCE(approved_at, NOW()) WHERE id=?')->execute([$quoteId]);
@@ -498,7 +504,7 @@ if ($action === 'view') {
                                 <td><strong><?= e($item['description'] ?? '') ?></strong></td>
                                 <td class="text-right"><?= e((string) ($item['quantity'] ?? '')) ?></td>
                                 <td class="text-right"><?= money_cur($item['unit_price'] ?? 0, $qCur) ?></td>
-                                <?php if ($qDisc > 0): ?><td class="text-right"><?= (float) ($item['discount'] ?? 0) > 0 ? '− ' . money_cur($item['discount'], $qCur) : '—' ?></td><?php endif; ?>
+                                <?php if ($qDisc > 0): ?><td class="text-right"><?= e(line_discount_label($item, $qCur)) ?></td><?php endif; ?>
                                 <td class="text-right"><strong><?= money_cur($item['total'] ?? 0, $qCur) ?></strong></td>
                             </tr>
                         <?php endforeach; ?>
@@ -626,7 +632,7 @@ $editPayload = null;
 if ($hasDb && $editId > 0) {
     $eq = fetch_one('SELECT * FROM quotes WHERE id=?', [$editId]);
     if ($eq) {
-        $eItems = fetch_all('SELECT description, quantity, unit_price' . ($hasDiscount ? ', discount' : '') . ' FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$editId]);
+        $eItems = fetch_all('SELECT description, quantity, unit_price' . ($hasDiscount ? ', discount' : '') . ($hasDiscountPct ? ', discount_pct' : '') . ' FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$editId]);
         $editPayload = [
             'id' => (int) $eq['id'],
             'client_id' => (string) $eq['client_id'],
@@ -639,7 +645,19 @@ if ($hasDb && $editId > 0) {
             'exchange_rate' => (float) ($eq['exchange_rate'] ?? 1),
             'notes' => (string) ($eq['notes'] ?? ''),
             'terms' => (string) ($eq['terms'] ?? ''),
-            'items' => array_map(fn ($it) => ['d' => $it['description'], 'q' => (float) $it['quantity'], 'p' => (float) $it['unit_price'], 'disc' => (float) ($it['discount'] ?? 0)], $eItems),
+            // La partida vuelve al modo en que se capturó: si guardó % se reabre en
+            // % (y no como el monto ya resuelto), para que reeditar no lo altere.
+            'items' => array_map(function ($it) {
+                $pct = (float) ($it['discount_pct'] ?? 0);
+                $amount = (float) ($it['discount'] ?? 0);
+                return [
+                    'd' => $it['description'], 'q' => (float) $it['quantity'], 'p' => (float) $it['unit_price'],
+                    'disc' => $pct > 0 ? $pct : $amount,
+                    // Sin descuento no hay nada que preservar: se abre en % (el modo
+                    // por defecto) en vez de dejar la fila en un modo distinto.
+                    'dm' => $amount > 0 && $pct <= 0 ? 'amount' : 'pct',
+                ];
+            }, $eItems),
         ];
     }
 }
@@ -860,12 +878,20 @@ require_once __DIR__ . '/../includes/crm_header.php';
                                 <input class="crm-input qb__desc" name="item_description[]" x-model="item.d" placeholder="Equipo o servicio">
                                 <input class="crm-input text-right" type="number" step="0.01" min="0" name="item_quantity[]" x-model.number="item.q" aria-label="Cantidad">
                                 <input class="crm-input text-right" type="number" step="0.01" min="0" name="item_price[]" x-model.number="item.p" aria-label="Precio">
-                                <input class="crm-input text-right" type="number" step="0.01" min="0" name="item_discount[]" x-model.number="item.disc" aria-label="Descuento" title="Descuento de la partida, en el monto de la moneda">
+                                <span class="qb__disc">
+                                    <input class="crm-input text-right" type="number" step="0.01" min="0" :max="item.dm === 'pct' ? 100 : null" name="item_discount[]" x-model.number="item.disc" aria-label="Descuento"
+                                           :title="item.dm === 'pct' ? 'Descuento de la partida, en porcentaje' : 'Descuento de la partida, en el monto de la moneda'">
+                                    <select class="crm-select qb__discmode" name="item_discount_mode[]" x-model="item.dm" aria-label="Tipo de descuento" title="¿El descuento es un porcentaje o un monto?">
+                                        <option value="pct">%</option>
+                                        <option value="amount" x-text="sym()">RD$</option>
+                                    </select>
+                                </span>
                                 <span class="qb__total" x-text="fmt(lineNet(item))">RD$ 0.00</span>
                                 <button type="button" class="crm-icon-action crm-icon-action--danger" @click="removeLine(index)" title="Quitar partida"><i data-lucide="trash-2"></i></button>
                             </div>
                         </template>
                     </div>
+                    <p class="qb__hint"><i data-lucide="info"></i><span>En <b>Desc.</b> elige <b>%</b> para descontar un porcentaje de la línea o <b x-text="sym()">RD$</b> para restar un monto fijo. El ITBIS se calcula después del descuento.</span></p>
                     <button type="button" @click="addLine()" class="crm-secondary-btn" style="margin-top:.6rem"><i data-lucide="plus" class="h-4 w-4"></i>Agregar línea</button>
                 </div>
 

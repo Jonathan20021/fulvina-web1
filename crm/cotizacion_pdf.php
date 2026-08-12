@@ -361,7 +361,7 @@ $buildHtml = function (int $level) use (
                     <td><span class="item-name"><?= $h($item['description'] ?? '') ?></span></td>
                     <td class="r"><?= $h($qty($item['quantity'] ?? 0)) ?></td>
                     <td class="r"><?= $h($fmt($item['unit_price'] ?? 0)) ?></td>
-                    <?php if ($discount > 0): ?><td class="r"><?= (float) ($item['discount'] ?? 0) > 0 ? '− ' . $h($fmt($item['discount'])) : '—' ?></td><?php endif; ?>
+                    <?php if ($discount > 0): ?><td class="r"><?= $h(line_discount_label($item, $cur)) ?></td><?php endif; ?>
                     <td class="r"><?= $h($fmt($item['total'] ?? 0)) ?></td>
                 </tr>
             <?php endforeach; ?>

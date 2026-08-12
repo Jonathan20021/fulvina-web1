@@ -19,6 +19,21 @@ function money_cur(float|int|string|null $value, string $currency = 'DOP'): stri
     return $sym . ' ' . number_format((float) $value, 2, '.', ',');
 }
 
+/**
+ * Etiqueta de la columna "Desc." de una partida: "− 11%" cuando el descuento se
+ * capturó en porcentaje y "− RD$ 1,000.00" cuando fue un monto. El importe neto
+ * de la línea ya viene descontado, así que esto es sólo el sello de lo aplicado.
+ */
+function line_discount_label(array $item, string $currency = 'DOP'): string
+{
+    $pct = (float) ($item['discount_pct'] ?? 0);
+    if ($pct > 0) {
+        return '− ' . rtrim(rtrim(number_format($pct, 2, '.', ''), '0'), '.') . '%';
+    }
+    $amount = (float) ($item['discount'] ?? 0);
+    return $amount > 0 ? '− ' . money_cur($amount, $currency) : '—';
+}
+
 /** Spanish words for a non-negative integer (supports up to 999,999,999,999). */
 function int_to_words_es(int $n): string
 {
@@ -429,6 +444,13 @@ function ensure_quote_schema(): void
     // Descuento por partida (el encabezado sólo guarda la suma, informativa).
     if (table_exists('quote_items') && !column_exists('quote_items', 'discount')) {
         try { $pdo->exec("ALTER TABLE quote_items ADD COLUMN discount DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER unit_price"); } catch (Throwable) { /* ignore */ }
+    }
+
+    // El descuento se puede capturar en % o en monto. `discount` siempre guarda el
+    // monto resuelto (lo que restan totales y PDF) y `discount_pct` el porcentaje
+    // tecleado, para poder reabrir la partida en el mismo modo e imprimir "− 11%".
+    if (table_exists('quote_items') && !column_exists('quote_items', 'discount_pct')) {
+        try { $pdo->exec("ALTER TABLE quote_items ADD COLUMN discount_pct DECIMAL(6,3) NOT NULL DEFAULT 0 AFTER discount"); } catch (Throwable) { /* ignore */ }
     }
 
     // Anexo fotográfico de la cotización.
