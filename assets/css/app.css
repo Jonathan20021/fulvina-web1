@@ -2881,7 +2881,9 @@ footer.sch-footer {
   padding: 1.1rem;
 }
 .quote-summary div { display: flex; justify-content: space-between; gap: 1rem; color: var(--ink-soft); font-size: .88rem; }
-.quote-summary div:nth-child(3) {
+/* La fila del total se marca con su clase: el orden de las filas cambia según
+   haya descuento, exentos o retenciones, y un :nth-child resaltaba la de al lado. */
+.quote-summary__total {
   border-top: 1px solid var(--line);
   padding-top: .75rem;
   color: var(--ink);
@@ -4431,31 +4433,26 @@ html { scroll-padding-top: 74px; }
 .qb { display: grid; gap: .4rem; }
 .qb__head, .qb__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 68px 100px 132px 116px 36px;
+  grid-template-columns: minmax(0, 1fr) 84px 132px 128px 36px;
   gap: .5rem;
   align-items: center;
 }
 .qb__head { padding: 0 .15rem .15rem; }
 .qb__head span { color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-.qb__head span:nth-child(2), .qb__head span:nth-child(3), .qb__head span:nth-child(4), .qb__head span:nth-child(5) { text-align: right; }
+.qb__head span:nth-child(2), .qb__head span:nth-child(3), .qb__head span:nth-child(4) { text-align: right; }
 .qb__row .crm-input { height: 40px; padding: .5rem .6rem; }
-/* Descuento: importe + unidad (% o moneda) en una sola celda. */
-.qb__disc { display: flex; gap: .3rem; min-width: 0; }
-.qb__disc .crm-input { flex: 1 1 auto; min-width: 0; }
-.qb__discmode { flex: 0 0 60px; height: 40px; padding: .5rem .25rem; text-align: center; font-size: .8rem; font-weight: 600; }
 .qb__total { text-align: right; font-weight: 700; color: var(--ink); font-size: .86rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .qb__hint { display: flex; align-items: flex-start; gap: .4rem; margin: .55rem 0 0; color: var(--muted); font-size: .78rem; line-height: 1.45; }
 .qb__hint i, .qb__hint svg { width: 14px; height: 14px; flex: 0 0 14px; margin-top: .18rem; }
 .qb__hint b { color: var(--ink); font-weight: 700; }
 @media (max-width: 620px) {
   .qb__head { display: none; }
-  /* Descripción a lo ancho, cant./precio/desc. en una fila y el importe con el
-     botón de quitar en la última: caben tres campos numéricos sin desbordar. */
-  .qb__row { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .45rem; padding: .5rem; border: 1px solid var(--line-soft); border-radius: 10px; }
+  /* Descripción a lo ancho, cantidad y precio en una fila, y el importe con el
+     botón de quitar en la última. */
+  .qb__row { grid-template-columns: 1fr 1fr auto; gap: .45rem; padding: .5rem; border: 1px solid var(--line-soft); border-radius: 10px; }
   .qb__row .qb__desc { grid-column: 1 / -1; }
   .qb__row .qb__total { grid-column: 1 / 3; text-align: left; }
   .qb__row > button { justify-self: end; }
-  .qb__discmode { flex: 0 0 48px; padding: .5rem .2rem; }
 }
 
 /* ----- Anexo fotográfico: bloque del documento + gestor de subida ---------- */
@@ -4499,6 +4496,12 @@ html { scroll-padding-top: 74px; }
 }
 
 /* Quote summary equivalent + document currency/terms */
+/* Descuento del documento: se teclea una sola vez, dentro del panel de totales,
+   con su unidad (% o moneda) al lado. */
+.doc-disc { display: flex; align-items: center; justify-content: space-between; gap: .75rem; color: var(--ink-soft); font-size: .88rem; }
+.doc-disc__field { display: flex; gap: .3rem; flex: 0 0 152px; min-width: 0; }
+.doc-disc__field .crm-input { flex: 1 1 auto; min-width: 0; height: 34px; padding: .35rem .5rem; font-size: .84rem; }
+.doc-disc__field .crm-select { flex: 0 0 56px; height: 34px; padding: .35rem .2rem; text-align: center; font-size: .8rem; font-weight: 600; }
 .quote-summary__equiv { display: flex; justify-content: space-between; gap: 1rem; padding-top: .6rem; margin-top: .1rem; border-top: 1px dashed var(--line); color: var(--muted); font-size: .82rem; }
 .quote-summary__equiv strong { color: var(--ink-soft); font-weight: 700; }
 .quote-doc__currency { margin-top: .55rem; color: var(--muted); font-size: .82rem; font-weight: 600; }
@@ -9477,14 +9480,14 @@ html { scroll-padding-top: 74px; }
 .ib { display: grid; gap: .4rem; }
 .ib__head, .ib__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 70px 104px 90px 52px 104px 34px;
+  grid-template-columns: minmax(0, 1fr) 78px 118px 58px 116px 34px;
   gap: .5rem;
   align-items: center;
 }
 .ib__head { padding: 0 .15rem .15rem; }
 .ib__head span { color: var(--muted); font-size: .66rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
-.ib__head span:nth-child(2), .ib__head span:nth-child(3), .ib__head span:nth-child(4), .ib__head span:nth-child(6) { text-align: right; }
-.ib__head span:nth-child(5) { text-align: center; }
+.ib__head span:nth-child(2), .ib__head span:nth-child(3), .ib__head span:nth-child(5) { text-align: right; }
+.ib__head span:nth-child(4) { text-align: center; }
 .ib__row .crm-input { height: 40px; padding: .5rem .55rem; }
 .ib__exempt { display: flex; align-items: center; justify-content: center; height: 40px; }
 .ib__exempt input { width: 18px; height: 18px; accent-color: var(--brand-strong, #0a7d36); cursor: pointer; }

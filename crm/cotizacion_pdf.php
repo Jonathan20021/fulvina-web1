@@ -40,8 +40,6 @@ if (!$quote) {
 }
 
 $cur = strtoupper((string) ($quote['currency'] ?? 'DOP')) === 'USD' ? 'USD' : 'DOP';
-$rate = (float) ($quote['exchange_rate'] ?? 1);
-if ($rate <= 0) { $rate = 1; }
 $terms = trim((string) ($quote['terms'] ?? ''));
 if ($terms === '') { $terms = setting_get('quote_terms', quote_default_terms()); }
 $number = (string) ($quote['quote_number'] ?? 'COT');
@@ -75,6 +73,7 @@ $totalWords = money_in_words((float) ($quote['total'] ?? 0), $cur);
 // que "Subtotal − Descuento + ITBIS = Total" cuadre en el papel.
 $discount = (float) ($quote['discount_amount'] ?? 0);
 if ($discount <= 0) { $discount = (float) array_sum(array_map(fn ($it) => (float) ($it['discount'] ?? 0), $items)); }
+$discountPct = (float) ($quote['discount_pct'] ?? 0);
 $gross = (float) ($quote['subtotal'] ?? 0) + $discount;
 
 // Anexo fotográfico: se incrusta cada foto ya reducida al tamaño impreso.
@@ -92,8 +91,8 @@ if ($hasDb && $quote && table_exists('quote_attachments')) {
 }
 
 $buildHtml = function (int $level) use (
-    $h, $fmt, $qty, $quote, $items, $logoData, $cur, $rate,
-    $terms, $number, $createdAt, $category, $statusColor, $totalWords, $discount, $gross, $photos
+    $h, $fmt, $qty, $quote, $items, $logoData, $cur,
+    $terms, $number, $createdAt, $category, $statusColor, $totalWords, $discount, $discountPct, $gross, $photos
 ): string {
     // Márgenes de página por nivel de densidad (normal / compacta / muy compacta).
     $pageTop = [32, 28, 24][$level];
@@ -169,7 +168,6 @@ $buildHtml = function (int $level) use (
     .tt tr.sep td { border-top: 1px solid #e3eaf1; }
     .tt tr.total td { background: #0a7d36; color: #fff; font-size: 13.5px; font-weight: bold; }
     .tt tr.total td.k { color: #eafff2; }
-    .tt tr.equiv td { color: #5b6b7b; font-size: 9.2px; padding-top: 7px; }
     .words { border: 1px dashed #c7d6c9; border-radius: 7px; background: #f5faf6; padding: 8px 11px; margin-top: 6px; }
     .words .k { color: #8696a6; font-size: 7.6px; letter-spacing: 1.4px; text-transform: uppercase; }
     .words .v { color: #0e1a28; font-size: 9.6px; font-weight: bold; margin-top: 2px; }
@@ -301,7 +299,7 @@ $buildHtml = function (int $level) use (
                     <div class="doc-meta">
                         Emitida: <b><?= $h(date_es($createdAt)) ?></b><br>
                         Válida hasta: <b><?= $h(date_es($quote['valid_until'] ?? null)) ?></b><br>
-                        Moneda: <b><?= $h($cur) ?></b><?php if ($cur === 'USD'): ?> (US$ 1 = RD$ <?= $h(number_format($rate, 2)) ?>)<?php endif; ?>
+                        Moneda: <b><?= $h($cur) ?></b>
                     </div>
                 </div>
             </td>
@@ -350,7 +348,6 @@ $buildHtml = function (int $level) use (
                 <th>Descripción</th>
                 <th class="r">Cant.</th>
                 <th class="r">Precio unit.</th>
-                <?php if ($discount > 0): ?><th class="r">Desc.</th><?php endif; ?>
                 <th class="r">Importe</th>
             </tr>
         </thead>
@@ -361,12 +358,11 @@ $buildHtml = function (int $level) use (
                     <td><span class="item-name"><?= $h($item['description'] ?? '') ?></span></td>
                     <td class="r"><?= $h($qty($item['quantity'] ?? 0)) ?></td>
                     <td class="r"><?= $h($fmt($item['unit_price'] ?? 0)) ?></td>
-                    <?php if ($discount > 0): ?><td class="r"><?= $h(line_discount_label($item, $cur)) ?></td><?php endif; ?>
-                    <td class="r"><?= $h($fmt($item['total'] ?? 0)) ?></td>
+                    <td class="r"><?= $h($fmt((float) ($item['total'] ?? 0) + (float) ($item['discount'] ?? 0))) ?></td>
                 </tr>
             <?php endforeach; ?>
             <?php if (!$items): ?>
-                <tr><td colspan="<?= $discount > 0 ? 6 : 5 ?>" class="center muted" style="padding: 16px;">Esta cotización no tiene partidas registradas.</td></tr>
+                <tr><td colspan="5" class="center muted" style="padding: 16px;">Esta cotización no tiene partidas registradas.</td></tr>
             <?php endif; ?>
         </tbody>
     </table>
@@ -387,13 +383,10 @@ $buildHtml = function (int $level) use (
                 <table class="tt">
                     <tr><td class="k">Subtotal</td><td class="v"><?= $h($fmt($gross)) ?></td></tr>
                     <?php if ($discount > 0): ?>
-                        <tr><td class="k">Descuento</td><td class="v">− <?= $h($fmt($discount)) ?></td></tr>
+                        <tr><td class="k">Descuento<?= $discountPct > 0 ? ' (' . $h($qty($discountPct)) . '%)' : '' ?></td><td class="v">− <?= $h($fmt($discount)) ?></td></tr>
                     <?php endif; ?>
                     <tr class="sep"><td class="k">ITBIS (<?= $h((string) ($quote['tax_rate'] ?? 18)) ?>%)</td><td class="v"><?= $h($fmt($quote['tax_amount'] ?? 0)) ?></td></tr>
                     <tr class="total"><td class="k">TOTAL</td><td class="v"><?= $h($fmt($quote['total'] ?? 0)) ?></td></tr>
-                    <?php if ($cur === 'USD'): ?>
-                        <tr class="equiv"><td class="k">Equivalente (RD$ a <?= $h(number_format($rate, 2)) ?>)</td><td class="v" style="color:#5b6b7b;">RD$ <?= $h(number_format((float) ($quote['total'] ?? 0) * $rate, 2, '.', ',')) ?></td></tr>
-                    <?php endif; ?>
                 </table>
             </td>
         </tr>

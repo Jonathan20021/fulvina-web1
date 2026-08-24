@@ -18,6 +18,7 @@ $hasCategory = $hasDb && column_exists('quotes', 'category');
 $hasApproved = $hasDb && column_exists('quotes', 'approved_at');
 $hasDiscount = $hasDb && column_exists('quotes', 'discount_amount') && column_exists('quote_items', 'discount');
 $hasDiscountPct = $hasDiscount && column_exists('quote_items', 'discount_pct');
+$hasHeadDiscountPct = $hasDiscount && column_exists('quotes', 'discount_pct');
 $hasPhotos = $hasDb && table_exists('quote_attachments');
 $defaultQuoteTerms = setting_get('quote_terms', quote_default_terms());
 $defaultQuoteRate = (float) (setting_get('quote_exchange_rate', '60') ?: 60);
@@ -38,36 +39,30 @@ function next_quote_number(): string
 }
 
 /**
- * Parse posted line items into normalized rows. El descuento va por partida y se
- * captura en porcentaje o en monto de la moneda del documento (lo dice el select
- * que acompaña al campo). Se guarda siempre el monto resuelto —es lo que restan
- * totales, ficha y PDF— más el % tecleado cuando el modo fue porcentual. Nunca
- * puede dejar la línea en negativo ni superar su importe bruto.
+ * Parse posted line items into normalized rows con el importe BRUTO en 'total'.
+ * El descuento ya no se teclea partida por partida: es uno solo para todo el
+ * documento y lo reparte distribute_discount() después de armar las líneas.
+ *
+ * Los importes pasan por amount_parse() porque el campo acepta el mismo formato
+ * con el que la app los imprime ("1,601.70"); un cast a float devolvería 1.
  */
 function quote_parse_items(): array
 {
     $descriptions = (array) ($_POST['item_description'] ?? []);
     $quantities = (array) ($_POST['item_quantity'] ?? []);
     $prices = (array) ($_POST['item_price'] ?? []);
-    $discounts = (array) ($_POST['item_discount'] ?? []);
-    $modes = (array) ($_POST['item_discount_mode'] ?? []);
     $items = [];
     foreach ($descriptions as $i => $description) {
         $description = trim((string) $description);
-        $qty = max(0, (float) ($quantities[$i] ?? 0));
-        $price = max(0, (float) ($prices[$i] ?? 0));
+        $qty = max(0, amount_parse($quantities[$i] ?? 0));
+        $price = max(0, amount_parse($prices[$i] ?? 0));
         if ($description === '' || $qty <= 0) {
             continue;
         }
-        $gross = $qty * $price;
-        $typed = max(0, (float) ($discounts[$i] ?? 0));
-        $isPct = ((string) ($modes[$i] ?? 'amount')) === 'pct';
-        $pct = $isPct ? min(100, $typed) : 0.0;
-        $discount = $isPct ? $gross * $pct / 100 : min($gross, $typed);
         $items[] = [
             'description' => $description, 'quantity' => $qty, 'unit_price' => $price,
-            'discount' => round($discount, 2), 'discount_pct' => round($pct, 3),
-            'total' => round($gross - $discount, 2),
+            'discount' => 0.0, 'discount_pct' => 0.0,
+            'total' => round($qty * $price, 2),
         ];
     }
     return $items;
@@ -180,6 +175,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
             ];
             if ($hasCategory) { $data['category'] = $src['category'] ?? null; }
             if ($hasDiscount) { $data['discount_amount'] = $src['discount_amount'] ?? 0; }
+            if ($hasHeadDiscountPct) { $data['discount_pct'] = $src['discount_pct'] ?? 0; }
             if ($hasQuoteCurrency) {
                 $data['currency'] = $src['currency'] ?? 'DOP';
                 $data['exchange_rate'] = $src['exchange_rate'] ?? 1;
@@ -298,20 +294,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         $status = trim((string) ($_POST['status'] ?? 'Borrador'));
         if (!in_array($status, $quoteStatuses, true)) { $status = 'Borrador'; }
         $validUntil = $_POST['valid_until'] ?: date('Y-m-d', strtotime('+30 days'));
-        $taxRate = (float) ($_POST['tax_rate'] ?? 18);
+        $taxRate = max(0, amount_parse($_POST['tax_rate'] ?? 18, 18));
         $currency = strtoupper(trim((string) ($_POST['currency'] ?? 'DOP'))) === 'USD' ? 'USD' : 'DOP';
-        $exchangeRate = (float) ($_POST['exchange_rate'] ?? 1);
+        $exchangeRate = amount_parse($_POST['exchange_rate'] ?? 1, 1);
         $exchangeRate = ($currency === 'DOP' || $exchangeRate <= 0) ? 1.0 : $exchangeRate;
         $terms = trim((string) ($_POST['terms'] ?? ''));
         $notes = trim((string) ($_POST['notes'] ?? ''));
         $items = quote_parse_items();
+        // Descuento único del documento: se teclea una vez (en % o en monto) y se
+        // prorratea entre las partidas, así el resto del módulo lo sigue viendo
+        // como un importe por línea y no hay que tratarlo como un caso aparte.
+        $discountMode = ((string) ($_POST['discount_mode'] ?? 'pct')) === 'amount' ? 'amount' : 'pct';
+        $discountValue = max(0, amount_parse($_POST['discount_value'] ?? 0));
 
         if ($clientId <= 0 || $title === '' || count($items) === 0) {
             flash('warning', 'Selecciona cliente, título y al menos una línea de cotización.');
         } else {
-            // El descuento se captura por partida: el importe de cada línea ya viene
-            // neto y el encabezado sólo guarda la suma descontada (informativa).
-            $discountTotal = round(array_sum(array_column($items, 'discount')), 2);
+            $spread = distribute_discount($items, $discountValue, $discountMode);
+            $items = $spread['items'];
+            $discountTotal = $spread['amount'];
+            $discountPct = $spread['pct'];
             $subtotal = round(array_sum(array_column($items, 'total')), 2);
             $tax = round($subtotal * ($taxRate / 100), 2);
             $total = round($subtotal + $tax, 2);
@@ -331,6 +333,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
             ];
             if ($hasCategory) { $data['category'] = $category; }
             if ($hasDiscount) { $data['discount_amount'] = $discountTotal; }
+            if ($hasHeadDiscountPct) { $data['discount_pct'] = $discountPct; }
             if ($hasQuoteCurrency) {
                 $data['currency'] = $currency;
                 $data['exchange_rate'] = $exchangeRate;
@@ -427,17 +430,16 @@ if ($action === 'view') {
     }
 
     $qCur = strtoupper((string) ($quote['currency'] ?? 'DOP')) === 'USD' ? 'USD' : 'DOP';
-    $qRate = (float) ($quote['exchange_rate'] ?? 1);
-    if ($qRate <= 0) { $qRate = 1; }
     $qTerms = trim((string) ($quote['terms'] ?? ''));
     if ($qTerms === '') { $qTerms = $defaultQuoteTerms; }
     $qCat = trim((string) ($quote['category'] ?? ''));
     $number = (string) ($quote['quote_number'] ?? 'COT');
-    // Descuento: el encabezado manda; si falta (cotización anterior a la columna)
-    // se reconstruye sumando las partidas. El subtotal mostrado es el bruto para
-    // que la resta cuadre a la vista del cliente.
+    // Descuento: uno solo para todo el documento. El encabezado manda y, si falta
+    // (cotización anterior a la columna), se reconstruye sumando lo prorrateado en
+    // las partidas. El subtotal mostrado es el bruto para que la resta cuadre.
     $qDisc = (float) ($quote['discount_amount'] ?? 0);
     if ($qDisc <= 0) { $qDisc = (float) array_sum(array_map(fn ($it) => (float) ($it['discount'] ?? 0), $items)); }
+    $qDiscPct = (float) ($quote['discount_pct'] ?? 0);
     $qGross = (float) ($quote['subtotal'] ?? 0) + $qDisc;
     $photos = $hasPhotos && (int) ($quote['id'] ?? 0) > 0
         ? fetch_all('SELECT * FROM quote_attachments WHERE quote_id=? ORDER BY sort_order ASC, id ASC', [(int) $quote['id']])
@@ -475,7 +477,7 @@ if ($action === 'view') {
                     <span>Cotización</span>
                     <h1><?= e($quote['quote_number'] ?? 'COT') ?></h1>
                     <span class="status-chip <?= e(status_class($quote['status'] ?? 'Borrador')) ?>"><?= e($quote['status'] ?? 'Borrador') ?></span>
-                    <p class="quote-doc__currency">Moneda: <strong><?= e($qCur) ?></strong><?php if ($qCur === 'USD'): ?> &middot; US$ 1 = RD$ <?= e(number_format($qRate, 2)) ?><?php endif; ?></p>
+                    <p class="quote-doc__currency">Moneda: <strong><?= e($qCur) ?></strong></p>
                 </div>
             </header>
 
@@ -496,7 +498,7 @@ if ($action === 'view') {
             <div class="crm-table-wrap">
                 <table class="crm-table quote-doc__table">
                     <thead>
-                        <tr><th>Descripción</th><th class="text-right">Cant.</th><th class="text-right">Precio</th><?php if ($qDisc > 0): ?><th class="text-right">Desc.</th><?php endif; ?><th class="text-right">Total</th></tr>
+                        <tr><th>Descripción</th><th class="text-right">Cant.</th><th class="text-right">Precio</th><th class="text-right">Total</th></tr>
                     </thead>
                     <tbody>
                         <?php foreach ($items as $item): ?>
@@ -504,12 +506,11 @@ if ($action === 'view') {
                                 <td><strong><?= e($item['description'] ?? '') ?></strong></td>
                                 <td class="text-right"><?= e((string) ($item['quantity'] ?? '')) ?></td>
                                 <td class="text-right"><?= money_cur($item['unit_price'] ?? 0, $qCur) ?></td>
-                                <?php if ($qDisc > 0): ?><td class="text-right"><?= e(line_discount_label($item, $qCur)) ?></td><?php endif; ?>
-                                <td class="text-right"><strong><?= money_cur($item['total'] ?? 0, $qCur) ?></strong></td>
+                                <td class="text-right"><strong><?= money_cur(($item['total'] ?? 0) + ($item['discount'] ?? 0), $qCur) ?></strong></td>
                             </tr>
                         <?php endforeach; ?>
                         <?php if (!$items): ?>
-                            <tr><td colspan="<?= $qDisc > 0 ? 5 : 4 ?>" class="text-center" style="color:var(--muted);padding:1.2rem">Esta cotización no tiene partidas registradas.</td></tr>
+                            <tr><td colspan="4" class="text-center" style="color:var(--muted);padding:1.2rem">Esta cotización no tiene partidas registradas.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -517,12 +518,9 @@ if ($action === 'view') {
 
             <div class="quote-doc__totals">
                 <div><span>Subtotal</span><strong><?= money_cur($qGross, $qCur) ?></strong></div>
-                <?php if ($qDisc > 0): ?><div><span>Descuento</span><strong>− <?= money_cur($qDisc, $qCur) ?></strong></div><?php endif; ?>
+                <?php if ($qDisc > 0): ?><div><span>Descuento<?= $qDiscPct > 0 ? ' (' . e(rtrim(rtrim(number_format($qDiscPct, 2, '.', ''), '0'), '.')) . '%)' : '' ?></span><strong>− <?= money_cur($qDisc, $qCur) ?></strong></div><?php endif; ?>
                 <div><span>ITBIS <?= e((string) ($quote['tax_rate'] ?? 18)) ?>%</span><strong><?= money_cur($quote['tax_amount'] ?? 0, $qCur) ?></strong></div>
                 <div><span>Total</span><strong><?= money_cur($quote['total'] ?? 0, $qCur) ?></strong></div>
-                <?php if ($qCur === 'USD'): ?>
-                    <div class="quote-doc__equiv"><span>Equivalente · US$ 1 = RD$ <?= e(number_format($qRate, 2)) ?></span><strong><?= money_cur(($quote['total'] ?? 0) * $qRate, 'DOP') ?></strong></div>
-                <?php endif; ?>
             </div>
 
             <?php if (!empty($quote['notes'])): ?>
@@ -632,7 +630,13 @@ $editPayload = null;
 if ($hasDb && $editId > 0) {
     $eq = fetch_one('SELECT * FROM quotes WHERE id=?', [$editId]);
     if ($eq) {
-        $eItems = fetch_all('SELECT description, quantity, unit_price' . ($hasDiscount ? ', discount' : '') . ($hasDiscountPct ? ', discount_pct' : '') . ' FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$editId]);
+        $eItems = fetch_all('SELECT description, quantity, unit_price' . ($hasDiscount ? ', discount' : '') . ' FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$editId]);
+        // El descuento se reabre tal como se capturó: en % si se guardó así, y si
+        // no, como el monto del encabezado (o lo que sumen las partidas en las
+        // cotizaciones anteriores a la columna).
+        $eDiscAmount = (float) ($eq['discount_amount'] ?? 0);
+        if ($eDiscAmount <= 0) { $eDiscAmount = (float) array_sum(array_map(fn ($it) => (float) ($it['discount'] ?? 0), $eItems)); }
+        $eDiscPct = (float) ($eq['discount_pct'] ?? 0);
         $editPayload = [
             'id' => (int) $eq['id'],
             'client_id' => (string) $eq['client_id'],
@@ -645,19 +649,15 @@ if ($hasDb && $editId > 0) {
             'exchange_rate' => (float) ($eq['exchange_rate'] ?? 1),
             'notes' => (string) ($eq['notes'] ?? ''),
             'terms' => (string) ($eq['terms'] ?? ''),
-            // La partida vuelve al modo en que se capturó: si guardó % se reabre en
-            // % (y no como el monto ya resuelto), para que reeditar no lo altere.
-            'items' => array_map(function ($it) {
-                $pct = (float) ($it['discount_pct'] ?? 0);
-                $amount = (float) ($it['discount'] ?? 0);
-                return [
-                    'd' => $it['description'], 'q' => (float) $it['quantity'], 'p' => (float) $it['unit_price'],
-                    'disc' => $pct > 0 ? $pct : $amount,
-                    // Sin descuento no hay nada que preservar: se abre en % (el modo
-                    // por defecto) en vez de dejar la fila en un modo distinto.
-                    'dm' => $amount > 0 && $pct <= 0 ? 'amount' : 'pct',
-                ];
-            }, $eItems),
+            'discount_value' => $eDiscPct > 0 ? $eDiscPct : round($eDiscAmount, 2),
+            'discount_mode' => $eDiscPct > 0 ? 'pct' : 'amount',
+            // El importe de la partida vuelve en bruto: el descuento guardado en la
+            // línea es su parte del prorrateo y el modal lo reparte otra vez solo.
+            'items' => array_map(fn ($it) => [
+                'd' => $it['description'],
+                'q' => (float) $it['quantity'],
+                'p' => (float) $it['unit_price'],
+            ], $eItems),
         ];
     }
 }
@@ -863,35 +863,27 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <div class="crm-form-grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
                     <label class="crm-field"><span>Válida hasta</span><input type="date" name="valid_until" x-model="form.valid_until" class="crm-input"></label>
                     <label class="crm-field"><span>Moneda</span><select name="currency" x-model="currency" class="crm-select"><option value="DOP">DOP — RD$</option><option value="USD">USD — US$</option></select></label>
-                    <label class="crm-field" x-show="currency==='USD'" x-cloak><span>Tasa US$ 1 = RD$</span><input type="number" step="0.01" min="0" name="exchange_rate" x-model.number="rate" class="crm-input text-right"></label>
-                    <label class="crm-field"><span>ITBIS %</span><input type="number" step="0.01" min="0" name="tax_rate" x-model.number="tax" class="crm-input"></label>
+                    <label class="crm-field" x-show="currency==='USD'" x-cloak><span>Tasa US$ 1 = RD$</span><input type="text" inputmode="decimal" name="exchange_rate" x-model="rate" @blur="rate = fixNum(rate)" class="crm-input text-right" title="Sólo para consolidar los reportes en RD$: no se imprime en la cotización."></label>
+                    <label class="crm-field"><span>ITBIS %</span><input type="text" inputmode="decimal" name="tax_rate" x-model="tax" @blur="tax = fixQty(tax)" class="crm-input"></label>
                 </div>
 
                 <div>
                     <p class="dash-section-label" style="margin:.2rem 0 .5rem">Partidas</p>
                     <div class="qb">
                         <div class="qb__head">
-                            <span>Descripción</span><span>Cant.</span><span>Precio</span><span>Desc.</span><span>Total</span><span></span>
+                            <span>Descripción</span><span>Cant.</span><span>Precio</span><span>Total</span><span></span>
                         </div>
                         <template x-for="(item,index) in items" :key="index">
                             <div class="qb__row">
                                 <input class="crm-input qb__desc" name="item_description[]" x-model="item.d" placeholder="Equipo o servicio">
-                                <input class="crm-input text-right" type="number" step="0.01" min="0" name="item_quantity[]" x-model.number="item.q" aria-label="Cantidad">
-                                <input class="crm-input text-right" type="number" step="0.01" min="0" name="item_price[]" x-model.number="item.p" aria-label="Precio">
-                                <span class="qb__disc">
-                                    <input class="crm-input text-right" type="number" step="0.01" min="0" :max="item.dm === 'pct' ? 100 : null" name="item_discount[]" x-model.number="item.disc" aria-label="Descuento"
-                                           :title="item.dm === 'pct' ? 'Descuento de la partida, en porcentaje' : 'Descuento de la partida, en el monto de la moneda'">
-                                    <select class="crm-select qb__discmode" name="item_discount_mode[]" x-model="item.dm" aria-label="Tipo de descuento" title="¿El descuento es un porcentaje o un monto?">
-                                        <option value="pct">%</option>
-                                        <option value="amount" x-text="sym()">RD$</option>
-                                    </select>
-                                </span>
-                                <span class="qb__total" x-text="fmt(lineNet(item))">RD$ 0.00</span>
+                                <input class="crm-input text-right" type="text" inputmode="decimal" name="item_quantity[]" x-model="item.q" @blur="item.q = fixQty(item.q)" aria-label="Cantidad">
+                                <input class="crm-input text-right" type="text" inputmode="decimal" name="item_price[]" x-model="item.p" @blur="item.p = fixNum(item.p)" aria-label="Precio">
+                                <span class="qb__total" x-text="fmt(lineGross(item))">RD$ 0.00</span>
                                 <button type="button" class="crm-icon-action crm-icon-action--danger" @click="removeLine(index)" title="Quitar partida"><i data-lucide="trash-2"></i></button>
                             </div>
                         </template>
                     </div>
-                    <p class="qb__hint"><i data-lucide="info"></i><span>En <b>Desc.</b> elige <b>%</b> para descontar un porcentaje de la línea o <b x-text="sym()">RD$</b> para restar un monto fijo. El ITBIS se calcula después del descuento.</span></p>
+                    <p class="qb__hint"><i data-lucide="info"></i><span>Puedes escribir los importes con separadores de miles y decimales (<b>1,601.70</b>): el campo los ordena al salir. El descuento es uno solo para toda la cotización y se pone abajo, junto a los totales.</span></p>
                     <button type="button" @click="addLine()" class="crm-secondary-btn" style="margin-top:.6rem"><i data-lucide="plus" class="h-4 w-4"></i>Agregar línea</button>
                 </div>
 
@@ -918,10 +910,19 @@ require_once __DIR__ . '/../includes/crm_header.php';
                     </div>
                     <div class="quote-summary" style="align-self:start">
                         <div><span>Subtotal</span><strong x-text="fmt(subtotalGross())">RD$ 0.00</strong></div>
-                        <div x-show="discountTotal()>0" x-cloak><span>Descuento</span><strong x-text="'− ' + fmt(discountTotal())">RD$ 0.00</strong></div>
-                        <div><span x-text="'ITBIS ' + (Number(tax)||0) + '%'">ITBIS 18%</span><strong x-text="fmt(taxAmount())">RD$ 0.00</strong></div>
-                        <div><span>Total</span><strong x-text="fmt(total())">RD$ 0.00</strong></div>
-                        <div class="quote-summary__equiv" x-show="currency==='USD'" x-cloak><span>Equivalente (RD$)</span><strong x-text="altFmt(altTotal())">RD$ 0.00</strong></div>
+                        <label class="doc-disc">
+                            <span>Descuento</span>
+                            <span class="doc-disc__field">
+                                <input class="crm-input text-right" type="text" inputmode="decimal" name="discount_value" x-model="disc" @blur="disc = fixDisc(disc)" aria-label="Descuento de la cotización">
+                                <select class="crm-select" name="discount_mode" x-model="discMode" @change="disc = fixDisc(disc)" aria-label="Tipo de descuento">
+                                    <option value="pct">%</option>
+                                    <option value="amount" x-text="sym()">RD$</option>
+                                </select>
+                            </span>
+                        </label>
+                        <div x-show="discountTotal()>0" x-cloak><span>Descuento aplicado</span><strong x-text="'− ' + fmt(discountTotal())">RD$ 0.00</strong></div>
+                        <div><span x-text="'ITBIS ' + num(tax) + '%'">ITBIS 18%</span><strong x-text="fmt(taxAmount())">RD$ 0.00</strong></div>
+                        <div class="quote-summary__total"><span>Total</span><strong x-text="fmt(total())">RD$ 0.00</strong></div>
                     </div>
                 </div>
             </div>

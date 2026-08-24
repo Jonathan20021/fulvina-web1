@@ -61,6 +61,9 @@ $out('quotes: category, currency, exchange_rate, terms, approved_at: OK');
 ensure_helpdesk_schema();
 $out('clients.support_* y tickets.source/public_reference: OK');
 
+ensure_invoice_schema();
+$out('invoices/invoice_items/ncf_sequences + discount_pct: OK');
+
 /* 3) Verify the key columns the v2.0 features depend on. */
 $out(str_repeat('-', 48));
 $checks = [
@@ -68,6 +71,9 @@ $checks = [
     ['quotes', 'approved_at'],
     ['quotes', 'currency'],
     ['quotes', 'terms'],
+    ['quotes', 'discount_amount'],
+    ['quotes', 'discount_pct'],
+    ['invoices', 'discount_pct'],
     ['equipment', 'last_service_at'],
     ['clients', 'support_slug'],
 ];

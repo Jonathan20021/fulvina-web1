@@ -40,26 +40,31 @@ function next_invoice_number(): string
     return 'FAC-' . $year . '-' . str_pad((string) $n, 4, '0', STR_PAD_LEFT);
 }
 
-/** Normalize posted line items into rows with per-line discount + ITBIS-exempt flag. */
+/**
+ * Normalize posted line items into rows con el importe BRUTO en 'total' y la
+ * marca de exento. El descuento es uno solo para toda la factura y lo reparte
+ * después distribute_discount(), en proporción al bruto de cada partida —así el
+ * prorrateo cae por igual sobre lo gravado y lo exento y el ITBIS cuadra.
+ *
+ * Los importes pasan por amount_parse() porque el campo acepta el mismo formato
+ * con el que la app los imprime ("1,601.70"); un cast a float devolvería 1.
+ */
 function invoice_parse_items(): array
 {
     $desc = (array) ($_POST['item_description'] ?? []);
     $qty = (array) ($_POST['item_quantity'] ?? []);
     $price = (array) ($_POST['item_price'] ?? []);
-    $disc = (array) ($_POST['item_discount'] ?? []);
     $exempt = (array) ($_POST['item_exempt'] ?? []);
     $items = [];
     foreach ($desc as $i => $d) {
         $d = trim((string) $d);
-        $q = max(0, (float) ($qty[$i] ?? 0));
-        $p = max(0, (float) ($price[$i] ?? 0));
-        $dd = max(0, (float) ($disc[$i] ?? 0));
+        $q = max(0, amount_parse($qty[$i] ?? 0));
+        $p = max(0, amount_parse($price[$i] ?? 0));
         if ($d === '' || $q <= 0) { continue; }
-        $net = max(0, $q * $p - $dd);
         $items[] = [
             'description' => $d, 'quantity' => $q, 'unit_price' => $p,
-            'discount' => $dd, 'is_exempt' => (!empty($exempt[$i]) && (string) $exempt[$i] === '1') ? 1 : 0,
-            'total' => $net,
+            'discount' => 0.0, 'is_exempt' => (!empty($exempt[$i]) && (string) $exempt[$i] === '1') ? 1 : 0,
+            'total' => round($q * $p, 2),
         ];
     }
     return $items;
@@ -279,6 +284,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
             $pdo->prepare('INSERT INTO invoices (client_id, quote_id, invoice_number, ncf_type, ncf_prefix, title, status, payment_condition, payment_method, taxed_base, exempt_base, discount_amount, subtotal, tax_rate, tax_amount, isc_amount, itbis_retained, isr_retained, total, currency, exchange_rate, notes, terms, client_name, client_rnc, client_address, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())')
                 ->execute([$src['client_id'], $src['quote_id'], next_invoice_number(), $src['ncf_type'], $src['ncf_prefix'], $src['title'], 'Borrador', $src['payment_condition'], $src['payment_method'], $src['taxed_base'], $src['exempt_base'], $src['discount_amount'], $src['subtotal'], $src['tax_rate'], $src['tax_amount'], $src['isc_amount'], $src['itbis_retained'], $src['isr_retained'], $src['total'], $src['currency'], $src['exchange_rate'], $src['notes'], $src['terms'], $src['client_name'], $src['client_rnc'], $src['client_address'], current_user()['id'] ?? null]);
             $newId = (int) $pdo->lastInsertId();
+            if (column_exists('invoices', 'discount_pct')) {
+                $pdo->prepare('UPDATE invoices SET discount_pct=? WHERE id=?')->execute([$src['discount_pct'] ?? 0, $newId]);
+            }
             $rows = fetch_all('SELECT description, quantity, unit_price, discount, is_exempt, total FROM invoice_items WHERE invoice_id=? ORDER BY id ASC', [$sid]);
             $stmt = $pdo->prepare('INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, discount, is_exempt, total) VALUES (?, ?, ?, ?, ?, ?, ?)');
             foreach ($rows as $r) {
@@ -320,16 +328,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
         $issueDate = trim((string) ($_POST['issue_date'] ?? '')) ?: null;
         $dueDate = trim((string) ($_POST['due_date'] ?? '')) ?: null;
         $modifiesNcf = (!$isProforma && in_array($type, ['03', '04', '33', '34'], true)) ? trim((string) ($_POST['modifies_ncf'] ?? '')) : '';
-        $taxRate = (float) ($_POST['tax_rate'] ?? $defaultTax);
-        $isc = (float) ($_POST['isc_amount'] ?? 0);
-        $itbisRet = (float) ($_POST['itbis_retained'] ?? 0);
-        $isrRet = (float) ($_POST['isr_retained'] ?? 0);
+        $taxRate = max(0, amount_parse($_POST['tax_rate'] ?? $defaultTax, $defaultTax));
+        $isc = amount_parse($_POST['isc_amount'] ?? 0);
+        $itbisRet = amount_parse($_POST['itbis_retained'] ?? 0);
+        $isrRet = amount_parse($_POST['isr_retained'] ?? 0);
         $currency = strtoupper(trim((string) ($_POST['currency'] ?? 'DOP'))) === 'USD' ? 'USD' : 'DOP';
-        $rate = (float) ($_POST['exchange_rate'] ?? 1);
+        $rate = amount_parse($_POST['exchange_rate'] ?? 1, 1);
         $rate = ($currency === 'DOP' || $rate <= 0) ? 1.0 : $rate;
         $terms = trim((string) ($_POST['terms'] ?? ''));
         $notes = trim((string) ($_POST['notes'] ?? ''));
         $items = invoice_parse_items();
+        // Descuento único del documento: se teclea una vez (en % o en monto) y se
+        // prorratea entre las partidas antes de calcular bases, ITBIS y total.
+        $discountMode = ((string) ($_POST['discount_mode'] ?? 'pct')) === 'amount' ? 'amount' : 'pct';
+        $discountValue = max(0, amount_parse($_POST['discount_value'] ?? 0));
+        $spread = distribute_discount($items, $discountValue, $discountMode);
+        $items = $spread['items'];
+        $discountPct = $spread['pct'];
 
         $client = $clientId > 0 ? fetch_one('SELECT name, rnc, address, city FROM clients WHERE id=?', [$clientId]) : null;
 
@@ -369,6 +384,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
                     ? 'Factura proforma creada. No consume NCF ni tiene valor fiscal; si el cliente la aprueba, edítala, cambia la serie a B o E y emítela.'
                     : 'Factura creada como borrador. Revísala y púlsala «Emitir» para asignar el NCF.';
                 $logAction = $isProforma ? 'proforma_creada' : 'factura_creada';
+            }
+
+            // El porcentaje del descuento va en su propia sentencia: es opcional (la
+            // columna se añade sobre la marcha) y así no entra en los INSERT largos.
+            if (column_exists('invoices', 'discount_pct')) {
+                $pdo->prepare('UPDATE invoices SET discount_pct=? WHERE id=?')->execute([$discountPct, $invoiceId]);
             }
 
             $stmt = $pdo->prepare('INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, discount, is_exempt, total) VALUES (?, ?, ?, ?, ?, ?, ?)');
@@ -525,8 +546,12 @@ if ($action === 'view') {
     }
 
     $cur = strtoupper((string) ($inv['currency'] ?? 'DOP')) === 'USD' ? 'USD' : 'DOP';
-    $rate = (float) ($inv['exchange_rate'] ?? 1); if ($rate <= 0) { $rate = 1; }
     $terms = trim((string) ($inv['terms'] ?? '')) ?: $defaultTerms;
+    // Descuento único del documento: las bases guardadas ya vienen netas, así que
+    // el subtotal impreso es el bruto para que "Subtotal − Descuento" cuadre.
+    $invDisc = (float) ($inv['discount_amount'] ?? 0);
+    $invDiscPct = (float) ($inv['discount_pct'] ?? 0);
+    $invGross = round((float) ($inv['subtotal'] ?? 0) + $invDisc, 2);
     $status = (string) ($inv['status'] ?? 'Borrador');
     $editable = invoice_is_editable($status);
     $isProforma = invoice_is_proforma($inv);
@@ -634,7 +659,7 @@ if ($action === 'view') {
                         <strong><?= $isProforma ? 'No aplica' : (e((string) ($inv['ncf'] ?? '')) ?: 'Pendiente de emisión') ?></strong>
                         <small><?= $isProforma ? 'Proforma — documento sin validez fiscal' : e($inv['ncf_type']) . ' · ' . e(ncf_type_label((string) $inv['ncf_type'])) ?></small>
                     </div>
-                    <p class="quote-doc__currency">Moneda: <strong><?= e($cur) ?></strong><?php if ($cur === 'USD'): ?> · US$ 1 = RD$ <?= e(number_format($rate, 2)) ?><?php endif; ?></p>
+                    <p class="quote-doc__currency">Moneda: <strong><?= e($cur) ?></strong></p>
                 </div>
             </header>
 
@@ -663,33 +688,33 @@ if ($action === 'view') {
 
             <div class="crm-table-wrap">
                 <table class="crm-table quote-doc__table">
-                    <thead><tr><th>Descripción</th><th class="text-right">Cant.</th><th class="text-right">Precio</th><th class="text-right">Desc.</th><th class="text-right">Importe</th></tr></thead>
+                    <thead><tr><th>Descripción</th><th class="text-right">Cant.</th><th class="text-right">Precio</th><th class="text-right">Importe</th></tr></thead>
                     <tbody>
                         <?php foreach ($items as $it): ?>
                             <tr>
                                 <td><strong><?= e($it['description'] ?? '') ?></strong><?php if (!empty($it['is_exempt'])): ?> <span class="inv-tag-exempt">Exento ITBIS</span><?php endif; ?></td>
                                 <td class="text-right"><?= e(rtrim(rtrim(number_format((float) ($it['quantity'] ?? 0), 2), '0'), '.')) ?></td>
                                 <td class="text-right"><?= money_cur($it['unit_price'] ?? 0, $cur) ?></td>
-                                <td class="text-right"><?= (float) ($it['discount'] ?? 0) > 0 ? money_cur($it['discount'], $cur) : '—' ?></td>
-                                <td class="text-right"><strong><?= money_cur($it['total'] ?? 0, $cur) ?></strong></td>
+                                <td class="text-right"><strong><?= money_cur((float) ($it['total'] ?? 0) + (float) ($it['discount'] ?? 0), $cur) ?></strong></td>
                             </tr>
                         <?php endforeach; ?>
-                        <?php if (!$items): ?><tr><td colspan="5" class="text-center" style="color:var(--muted);padding:1.2rem">Esta factura no tiene partidas registradas.</td></tr><?php endif; ?>
-                        <?php if ($itemsMismatch): ?><tr><td colspan="5" style="padding:1rem;background:#fffaf0;color:#92660a;font-weight:600"><i data-lucide="alert-triangle" style="width:15px;height:15px;vertical-align:-2px"></i> Las partidas mostradas no cuadran con el total del encabezado (<?= money_cur($inv['subtotal'] ?? 0, $cur) ?>). Esta factura se guardó sin su detalle de líneas. <?php if ($editable && current_can('facturas.edit')): ?><a class="underline" href="<?= url('crm/facturas.php?edit=' . (int) $inv['id']) ?>">Edítala</a> para completar las partidas antes de emitir.<?php else: ?>Duplícala como borrador para reconstruir las partidas.<?php endif; ?></td></tr><?php endif; ?>
+                        <?php if (!$items): ?><tr><td colspan="4" class="text-center" style="color:var(--muted);padding:1.2rem">Esta factura no tiene partidas registradas.</td></tr><?php endif; ?>
+                        <?php if ($itemsMismatch): ?><tr><td colspan="4" style="padding:1rem;background:#fffaf0;color:#92660a;font-weight:600"><i data-lucide="alert-triangle" style="width:15px;height:15px;vertical-align:-2px"></i> Las partidas mostradas no cuadran con el total del encabezado (<?= money_cur($inv['subtotal'] ?? 0, $cur) ?>). Esta factura se guardó sin su detalle de líneas. <?php if ($editable && current_can('facturas.edit')): ?><a class="underline" href="<?= url('crm/facturas.php?edit=' . (int) $inv['id']) ?>">Edítala</a> para completar las partidas antes de emitir.<?php else: ?>Duplícala como borrador para reconstruir las partidas.<?php endif; ?></td></tr><?php endif; ?>
                     </tbody>
                 </table>
             </div>
 
             <div class="quote-doc__totals">
-                <?php if ((float) $inv['exempt_base'] > 0): ?><div><span>Subtotal gravado</span><strong><?= money_cur($inv['taxed_base'], $cur) ?></strong></div><div><span>Subtotal exento</span><strong><?= money_cur($inv['exempt_base'], $cur) ?></strong></div><?php else: ?><div><span>Subtotal</span><strong><?= money_cur($inv['subtotal'], $cur) ?></strong></div><?php endif; ?>
-                <?php if ((float) $inv['discount_amount'] > 0): ?><div><span>Descuento</span><strong>− <?= money_cur($inv['discount_amount'], $cur) ?></strong></div><?php endif; ?>
+                <div><span>Subtotal</span><strong><?= money_cur($invGross, $cur) ?></strong></div>
+                <?php if ($invDisc > 0): ?><div><span>Descuento<?= $invDiscPct > 0 ? ' (' . e(rtrim(rtrim(number_format($invDiscPct, 2, '.', ''), '0'), '.')) . '%)' : '' ?></span><strong>− <?= money_cur($invDisc, $cur) ?></strong></div><?php endif; ?>
+                <?php if ($invDisc > 0 || (float) $inv['exempt_base'] > 0): ?><div><span>Base gravada</span><strong><?= money_cur($inv['taxed_base'], $cur) ?></strong></div><?php endif; ?>
+                <?php if ((float) $inv['exempt_base'] > 0): ?><div><span>Base exenta</span><strong><?= money_cur($inv['exempt_base'], $cur) ?></strong></div><?php endif; ?>
                 <div><span>ITBIS <?= e(rtrim(rtrim(number_format((float) $inv['tax_rate'], 2), '0'), '.')) ?>%</span><strong><?= money_cur($inv['tax_amount'], $cur) ?></strong></div>
                 <?php if ((float) $inv['isc_amount'] > 0): ?><div><span>ISC</span><strong><?= money_cur($inv['isc_amount'], $cur) ?></strong></div><?php endif; ?>
                 <div><span>Total</span><strong><?= money_cur($inv['total'], $cur) ?></strong></div>
                 <?php if ((float) $inv['itbis_retained'] > 0): ?><div class="quote-doc__equiv"><span>Retención ITBIS</span><strong>− <?= money_cur($inv['itbis_retained'], $cur) ?></strong></div><?php endif; ?>
                 <?php if ((float) $inv['isr_retained'] > 0): ?><div class="quote-doc__equiv"><span>Retención ISR</span><strong>− <?= money_cur($inv['isr_retained'], $cur) ?></strong></div><?php endif; ?>
                 <?php if ((float) $inv['itbis_retained'] > 0 || (float) $inv['isr_retained'] > 0): ?><div><span>Neto a pagar</span><strong><?= money_cur($net, $cur) ?></strong></div><?php endif; ?>
-                <?php if ($cur === 'USD'): ?><div class="quote-doc__equiv"><span>Equivalente · US$ 1 = RD$ <?= e(number_format($rate, 2)) ?></span><strong><?= money_cur($net * $rate, 'DOP') ?></strong></div><?php endif; ?>
             </div>
 
             <div class="inv-words"><span>Son:</span> <?= e(money_in_words((float) $inv['total'], $cur)) ?></div>
@@ -771,7 +796,11 @@ if ($hasInvoices && $editId > 0) {
             'isc_amount' => (float) $ei['isc_amount'], 'itbis_retained' => (float) $ei['itbis_retained'], 'isr_retained' => (float) $ei['isr_retained'],
             'currency' => (string) $ei['currency'], 'exchange_rate' => (float) $ei['exchange_rate'],
             'notes' => (string) ($ei['notes'] ?? ''), 'terms' => (string) ($ei['terms'] ?? ''),
-            'items' => array_map(fn ($it) => ['d' => $it['description'], 'q' => (float) $it['quantity'], 'p' => (float) $it['unit_price'], 'disc' => (float) $it['discount'], 'exempt' => (int) $it['is_exempt'] === 1], $eItems),
+            // El descuento vuelve tal como se capturó (en % si se guardó así) y el
+            // importe de la partida en bruto: lo guardado por línea es el prorrateo.
+            'discount_value' => (float) ($ei['discount_pct'] ?? 0) > 0 ? (float) $ei['discount_pct'] : round((float) $ei['discount_amount'], 2),
+            'discount_mode' => (float) ($ei['discount_pct'] ?? 0) > 0 ? 'pct' : 'amount',
+            'items' => array_map(fn ($it) => ['d' => $it['description'], 'q' => (float) $it['quantity'], 'p' => (float) $it['unit_price'] , 'exempt' => (int) $it['is_exempt'] === 1], $eItems),
         ];
     } elseif ($ei) {
         flash('warning', 'Esta factura ya fue emitida y no puede editarse.');
@@ -784,13 +813,17 @@ $prefillPayload = null;
 if ($hasInvoices && !$editPayload && ($fromQuote = (int) ($_GET['from_quote'] ?? 0)) > 0 && table_exists('quotes')) {
     $q = fetch_one('SELECT quotes.*, clients.name AS client_name FROM quotes LEFT JOIN clients ON clients.id = quotes.client_id WHERE quotes.id=?', [$fromQuote]);
     if ($q) {
-        $qHasDiscount = column_exists('quote_items', 'discount');
-        $qItems = fetch_all('SELECT description, quantity, unit_price' . ($qHasDiscount ? ', discount' : '') . ' FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$fromQuote]);
+        $qItems = fetch_all('SELECT description, quantity, unit_price FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$fromQuote]);
+        // El descuento de la cotización pasa a la factura como uno solo: en % si la
+        // cotización lo guardó así, y si no, como el monto del encabezado.
+        $qDiscPct = (float) ($q['discount_pct'] ?? 0);
         $prefillPayload = [
             'client_id' => (string) $q['client_id'], 'title' => (string) $q['title'],
             'tax_rate' => (float) ($q['tax_rate'] ?? $defaultTax), 'currency' => (string) ($q['currency'] ?? 'DOP'),
             'exchange_rate' => (float) ($q['exchange_rate'] ?? 1), 'notes' => 'Generada desde la cotización ' . (string) $q['quote_number'] . '.',
-            'items' => array_map(fn ($it) => ['d' => $it['description'], 'q' => (float) $it['quantity'], 'p' => (float) $it['unit_price'], 'disc' => (float) ($it['discount'] ?? 0), 'exempt' => false], $qItems),
+            'discount_value' => $qDiscPct > 0 ? $qDiscPct : round((float) ($q['discount_amount'] ?? 0), 2),
+            'discount_mode' => $qDiscPct > 0 ? 'pct' : 'amount',
+            'items' => array_map(fn ($it) => ['d' => $it['description'], 'q' => (float) $it['quantity'], 'p' => (float) $it['unit_price'], 'exempt' => false], $qItems),
         ];
     }
 }
@@ -1146,29 +1179,29 @@ require_once __DIR__ . '/../includes/crm_header.php';
                     <label class="crm-field"><span>Fecha de emisión</span><input type="date" name="issue_date" x-model="form.issue_date" class="crm-input"></label>
                     <label class="crm-field"><span>Vencimiento</span><input type="date" name="due_date" x-model="form.due_date" class="crm-input"></label>
                     <label class="crm-field"><span>Método de pago</span><select name="payment_method" x-model="form.payment_method" class="crm-select"><option value="">—</option><?php foreach ($payMethods as $m): ?><option value="<?= e($m) ?>"><?= e($m) ?></option><?php endforeach; ?></select></label>
-                    <label class="crm-field"><span>ITBIS %</span><input type="number" step="0.01" min="0" name="tax_rate" x-model.number="tax" class="crm-input"></label>
+                    <label class="crm-field"><span>ITBIS %</span><input type="text" inputmode="decimal" name="tax_rate" x-model="tax" @blur="tax = fixQty(tax)" class="crm-input"></label>
                 </div>
                 <div class="crm-form-grid" style="grid-template-columns:repeat(2,minmax(0,1fr))">
                     <label class="crm-field"><span>Moneda</span><select name="currency" x-model="currency" class="crm-select"><option value="DOP">DOP — RD$</option><option value="USD">USD — US$</option></select></label>
-                    <label class="crm-field" x-show="currency==='USD'" x-cloak><span>Tasa US$ 1 = RD$</span><input type="number" step="0.01" min="0" name="exchange_rate" x-model.number="rate" class="crm-input text-right"></label>
+                    <label class="crm-field" x-show="currency==='USD'" x-cloak><span>Tasa US$ 1 = RD$</span><input type="text" inputmode="decimal" name="exchange_rate" x-model="rate" @blur="rate = fixNum(rate)" class="crm-input text-right" title="Solo para consolidar los reportes en RD$: no se imprime en la factura."></label>
                 </div>
 
                 <div>
                     <p class="dash-section-label" style="margin:.2rem 0 .5rem">Partidas</p>
                     <div class="ib">
-                        <div class="ib__head"><span>Descripción</span><span>Cant.</span><span>Precio</span><span>Desc.</span><span>Exento</span><span>Importe</span><span></span></div>
+                        <div class="ib__head"><span>Descripción</span><span>Cant.</span><span>Precio</span><span>Exento</span><span>Importe</span><span></span></div>
                         <template x-for="(item,index) in items" :key="index">
                             <div class="ib__row">
                                 <input class="crm-input ib__desc" name="item_description[]" x-model="item.d" placeholder="Equipo o servicio">
-                                <input class="crm-input text-right" type="number" step="0.01" min="0" name="item_quantity[]" x-model.number="item.q" aria-label="Cantidad">
-                                <input class="crm-input text-right" type="number" step="0.01" min="0" name="item_price[]" x-model.number="item.p" aria-label="Precio">
-                                <input class="crm-input text-right" type="number" step="0.01" min="0" name="item_discount[]" x-model.number="item.disc" aria-label="Descuento">
+                                <input class="crm-input text-right" type="text" inputmode="decimal" name="item_quantity[]" x-model="item.q" @blur="item.q = fixQty(item.q)" aria-label="Cantidad">
+                                <input class="crm-input text-right" type="text" inputmode="decimal" name="item_price[]" x-model="item.p" @blur="item.p = fixNum(item.p)" aria-label="Precio">
                                 <label class="ib__exempt" title="Exento de ITBIS"><input type="checkbox" x-model="item.exempt"><input type="hidden" name="item_exempt[]" :value="item.exempt ? 1 : 0"></label>
-                                <span class="qb__total" x-text="fmt(lineNet(item))">RD$ 0.00</span>
+                                <span class="qb__total" x-text="fmt(lineGross(item))">RD$ 0.00</span>
                                 <button type="button" class="crm-icon-action crm-icon-action--danger" @click="removeLine(index)" title="Quitar partida"><i data-lucide="trash-2"></i></button>
                             </div>
                         </template>
                     </div>
+                    <p class="qb__hint"><i data-lucide="info"></i><span>Puedes escribir los importes con separadores de miles y decimales (<b>1,601.70</b>): el campo los ordena al salir. El descuento es uno solo para toda la factura y se pone abajo, junto a los totales.</span></p>
                     <button type="button" @click="addLine()" class="crm-secondary-btn" style="margin-top:.6rem"><i data-lucide="plus" class="h-4 w-4"></i>Agregar línea</button>
                 </div>
 
@@ -1177,23 +1210,33 @@ require_once __DIR__ . '/../includes/crm_header.php';
                         <details class="inv-adv">
                             <summary><i data-lucide="sliders-horizontal" class="h-4 w-4"></i> Impuestos y retenciones avanzadas</summary>
                             <div class="crm-form-grid" style="margin-top:.7rem">
-                                <label class="crm-field"><span>ISC (selectivo al consumo)</span><input type="number" step="0.01" min="0" name="isc_amount" x-model.number="isc" class="crm-input text-right"></label>
-                                <label class="crm-field"><span>Retención ITBIS</span><input type="number" step="0.01" min="0" name="itbis_retained" x-model.number="itbisRet" class="crm-input text-right"></label>
-                                <label class="crm-field"><span>Retención ISR</span><input type="number" step="0.01" min="0" name="isr_retained" x-model.number="isrRet" class="crm-input text-right"></label>
+                                <label class="crm-field"><span>ISC (selectivo al consumo)</span><input type="text" inputmode="decimal" name="isc_amount" x-model="isc" @blur="isc = fixNum(isc)" class="crm-input text-right"></label>
+                                <label class="crm-field"><span>Retención ITBIS</span><input type="text" inputmode="decimal" name="itbis_retained" x-model="itbisRet" @blur="itbisRet = fixNum(itbisRet)" class="crm-input text-right"></label>
+                                <label class="crm-field"><span>Retención ISR</span><input type="text" inputmode="decimal" name="isr_retained" x-model="isrRet" @blur="isrRet = fixNum(isrRet)" class="crm-input text-right"></label>
                             </div>
                         </details>
                         <label class="crm-field"><span>Notas</span><textarea name="notes" rows="2" x-model="form.notes" class="crm-textarea" placeholder="Orden de compra, alcance, observaciones…"></textarea></label>
                         <label class="crm-field"><span>Términos y condiciones (editable)</span><textarea name="terms" rows="5" x-model="form.terms" class="crm-textarea"></textarea></label>
                     </div>
                     <div class="quote-summary" style="align-self:start">
-                        <div><span>Subtotal gravado</span><strong x-text="fmt(subtotalTaxed())">RD$ 0.00</strong></div>
-                        <div x-show="subtotalExempt()>0" x-cloak><span>Subtotal exento</span><strong x-text="fmt(subtotalExempt())">RD$ 0.00</strong></div>
-                        <div x-show="discountTotal()>0" x-cloak><span>Descuento</span><strong x-text="'− ' + fmt(discountTotal())">RD$ 0.00</strong></div>
-                        <div><span x-text="'ITBIS ' + (Number(tax)||0) + '%'">ITBIS 18%</span><strong x-text="fmt(taxAmount())">RD$ 0.00</strong></div>
-                        <div x-show="(Number(isc)||0)>0" x-cloak><span>ISC</span><strong x-text="fmt(Number(isc)||0)">RD$ 0.00</strong></div>
-                        <div><span>Total</span><strong x-text="fmt(total())">RD$ 0.00</strong></div>
-                        <div class="quote-summary__equiv" x-show="(Number(itbisRet)||0)+(Number(isrRet)||0)>0" x-cloak><span>Neto a cobrar</span><strong x-text="fmt(netReceivable())">RD$ 0.00</strong></div>
-                        <div class="quote-summary__equiv" x-show="currency==='USD'" x-cloak><span>Equivalente (RD$)</span><strong x-text="altFmt(altTotal())">RD$ 0.00</strong></div>
+                        <div><span>Subtotal</span><strong x-text="fmt(subtotalGross())">RD$ 0.00</strong></div>
+                        <label class="doc-disc">
+                            <span>Descuento</span>
+                            <span class="doc-disc__field">
+                                <input class="crm-input text-right" type="text" inputmode="decimal" name="discount_value" x-model="disc" @blur="disc = fixDisc(disc)" aria-label="Descuento de la factura">
+                                <select class="crm-select" name="discount_mode" x-model="discMode" @change="disc = fixDisc(disc)" aria-label="Tipo de descuento">
+                                    <option value="pct">%</option>
+                                    <option value="amount" x-text="sym()">RD$</option>
+                                </select>
+                            </span>
+                        </label>
+                        <div x-show="discountTotal()>0" x-cloak><span>Descuento aplicado</span><strong x-text="'− ' + fmt(discountTotal())">RD$ 0.00</strong></div>
+                        <div x-show="discountTotal()>0 || subtotalExempt()>0" x-cloak><span>Base gravada</span><strong x-text="fmt(subtotalTaxed())">RD$ 0.00</strong></div>
+                        <div x-show="subtotalExempt()>0" x-cloak><span>Base exenta</span><strong x-text="fmt(subtotalExempt())">RD$ 0.00</strong></div>
+                        <div><span x-text="'ITBIS ' + num(tax) + '%'">ITBIS 18%</span><strong x-text="fmt(taxAmount())">RD$ 0.00</strong></div>
+                        <div x-show="num(isc)>0" x-cloak><span>ISC</span><strong x-text="fmt(num(isc))">RD$ 0.00</strong></div>
+                        <div class="quote-summary__total"><span>Total</span><strong x-text="fmt(total())">RD$ 0.00</strong></div>
+                        <div class="quote-summary__equiv" x-show="num(itbisRet)+num(isrRet)>0" x-cloak><span>Neto a cobrar</span><strong x-text="fmt(netReceivable())">RD$ 0.00</strong></div>
                     </div>
                 </div>
             </div>

@@ -320,7 +320,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <div class="crm-card__body" style="display:grid;gap:1rem">
                 <div class="crm-form-grid">
                     <label class="crm-field"><span>ITBIS por defecto (%)</span><input type="number" step="0.01" min="0" name="quote_tax_rate" value="<?= e($quoteTaxSetting) ?>" class="crm-input" <?= $dis ?>></label>
-                    <label class="crm-field"><span>Tasa de cambio (US$ 1 = RD$)</span><input type="number" step="0.01" min="0" name="quote_exchange_rate" value="<?= e($quoteRateSetting) ?>" class="crm-input" <?= $dis ?>></label>
+                    <label class="crm-field"><span>Tasa de cambio (US$ 1 = RD$)</span><input type="number" step="0.01" min="0" name="quote_exchange_rate" value="<?= e($quoteRateSetting) ?>" class="crm-input" <?= $dis ?>><small class="cfg-hint">Solo consolida los reportes y la cartera en RD$. No se imprime en la cotización ni en la factura: los documentos en US$ van únicamente en dólares.</small></label>
                 </div>
                 <label class="crm-field">
                     <span>Términos y condiciones por defecto</span>

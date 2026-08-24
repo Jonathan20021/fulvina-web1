@@ -40,8 +40,6 @@ if (!$inv) {
 }
 
 $cur = strtoupper((string) ($inv['currency'] ?? 'DOP')) === 'USD' ? 'USD' : 'DOP';
-$rate = (float) ($inv['exchange_rate'] ?? 1);
-if ($rate <= 0) { $rate = 1; }
 $terms = trim((string) ($inv['terms'] ?? ''));
 if ($terms === '') { $terms = setting_get('invoice_terms', invoice_default_terms()); }
 $type = (string) ($inv['ncf_type'] ?? '02');
@@ -53,6 +51,11 @@ $isProforma = invoice_is_proforma($inv);
 $heading = invoice_doc_heading($inv);
 $net = round((float) $inv['total'] - (float) $inv['itbis_retained'] - (float) $inv['isr_retained'], 2);
 $hasRet = (float) $inv['itbis_retained'] > 0 || (float) $inv['isr_retained'] > 0;
+// Descuento unico del documento: las bases guardadas ya vienen netas, asi que el
+// subtotal impreso es el bruto para que "Subtotal - Descuento" cuadre en el papel.
+$discount = (float) ($inv['discount_amount'] ?? 0);
+$discountPct = (float) ($inv['discount_pct'] ?? 0);
+$gross = round((float) ($inv['subtotal'] ?? 0) + $discount, 2);
 
 $statusColor = match (strtolower($status)) {
     'pagada' => '#0a7d36',
@@ -74,7 +77,7 @@ $h = fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $totalWords = money_in_words((float) ($inv['total'] ?? 0), $cur);
 
 $buildHtml = function (int $level) use (
-    $h, $fmt, $qty, $inv, $items, $logoData, $cur, $rate, $terms,
+    $h, $fmt, $qty, $inv, $items, $logoData, $cur, $terms, $discount, $discountPct, $gross,
     $type, $ncf, $status, $number, $heading, $net, $hasRet, $statusColor, $totalWords, $isProforma
 ): string {
     // Márgenes de página por nivel de densidad (normal / compacta / muy compacta).
@@ -156,7 +159,6 @@ $buildHtml = function (int $level) use (
     .tt tr.total td.k { color: #eafff2; }
     .tt tr.minor td { color: #5b6b7b; font-size: 9.4px; padding-top: 4px; padding-bottom: 4px; }
     .tt tr.net td { font-size: 11.5px; font-weight: bold; color: #0e1a28; border-top: 1px solid #e3eaf1; }
-    .tt tr.equiv td { color: #5b6b7b; font-size: 9.2px; padding-top: 7px; }
     .words { border: 1px dashed #c7d6c9; border-radius: 7px; background: #f5faf6; padding: 8px 11px; margin-top: 6px; }
     .words .k { color: #8696a6; font-size: 7.6px; letter-spacing: 1.4px; text-transform: uppercase; }
     .words .v { color: #0e1a28; font-size: 9.6px; font-weight: bold; margin-top: 2px; }
@@ -284,7 +286,7 @@ $buildHtml = function (int $level) use (
                         Emitida: <b><?= $h(date_es($inv['issue_date'] ?? null)) ?></b><br>
                         Vencimiento: <b><?= $h(date_es($inv['due_date'] ?? null)) ?></b> · <?= $h($inv['payment_condition'] ?? 'Contado') ?><br>
                         <?php if (!empty($inv['ncf_expiration'])): ?>Vence NCF: <b><?= $h(date_es($inv['ncf_expiration'])) ?></b><br><?php endif; ?>
-                        Moneda: <b><?= $h($cur) ?></b><?php if ($cur === 'USD'): ?> (US$ 1 = RD$ <?= $h(number_format($rate, 2)) ?>)<?php endif; ?>
+                        Moneda: <b><?= $h($cur) ?></b>
                     </div>
                 </div>
             </td>
@@ -338,7 +340,6 @@ $buildHtml = function (int $level) use (
                 <th>Descripción</th>
                 <th class="r">Cant.</th>
                 <th class="r">Precio unit.</th>
-                <th class="r">Desc.</th>
                 <th class="r">Importe</th>
             </tr>
         </thead>
@@ -349,12 +350,11 @@ $buildHtml = function (int $level) use (
                     <td><span class="item-name"><?= $h($item['description'] ?? '') ?></span><?php if (!empty($item['is_exempt'])): ?><span class="ex-tag">EXENTO</span><?php endif; ?></td>
                     <td class="r"><?= $h($qty($item['quantity'] ?? 0)) ?></td>
                     <td class="r"><?= $h($fmt($item['unit_price'] ?? 0)) ?></td>
-                    <td class="r"><?= (float) ($item['discount'] ?? 0) > 0 ? $h($fmt($item['discount'])) : '—' ?></td>
-                    <td class="r"><?= $h($fmt($item['total'] ?? 0)) ?></td>
+                    <td class="r"><?= $h($fmt((float) ($item['total'] ?? 0) + (float) ($item['discount'] ?? 0))) ?></td>
                 </tr>
             <?php endforeach; ?>
             <?php if (!$items): ?>
-                <tr><td colspan="6" class="center muted" style="padding: 16px;">Esta factura no tiene partidas registradas.</td></tr>
+                <tr><td colspan="5" class="center muted" style="padding: 16px;">Esta factura no tiene partidas registradas.</td></tr>
             <?php endif; ?>
         </tbody>
     </table>
@@ -373,14 +373,15 @@ $buildHtml = function (int $level) use (
             </td>
             <td class="r">
                 <table class="tt">
-                    <?php if ((float) $inv['exempt_base'] > 0): ?>
-                        <tr><td class="k">Subtotal gravado</td><td class="v"><?= $h($fmt($inv['taxed_base'])) ?></td></tr>
-                        <tr><td class="k">Subtotal exento</td><td class="v"><?= $h($fmt($inv['exempt_base'])) ?></td></tr>
-                    <?php else: ?>
-                        <tr><td class="k">Subtotal</td><td class="v"><?= $h($fmt($inv['subtotal'])) ?></td></tr>
+                    <tr><td class="k">Subtotal</td><td class="v"><?= $h($fmt($gross)) ?></td></tr>
+                    <?php if ($discount > 0): ?>
+                        <tr><td class="k">Descuento<?= $discountPct > 0 ? ' (' . $h($qty($discountPct)) . '%)' : '' ?></td><td class="v">− <?= $h($fmt($discount)) ?></td></tr>
                     <?php endif; ?>
-                    <?php if ((float) $inv['discount_amount'] > 0): ?>
-                        <tr><td class="k">Descuento</td><td class="v">− <?= $h($fmt($inv['discount_amount'])) ?></td></tr>
+                    <?php if ($discount > 0 || (float) $inv['exempt_base'] > 0): ?>
+                        <tr><td class="k">Base gravada</td><td class="v"><?= $h($fmt($inv['taxed_base'])) ?></td></tr>
+                    <?php endif; ?>
+                    <?php if ((float) $inv['exempt_base'] > 0): ?>
+                        <tr><td class="k">Base exenta</td><td class="v"><?= $h($fmt($inv['exempt_base'])) ?></td></tr>
                     <?php endif; ?>
                     <tr class="sep"><td class="k">ITBIS (<?= $h($qty($inv['tax_rate'] ?? 18)) ?>%)</td><td class="v"><?= $h($fmt($inv['tax_amount'] ?? 0)) ?></td></tr>
                     <?php if ((float) $inv['isc_amount'] > 0): ?>
@@ -395,9 +396,6 @@ $buildHtml = function (int $level) use (
                     <?php endif; ?>
                     <?php if ($hasRet): ?>
                         <tr class="net"><td class="k">Neto a pagar</td><td class="v"><?= $h($fmt($net)) ?></td></tr>
-                    <?php endif; ?>
-                    <?php if ($cur === 'USD'): ?>
-                        <tr class="equiv"><td class="k">Equivalente (RD$ a <?= $h(number_format($rate, 2)) ?>)</td><td class="v" style="color:#5b6b7b;">RD$ <?= $h(number_format($net * $rate, 2, '.', ',')) ?></td></tr>
                     <?php endif; ?>
                 </table>
             </td>

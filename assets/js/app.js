@@ -524,49 +524,123 @@ window.crmAnnexPick = function crmAnnexPick(input, inModal) {
   if (button) { button.disabled = tooBig; }
 };
 
+/* Lee un importe tecleado a mano tolerando el formato con el que la app lo
+   imprime ("1,601.70") y los descuidos habituales al escribirlo. Los campos de
+   dinero son <input type="text"> justamente para que quepan esos separadores:
+   un type="number" los rechaza según el idioma del navegador y el usuario
+   terminaba guardando otro monto. Mismas reglas que amount_parse() en PHP. */
+window.crmParseAmount = function crmParseAmount(value) {
+  if (typeof value === 'number') { return isFinite(value) ? value : 0; }
+  var raw = String(value === null || value === undefined ? '' : value)
+    .replace(/[\s  ']/g, '');
+  var negative = raw.indexOf('-') !== -1;
+  var s = raw.replace(/[^0-9.,]/g, '');
+  if (!/[0-9]/.test(s)) { return 0; }
+
+  var dot = s.lastIndexOf('.');
+  var comma = s.lastIndexOf(',');
+  if (dot !== -1 && comma !== -1) {
+    // Manda como decimal el separador que esté más a la derecha.
+    var decimal = dot > comma ? '.' : ',';
+    s = s.split(decimal === '.' ? ',' : '.').join('');
+    s = s.split(decimal).join('.');
+  } else if (dot !== -1 || comma !== -1) {
+    var sep = dot !== -1 ? '.' : ',';
+    var at = s.lastIndexOf(sep);
+    var tail = s.length - at - 1;
+    // Repetido siempre es de miles; una coma sola con 3 dígitos detrás también.
+    var thousands = s.split(sep).length - 1 > 1 || (sep === ',' && tail === 3 && at > 0);
+    s = thousands ? s.split(sep).join('') : s.split(sep).join('.');
+  }
+
+  var n = parseFloat(s);
+  if (!isFinite(n)) { return 0; }
+  return negative ? -n : n;
+};
+
+/* Base común de los editores de cotización y factura: lectura de importes con
+   separadores, formateo al salir del campo y el descuento único del documento
+   (en % o en monto), que se reparte entre las partidas al guardar. */
+function crmDocMoneyMixin() {
+  return {
+    disc: '',
+    discMode: 'pct',
+    num(v) { return window.crmParseAmount(v); },
+    nf(n) { return (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
+    /* Cantidades y porcentajes: hasta 2 decimales, sin ceros de relleno. */
+    nq(n) { return (Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 }); },
+    /* Al salir del campo el valor se reescribe ya ordenado ("1601.7" → "1,601.70"),
+       así el usuario ve de inmediato cómo se interpretó lo que escribió. */
+    fixNum(v) { return String(v).trim() === '' ? '' : this.nf(this.num(v)); },
+    fixQty(v) { return String(v).trim() === '' ? '' : this.nq(this.num(v)); },
+    fixDisc(v) { return this.discMode === 'pct' ? this.fixQty(v) : this.fixNum(v); },
+    sym() { return this.currency === 'USD' ? 'US$' : 'RD$'; },
+    fmt(n) { return this.sym() + ' ' + this.nf(n); },
+    r2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; },
+    lineGross(item) { return this.num(item.q) * this.num(item.p); },
+    subtotalGross() { return this.items.reduce((s, i) => s + this.lineGross(i), 0); },
+    /* Descuento del documento, con los mismos topes que distribute_discount()
+       en el servidor: nunca supera el bruto ni el 100%. */
+    discountRaw() {
+      const gross = this.subtotalGross();
+      const typed = Math.max(0, this.num(this.disc));
+      if (gross <= 0 || typed <= 0) { return 0; }
+      return this.discMode === 'pct' ? gross * Math.min(100, typed) / 100 : Math.min(gross, typed);
+    },
+    /* Reparto por partida, centavo a centavo igual que distribute_discount(): el
+       resumen del modal tiene que dar exactamente lo que se guardará después. */
+    lineDiscounts() {
+      const gross = this.subtotalGross();
+      const amount = this.r2(this.discountRaw());
+      const out = this.items.map(() => 0);
+      if (gross <= 0 || amount <= 0) { return out; }
+      let last = -1;
+      this.items.forEach((it, i) => { if (this.lineGross(it) > 0) { last = i; } });
+      let assigned = 0;
+      this.items.forEach((it, i) => {
+        const lineGross = this.r2(this.lineGross(it));
+        const share = i === last ? this.r2(amount - assigned) : this.r2(amount * lineGross / gross);
+        out[i] = Math.max(0, Math.min(lineGross, share));
+        assigned += out[i];
+      });
+      return out;
+    },
+    lineNets() {
+      const discounts = this.lineDiscounts();
+      return this.items.map((it, i) => this.r2(this.r2(this.lineGross(it)) - discounts[i]));
+    },
+    discountTotal() { return this.r2(this.lineDiscounts().reduce((s, d) => s + d, 0)); },
+    loadDiscount(d) {
+      this.discMode = (d && d.discount_mode) === 'amount' ? 'amount' : 'pct';
+      const v = d ? this.num(d.discount_value) : 0;
+      this.disc = v > 0 ? this.fixDisc(v) : '';
+    },
+  };
+}
+
 /* Quote editor inside a modal (cotizaciones) — create + edit with line items */
 window.crmQuoteModal = function crmQuoteModal(opts) {
   opts = opts || {};
   var defaults = opts.defaults || {};
-  return {
+  var blankLine = function () { return { d: '', q: '1', p: '' }; };
+  return Object.assign(crmDocMoneyMixin(), {
     form: {},
-    items: [{ d: '', q: 1, p: 0, disc: 0, dm: 'pct' }],
-    tax: 18,
+    items: [blankLine()],
+    tax: '18',
     currency: 'DOP',
-    rate: Number(defaults.rate) > 0 ? Number(defaults.rate) : 60,
+    rate: Number(defaults.rate) > 0 ? String(defaults.rate) : '60',
     reset() {
       this.form = { id: 0, client_id: '', title: '', category: '', status: 'Borrador', valid_until: defaults.validUntil || '', notes: '', terms: defaults.terms || '' };
-      this.items = [{ d: '', q: 1, p: 0, disc: 0, dm: 'pct' }];
-      this.tax = (defaults.tax !== undefined && Number(defaults.tax) >= 0) ? Number(defaults.tax) : 18;
+      this.items = [blankLine()];
+      this.tax = this.fixQty((defaults.tax !== undefined && Number(defaults.tax) >= 0) ? defaults.tax : 18);
       this.currency = 'DOP';
-      this.rate = Number(defaults.rate) > 0 ? Number(defaults.rate) : 60;
+      this.rate = this.fixNum(Number(defaults.rate) > 0 ? defaults.rate : 60);
+      this.loadDiscount(null);
     },
-    sym() { return this.currency === 'USD' ? 'US$' : 'RD$'; },
-    altSym() { return this.currency === 'USD' ? 'RD$' : 'US$'; },
-    nf(n) { return (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
-    fmt(n) { return this.sym() + ' ' + this.nf(n); },
-    altFmt(n) { return this.altSym() + ' ' + this.nf(n); },
-    lineGross(item) { return (Number(item.q) || 0) * (Number(item.p) || 0); },
-    /* El descuento se teclea en % o en monto (item.dm) y nunca deja la partida en
-       negativo: mismos topes que quote_parse_items() en el servidor. */
-    lineDiscount(item) {
-      const gross = this.lineGross(item);
-      const typed = Math.max(0, Number(item.disc) || 0);
-      if (item.dm === 'pct') return gross * Math.min(100, typed) / 100;
-      return Math.min(gross, typed);
-    },
-    lineNet(item) { return this.lineGross(item) - this.lineDiscount(item); },
-    subtotalGross() { return this.items.reduce((s, i) => s + this.lineGross(i), 0); },
-    discountTotal() { return this.items.reduce((s, i) => s + this.lineDiscount(i), 0); },
-    subtotal() { return this.items.reduce((s, i) => s + this.lineNet(i), 0); },
-    taxAmount() { return this.subtotal() * (Number(this.tax) || 0) / 100; },
+    subtotal() { return this.lineNets().reduce((s, n) => s + n, 0); },
+    taxAmount() { return this.subtotal() * this.num(this.tax) / 100; },
     total() { return this.subtotal() + this.taxAmount(); },
-    altTotal() {
-      const r = Number(this.rate) || 0;
-      if (this.currency === 'USD') return this.total() * r;
-      return r > 0 ? this.total() / r : 0;
-    },
-    addLine() { this.items.push({ d: '', q: 1, p: 0, disc: 0, dm: 'pct' }); this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); },
+    addLine() { this.items.push(blankLine()); this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); },
     removeLine(index) { if (this.items.length > 1) this.items.splice(index, 1); },
     openNew() { this.reset(); this.open(); },
     openEdit(d) {
@@ -576,12 +650,13 @@ window.crmQuoteModal = function crmQuoteModal(opts) {
         status: d.status || 'Borrador', valid_until: d.valid_until || (defaults.validUntil || ''),
         notes: d.notes || '', terms: (d.terms && d.terms.length) ? d.terms : (defaults.terms || '')
       };
-      this.items = (d.items && d.items.length)
-        ? d.items.map(function (it) { return { d: it.d || '', q: Number(it.q) || 0, p: Number(it.p) || 0, disc: Number(it.disc) || 0, dm: it.dm === 'pct' ? 'pct' : 'amount' }; })
-        : [{ d: '', q: 1, p: 0, disc: 0, dm: 'pct' }];
-      this.tax = Number(d.tax_rate) >= 0 && d.tax_rate !== undefined && d.tax_rate !== '' ? Number(d.tax_rate) : 18;
       this.currency = d.currency === 'USD' ? 'USD' : 'DOP';
-      this.rate = Number(d.exchange_rate) > 0 ? Number(d.exchange_rate) : (Number(defaults.rate) > 0 ? Number(defaults.rate) : 60);
+      this.items = (d.items && d.items.length)
+        ? d.items.map((it) => ({ d: it.d || '', q: this.fixQty(it.q), p: this.fixNum(it.p) }))
+        : [blankLine()];
+      this.tax = this.fixQty(d.tax_rate !== undefined && d.tax_rate !== '' && Number(d.tax_rate) >= 0 ? d.tax_rate : 18);
+      this.rate = this.fixNum(Number(d.exchange_rate) > 0 ? d.exchange_rate : (Number(defaults.rate) > 0 ? defaults.rate : 60));
+      this.loadDiscount(d);
       this.open();
     },
     init() {
@@ -591,7 +666,7 @@ window.crmQuoteModal = function crmQuoteModal(opts) {
     },
     open() { const d = this.$refs.dlg; if (d && !d.open) d.showModal(); this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); },
     close() { const d = this.$refs.dlg; if (d && d.open) d.close(); }
-  };
+  });
 };
 
 /* Fiscal invoice editor inside a modal (facturas) — NCF, ITBIS, exempt lines, retentions */
@@ -602,15 +677,16 @@ window.crmInvoiceModal = function crmInvoiceModal(opts) {
   var pairs = opts.pairs || {};
   var sequences = opts.sequences || {};   // 'B01' => {next, remaining, expiration}
   var clientRncMap = opts.clientRnc || {};
-  return {
+  var blankLine = function () { return { d: '', q: '1', p: '', exempt: false }; };
+  return Object.assign(crmDocMoneyMixin(), {
     form: {},
-    items: [{ d: '', q: 1, p: 0, disc: 0, exempt: false }],
-    tax: Number(defaults.tax) >= 0 ? Number(defaults.tax) : 18,
-    isc: 0,
-    itbisRet: 0,
-    isrRet: 0,
+    items: [blankLine()],
+    tax: '18',
+    isc: '',
+    itbisRet: '',
+    isrRet: '',
     currency: 'DOP',
-    rate: Number(defaults.rate) > 0 ? Number(defaults.rate) : 60,
+    rate: Number(defaults.rate) > 0 ? String(defaults.rate) : '60',
     /* Serie válida para el <select>: B (fiscal), E (e-CF) o P (proforma sin NCF). */
     normSeries(v) { return v === 'E' ? 'E' : (v === 'P' ? 'P' : 'B'); },
     reset() {
@@ -620,11 +696,12 @@ window.crmInvoiceModal = function crmInvoiceModal(opts) {
         issue_date: defaults.issueDate || '', due_date: defaults.dueDate || '', modifies_ncf: '',
         notes: '', terms: defaults.terms || ''
       };
-      this.items = [{ d: '', q: 1, p: 0, disc: 0, exempt: false }];
-      this.tax = Number(defaults.tax) >= 0 ? Number(defaults.tax) : 18;
-      this.isc = 0; this.itbisRet = 0; this.isrRet = 0;
+      this.items = [blankLine()];
+      this.tax = this.fixQty(Number(defaults.tax) >= 0 ? defaults.tax : 18);
+      this.isc = ''; this.itbisRet = ''; this.isrRet = '';
       this.currency = 'DOP';
-      this.rate = Number(defaults.rate) > 0 ? Number(defaults.rate) : 60;
+      this.rate = this.fixNum(Number(defaults.rate) > 0 ? defaults.rate : 60);
+      this.loadDiscount(null);
     },
     /* La proforma no lleva comprobante fiscal: ni tipo, ni NCF, ni RNC obligatorio. */
     isProforma() { return this.form.ncf_prefix === 'P'; },
@@ -646,26 +723,21 @@ window.crmInvoiceModal = function crmInvoiceModal(opts) {
     seqInfo() { if (this.isProforma()) { return null; } return sequences[(this.form.ncf_prefix || 'B') + (this.form.ncf_type || '')] || null; },
     /* RNC del cliente seleccionado ('' si la ficha no lo tiene). */
     clientRnc() { return clientRncMap[String(this.form.client_id || '')] || ''; },
-    sym() { return this.currency === 'USD' ? 'US$' : 'RD$'; },
-    altSym() { return this.currency === 'USD' ? 'RD$' : 'US$'; },
-    nf(n) { return (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
-    fmt(n) { return this.sym() + ' ' + this.nf(n); },
-    altFmt(n) { return this.altSym() + ' ' + this.nf(n); },
-    lineNet(item) { return Math.max(0, (Number(item.q) || 0) * (Number(item.p) || 0) - (Number(item.disc) || 0)); },
-    subtotalTaxed() { return this.items.reduce((s, i) => s + (i.exempt ? 0 : this.lineNet(i)), 0); },
-    subtotalExempt() { return this.items.reduce((s, i) => s + (i.exempt ? this.lineNet(i) : 0), 0); },
-    discountTotal() { return this.items.reduce((s, i) => s + (Number(i.disc) || 0), 0); },
-    taxAmount() { return this.subtotalTaxed() * (Number(this.tax) || 0) / 100; },
-    total() { return this.subtotalTaxed() + this.subtotalExempt() + this.taxAmount() + (Number(this.isc) || 0); },
-    netReceivable() { return this.total() - (Number(this.itbisRet) || 0) - (Number(this.isrRet) || 0); },
-    altTotal() {
-      const r = Number(this.rate) || 0;
-      if (this.currency === 'USD') return this.total() * r;
-      return r > 0 ? this.total() / r : 0;
-    },
-    addLine() { this.items.push({ d: '', q: 1, p: 0, disc: 0, exempt: false }); this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); },
+    /* Bases gravada y exenta: cada partida aporta su neto ya descontado, así el
+       descuento del documento se reparte entre ambas por su peso en el bruto. */
+    subtotalTaxed() { return this.lineNets().reduce((s, n, i) => s + (this.items[i].exempt ? 0 : n), 0); },
+    subtotalExempt() { return this.lineNets().reduce((s, n, i) => s + (this.items[i].exempt ? n : 0), 0); },
+    taxAmount() { return this.subtotalTaxed() * this.num(this.tax) / 100; },
+    total() { return this.subtotalTaxed() + this.subtotalExempt() + this.taxAmount() + this.num(this.isc); },
+    netReceivable() { return this.total() - this.num(this.itbisRet) - this.num(this.isrRet); },
+    addLine() { this.items.push(blankLine()); this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); },
     removeLine(index) { if (this.items.length > 1) this.items.splice(index, 1); },
     openNew() { this.reset(); this.open(); },
+    loadLines(d) {
+      this.items = (d.items && d.items.length)
+        ? d.items.map((it) => ({ d: it.d || '', q: this.fixQty(it.q), p: this.fixNum(it.p), exempt: !!it.exempt }))
+        : [blankLine()];
+    },
     openEdit(d) {
       d = d || {};
       this.form = {
@@ -675,11 +747,14 @@ window.crmInvoiceModal = function crmInvoiceModal(opts) {
         issue_date: d.issue_date || defaults.issueDate || '', due_date: d.due_date || defaults.dueDate || '',
         modifies_ncf: d.modifies_ncf || '', notes: d.notes || '', terms: (d.terms && d.terms.length) ? d.terms : (defaults.terms || '')
       };
-      this.items = (d.items && d.items.length) ? d.items.map(function (it) { return { d: it.d || '', q: Number(it.q) || 0, p: Number(it.p) || 0, disc: Number(it.disc) || 0, exempt: !!it.exempt }; }) : [{ d: '', q: 1, p: 0, disc: 0, exempt: false }];
-      this.tax = (d.tax_rate !== undefined && d.tax_rate !== '' && Number(d.tax_rate) >= 0) ? Number(d.tax_rate) : (Number(defaults.tax) >= 0 ? Number(defaults.tax) : 18);
-      this.isc = Number(d.isc_amount) || 0; this.itbisRet = Number(d.itbis_retained) || 0; this.isrRet = Number(d.isr_retained) || 0;
       this.currency = d.currency === 'USD' ? 'USD' : 'DOP';
-      this.rate = Number(d.exchange_rate) > 0 ? Number(d.exchange_rate) : (Number(defaults.rate) > 0 ? Number(defaults.rate) : 60);
+      this.loadLines(d);
+      this.tax = this.fixQty((d.tax_rate !== undefined && d.tax_rate !== '' && Number(d.tax_rate) >= 0) ? d.tax_rate : (Number(defaults.tax) >= 0 ? defaults.tax : 18));
+      this.isc = Number(d.isc_amount) > 0 ? this.fixNum(d.isc_amount) : '';
+      this.itbisRet = Number(d.itbis_retained) > 0 ? this.fixNum(d.itbis_retained) : '';
+      this.isrRet = Number(d.isr_retained) > 0 ? this.fixNum(d.isr_retained) : '';
+      this.rate = this.fixNum(Number(d.exchange_rate) > 0 ? d.exchange_rate : (Number(defaults.rate) > 0 ? defaults.rate : 60));
+      this.loadDiscount(d);
       this.open();
     },
     applyPrefill(d) {
@@ -687,10 +762,11 @@ window.crmInvoiceModal = function crmInvoiceModal(opts) {
       this.form.client_id = d.client_id || '';
       this.form.title = d.title || '';
       this.form.notes = d.notes || '';
-      this.items = (d.items && d.items.length) ? d.items.map(function (it) { return { d: it.d || '', q: Number(it.q) || 0, p: Number(it.p) || 0, disc: Number(it.disc) || 0, exempt: !!it.exempt }; }) : [{ d: '', q: 1, p: 0, disc: 0, exempt: false }];
-      if (d.tax_rate !== undefined && Number(d.tax_rate) >= 0) this.tax = Number(d.tax_rate);
       this.currency = d.currency === 'USD' ? 'USD' : 'DOP';
-      if (Number(d.exchange_rate) > 0) this.rate = Number(d.exchange_rate);
+      this.loadLines(d);
+      if (d.tax_rate !== undefined && Number(d.tax_rate) >= 0) { this.tax = this.fixQty(d.tax_rate); }
+      if (Number(d.exchange_rate) > 0) { this.rate = this.fixNum(d.exchange_rate); }
+      this.loadDiscount(d);
     },
     init() {
       this.reset();
@@ -700,6 +776,5 @@ window.crmInvoiceModal = function crmInvoiceModal(opts) {
     },
     open() { const d = this.$refs.dlg; if (d && !d.open) d.showModal(); this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); },
     close() { const d = this.$refs.dlg; if (d && d.open) d.close(); }
-  };
+  });
 };
-

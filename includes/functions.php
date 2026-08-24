@@ -20,18 +20,118 @@ function money_cur(float|int|string|null $value, string $currency = 'DOP'): stri
 }
 
 /**
- * Etiqueta de la columna "Desc." de una partida: "− 11%" cuando el descuento se
- * capturó en porcentaje y "− RD$ 1,000.00" cuando fue un monto. El importe neto
- * de la línea ya viene descontado, así que esto es sólo el sello de lo aplicado.
+ * Lee un monto tecleado a mano tolerando el formato con el que la app lo imprime
+ * ("1,601.70") y los descuidos habituales al escribirlo. `(float) "1,601.70"` en
+ * PHP devuelve 1 —de ahí que los precios grandes quedaran truncados—, así que
+ * todo campo de dinero/cantidad del CRM pasa por aquí en vez de por un cast.
+ *
+ * Reglas, iguales a las de crmParseAmount() en assets/js/app.js:
+ *  - Si vienen punto y coma, manda el que esté más a la derecha como decimal y el
+ *    otro es separador de miles ("1.601,70" y "1,601.70" dan lo mismo).
+ *  - Un separador repetido siempre es de miles ("1.601.700" → 1601700).
+ *  - Una coma sola seguida de exactamente 3 dígitos es de miles ("1,500" → 1500);
+ *    con cualquier otra cantidad de dígitos es decimal ("1,5" → 1.5).
+ *  - Un punto solo siempre es decimal, que es como la app muestra los importes.
  */
-function line_discount_label(array $item, string $currency = 'DOP'): string
+function amount_parse(mixed $value, float $default = 0.0): float
 {
-    $pct = (float) ($item['discount_pct'] ?? 0);
+    if (is_int($value) || is_float($value)) {
+        return (float) $value;
+    }
+    $raw = (string) $value;
+    // Espacios de agrupación (incluye NBSP y el fino), apóstrofo suizo y símbolos.
+    $raw = str_replace(["Â ", "â¯", ' ', "'"], '', $raw);
+    $negative = str_contains($raw, '-');
+    $s = preg_replace('/[^0-9.,]/', '', $raw) ?? '';
+    if ($s === '' || !preg_match('/[0-9]/', $s)) {
+        return $default;
+    }
+
+    $dot = strrpos($s, '.');
+    $comma = strrpos($s, ',');
+    if ($dot !== false && $comma !== false) {
+        $decimal = $dot > $comma ? '.' : ',';
+        $s = str_replace($decimal === '.' ? ',' : '.', '', $s);
+        $s = str_replace($decimal, '.', $s);
+    } elseif ($dot !== false || $comma !== false) {
+        $sep = $dot !== false ? '.' : ',';
+        $tail = strlen($s) - strrpos($s, $sep) - 1;
+        $isThousands = substr_count($s, $sep) > 1
+            || ($sep === ',' && $tail === 3 && strrpos($s, $sep) > 0);
+        $s = $isThousands ? str_replace($sep, '', $s) : str_replace($sep, '.', $s);
+    }
+
+    $n = (float) $s;
+    return $negative ? -$n : $n;
+}
+
+/**
+ * Reparte el descuento único del documento entre sus partidas, en proporción al
+ * importe bruto de cada una. Se captura una sola vez (en % o en monto) pero se
+ * guarda prorrateado por línea para que las bases gravada y exenta, el ITBIS y
+ * los reportes sigan cuadrando sin tratar el descuento como un caso aparte.
+ *
+ * Cada fila entra con 'total' = importe bruto y sale con 'discount' asignado y
+ * 'total' ya neto. El céntimo de redondeo cae en la última línea con importe.
+ *
+ * @param array<int, array<string, mixed>> $items
+ * @return array{items: array<int, array<string, mixed>>, amount: float, pct: float}
+ */
+function distribute_discount(array $items, float $value, string $mode): array
+{
+    $gross = 0.0;
+    foreach ($items as $item) {
+        $gross += (float) ($item['total'] ?? 0);
+    }
+
+    $pct = 0.0;
+    $amount = 0.0;
+    if ($gross > 0 && $value > 0) {
+        if ($mode === 'pct') {
+            $pct = min(100.0, $value);
+            $amount = round($gross * $pct / 100, 2);
+        } else {
+            $amount = round(min($gross, $value), 2);
+        }
+    }
+
+    if ($amount <= 0) {
+        foreach ($items as $i => $item) {
+            $items[$i]['discount'] = 0.0;
+            $items[$i]['discount_pct'] = 0.0;
+            $items[$i]['total'] = round((float) ($item['total'] ?? 0), 2);
+        }
+        return ['items' => $items, 'amount' => 0.0, 'pct' => 0.0];
+    }
+
+    $lastIndex = null;
+    foreach ($items as $i => $item) {
+        if ((float) ($item['total'] ?? 0) > 0) { $lastIndex = $i; }
+    }
+
+    $assigned = 0.0;
+    foreach ($items as $i => $item) {
+        $lineGross = round((float) ($item['total'] ?? 0), 2);
+        $lineDisc = $i === $lastIndex
+            ? round($amount - $assigned, 2)
+            : round($amount * $lineGross / $gross, 2);
+        $lineDisc = max(0.0, min($lineGross, $lineDisc));
+        $assigned += $lineDisc;
+        $items[$i]['discount'] = $lineDisc;
+        $items[$i]['discount_pct'] = $pct;
+        $items[$i]['total'] = round($lineGross - $lineDisc, 2);
+    }
+
+    return ['items' => $items, 'amount' => round($assigned, 2), 'pct' => round($pct, 3)];
+}
+
+/** Etiqueta corta del descuento del documento: "− 10%" o "− RD$ 1,000.00". */
+function discount_label(float $amount, float $pct, string $currency = 'DOP'): string
+{
     if ($pct > 0) {
         return '− ' . rtrim(rtrim(number_format($pct, 2, '.', ''), '0'), '.') . '%';
     }
-    $amount = (float) ($item['discount'] ?? 0);
-    return $amount > 0 ? '− ' . money_cur($amount, $currency) : '—';
+    return '− ' . money_cur($amount, $currency);
 }
 
 /** Spanish words for a non-negative integer (supports up to 999,999,999,999). */
@@ -433,6 +533,10 @@ function ensure_quote_schema(): void
         'category' => "ALTER TABLE quotes ADD COLUMN category VARCHAR(80) NULL AFTER title",
         'approved_at' => "ALTER TABLE quotes ADD COLUMN approved_at DATETIME NULL AFTER status",
         'discount_amount' => "ALTER TABLE quotes ADD COLUMN discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER valid_until",
+        // El descuento es uno solo para todo el documento y puede teclearse en %:
+        // se guarda el porcentaje además del monto para reabrir la cotización en
+        // el mismo modo e imprimir "Descuento − 10%" en vez del monto resuelto.
+        'discount_pct' => "ALTER TABLE quotes ADD COLUMN discount_pct DECIMAL(6,3) NOT NULL DEFAULT 0 AFTER discount_amount",
     ];
 
     foreach ($columns as $column => $statement) {
@@ -446,9 +550,9 @@ function ensure_quote_schema(): void
         try { $pdo->exec("ALTER TABLE quote_items ADD COLUMN discount DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER unit_price"); } catch (Throwable) { /* ignore */ }
     }
 
-    // El descuento se puede capturar en % o en monto. `discount` siempre guarda el
-    // monto resuelto (lo que restan totales y PDF) y `discount_pct` el porcentaje
-    // tecleado, para poder reabrir la partida en el mismo modo e imprimir "− 11%".
+    // `discount` guarda la parte del descuento del documento que le tocó a esta
+    // partida al prorratearlo, y `discount_pct` el porcentaje del documento cuando
+    // se capturó así. Ninguna de las dos se teclea por línea desde v3.25.
     if (table_exists('quote_items') && !column_exists('quote_items', 'discount_pct')) {
         try { $pdo->exec("ALTER TABLE quote_items ADD COLUMN discount_pct DECIMAL(6,3) NOT NULL DEFAULT 0 AFTER discount"); } catch (Throwable) { /* ignore */ }
     }
@@ -1548,6 +1652,7 @@ function ensure_invoice_schema(): void
             taxed_base DECIMAL(12,2) NOT NULL DEFAULT 0,
             exempt_base DECIMAL(12,2) NOT NULL DEFAULT 0,
             discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+            discount_pct DECIMAL(6,3) NOT NULL DEFAULT 0,
             subtotal DECIMAL(12,2) NOT NULL DEFAULT 0,
             tax_rate DECIMAL(5,2) NOT NULL DEFAULT 18,
             tax_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
@@ -1615,6 +1720,9 @@ function ensure_invoice_schema(): void
             'ecf_qr_url' => "ALTER TABLE invoices ADD COLUMN ecf_qr_url TEXT NULL AFTER ecf_sign_date",
             'ecf_xml' => "ALTER TABLE invoices ADD COLUMN ecf_xml MEDIUMTEXT NULL AFTER ecf_qr_url",
             'ecf_response' => "ALTER TABLE invoices ADD COLUMN ecf_response TEXT NULL AFTER ecf_xml",
+            // Descuento único del documento: el monto ya existía; el porcentaje se
+            // guarda aparte para reabrir la factura en el modo en que se capturó.
+            'discount_pct' => "ALTER TABLE invoices ADD COLUMN discount_pct DECIMAL(6,3) NOT NULL DEFAULT 0 AFTER discount_amount",
         ];
         foreach ($ecfColumns as $col => $sql) {
             if (!column_exists('invoices', $col)) {
