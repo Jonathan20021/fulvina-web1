@@ -40,6 +40,7 @@ function quote_categories(): array
         'Instalación y certificación' => ['wrench', '#9c7d34'],
         'Soporte y mantenimiento'     => ['life-buoy', '#0666b3'],
         'Equipos industriales'        => ['factory', '#475569'],
+        'Productos arquitectónicos'   => ['blocks', '#0e7490'],
     ];
 }
 
@@ -298,7 +299,7 @@ function analytics_revenue_by_line(?array $period = null): array
         $demo = [
             ['Equipos médicos', 539000], ['Gases medicinales', 295000], ['Diseño hospitalario', 205000],
             ['Instalación y certificación', 154000], ['Soporte y mantenimiento', 91500],
-            ['Equipos industriales', 128000],
+            ['Equipos industriales', 128000], ['Productos arquitectónicos', 76000],
         ];
         if (!analytics_live()) {
             $total = array_sum(array_column($demo, 1)) ?: 1;
