@@ -15,6 +15,11 @@ $topClients  = analytics_top_clients(8);
 $ticketStatus = analytics_tickets_by_status();
 $equipStatus = analytics_equipment_by_status();
 $resolution  = analytics_resolution($period);
+$billing     = analytics_billing($period);
+$canCartera  = can_view_cartera();
+$cashflow    = $canCartera ? analytics_cashflow_forecast() : null;
+$collection  = $canCartera ? analytics_collection_metrics($period) : null;
+$payers      = $canCartera ? analytics_collection_by_client(6) : [];
 
 $h = fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $m0 = fn ($v) => 'RD$ ' . number_format((float) $v, 0, '.', ',');
@@ -35,10 +40,10 @@ ob_start();
     .muted { color: #56697b; }
     .right { text-align: right; }
     h1,h2,h3 { margin: 0; }
-    .accent { height: 5px; background: #0a7d36; }
+    .accent { height: 5px; background: #027F31; }
     .head { width: 100%; border-collapse: collapse; margin-top: 14px; }
     .head td { vertical-align: top; }
-    .brand-name { font-size: 18px; font-weight: bold; color: #0a7d36; letter-spacing: -.3px; }
+    .brand-name { font-size: 18px; font-weight: bold; color: #027F31; letter-spacing: -.3px; }
     .brand-sub { color: #56697b; font-size: 9px; }
     .doc-label { color: #8696a6; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; }
     .doc-title { font-size: 17px; font-weight: bold; color: #0e1a28; }
@@ -48,8 +53,14 @@ ob_start();
     .kpi { border: 1px solid #e3eaf1; border-radius: 7px; padding: 8px 10px; width: 25%; }
     .kpi .k { color: #8696a6; font-size: 8px; text-transform: uppercase; letter-spacing: .5px; }
     .kpi .v { font-size: 15px; font-weight: bold; color: #0e1a28; margin-top: 3px; }
-    .section { margin-top: 16px; page-break-inside: avoid; }
-    .section h3 { font-size: 11px; color: #0a7d36; border-bottom: 2px solid #0a7d36; padding-bottom: 4px; margin-bottom: 7px; }
+    .kpi--flow { background: #f4faf6; border-color: #cfe6d7; }
+    /* Igual que en la cartera: estas secciones crecen con los datos y, si no
+       caben enteras, la regla tira la hoja completa. La protección baja a la
+       fila, que sí tiene tamaño acotado. */
+    .section { margin-top: 16px; }
+    .section h3 { page-break-after: avoid; }
+    .section table tr { page-break-inside: avoid; }
+    .section h3 { font-size: 11px; color: #027F31; border-bottom: 2px solid #027F31; padding-bottom: 4px; margin-bottom: 7px; }
     table.data { width: 100%; border-collapse: collapse; }
     table.data th { background: #f1f8f3; color: #41515f; font-size: 8.5px; text-transform: uppercase; letter-spacing: .4px; padding: 6px 8px; text-align: left; border-bottom: 1px solid #d8e6dd; }
     table.data th.r, table.data td.r { text-align: right; }
@@ -59,9 +70,9 @@ ob_start();
     .cols .l { padding-right: 8px; }
     .cols .r2 { padding-left: 8px; }
     .foot { position: fixed; left: -34px; right: -34px; bottom: -50px; height: 42px; }
-    .foot-inner { border-top: 2px solid #0a7d36; margin: 0 34px; padding-top: 6px; color: #56697b; font-size: 8.4px; }
+    .foot-inner { border-top: 2px solid #027F31; margin: 0 34px; padding-top: 6px; color: #56697b; font-size: 8.4px; }
     .foot-inner table { width: 100%; border-collapse: collapse; }
-    .foot-inner b { color: #0a7d36; }
+    .foot-inner b { color: #027F31; }
 </style></head>
 <body>
     <div class="foot"><div class="foot-inner"><table><tr>
@@ -75,7 +86,7 @@ ob_start();
             <table><tr>
                 <?php if ($logoData): ?><td style="width:54px;vertical-align:top;"><img src="<?= $logoData ?>" style="width:46px;"></td><?php endif; ?>
                 <td style="vertical-align:top;padding-top:2px;">
-                    <div class="brand-name"><?= $h(APP_LEGAL) ?></div>
+                    <div class="brand-name"><?= $h(sin_viudas(APP_LEGAL)) ?></div>
                     <?php if (APP_RNC !== ''): ?><div class="brand-sub">RNC: <?= $h(APP_RNC) ?></div><?php endif; ?>
                 </td>
             </tr></table>
@@ -88,16 +99,70 @@ ob_start();
     </tr></table>
 
     <table class="kpis"><tr>
-        <td class="kpi"><div class="k">Pipeline activo</div><div class="v"><?= $m0($kpis['pipeline']['value']) ?></div></td>
-        <td class="kpi"><div class="k">Ganado (periodo)</div><div class="v"><?= $m0($kpis['won']['value']) ?></div></td>
-        <td class="kpi"><div class="k">Tasa de cierre</div><div class="v"><?= $h((string) $kpis['win_rate']['value']) ?>%</div></td>
-        <td class="kpi"><div class="k">Cotizaciones</div><div class="v"><?= $h((string) (int) $kpis['quotes']['value']) ?></div></td>
+        <td class="kpi kpi--flow"><div class="k">Aprobado · cotizaciones</div><div class="v"><?= $m0($kpis['won']['value']) ?></div></td>
+        <td class="kpi kpi--flow"><div class="k">Facturado · comprobantes</div><div class="v"><?= $m0($billing['billed']['value']) ?></div></td>
+        <td class="kpi kpi--flow"><div class="k">Cobrado · pagos</div><div class="v"><?= $m0($billing['collected']['value']) ?></div></td>
+        <?php if ($canCartera): ?>
+            <td class="kpi kpi--flow"><div class="k">Por cobrar · hoy</div><div class="v"><?= $m0($billing['outstanding']['value']) ?></div></td>
+        <?php else: ?>
+            <td class="kpi"><div class="k">Tasa de cierre</div><div class="v"><?= $h((string) $kpis['win_rate']['value']) ?>%</div></td>
+        <?php endif; ?>
     </tr><tr>
-        <td class="kpi"><div class="k">Tickets abiertos</div><div class="v"><?= $h((string) (int) $kpis['open_tickets']['value']) ?></div></td>
+        <td class="kpi"><div class="k">Pipeline activo</div><div class="v"><?= $m0($kpis['pipeline']['value']) ?></div></td>
+        <?php if ($canCartera): ?><td class="kpi"><div class="k">Tasa de cierre</div><div class="v"><?= $h((string) $kpis['win_rate']['value']) ?>%</div></td><?php endif; ?>
+        <td class="kpi"><div class="k">Cotizaciones</div><div class="v"><?= $h((string) (int) $kpis['quotes']['value']) ?></div></td>
+        <td class="kpi"><div class="k">Clientes nuevos</div><div class="v"><?= $h((string) (int) $kpis['clients']['value']) ?></div></td>
+        <?php if (!$canCartera): ?><td class="kpi"><div class="k">Tickets abiertos</div><div class="v"><?= $h((string) (int) $kpis['open_tickets']['value']) ?></div></td><?php endif; ?>
+    </tr><tr>
+        <?php if ($canCartera): ?><td class="kpi"><div class="k">Tickets abiertos</div><div class="v"><?= $h((string) (int) $kpis['open_tickets']['value']) ?></div></td><?php endif; ?>
         <td class="kpi"><div class="k">Resolución prom.</div><div class="v"><?= $h((string) $resolution['avg_hours']) ?> h</div></td>
         <td class="kpi"><div class="k">Dentro de SLA</div><div class="v"><?= $h((string) $resolution['sla_pct']) ?>%</div></td>
-        <td class="kpi"><div class="k">Clientes nuevos</div><div class="v"><?= $h((string) (int) $kpis['clients']['value']) ?></div></td>
+        <?php if ($canCartera): ?>
+            <td class="kpi"><div class="k">Vencido</div><div class="v"><?= $m0($billing['outstanding']['overdue_value']) ?></div></td>
+        <?php else: ?>
+            <td class="kpi"><div class="k">Tickets vencidos</div><div class="v"><?= $h((string) $resolution['overdue']) ?></div></td>
+        <?php endif; ?>
     </tr></table>
+    <div class="muted" style="margin-top:5px;font-size:8.4px;">
+        <b>Aprobado</b> son cotizaciones aceptadas (intención de compra); <b>facturado</b> son comprobantes fiscales emitidos; <b>cobrado</b> son pagos recibidos en el periodo. Son magnitudes distintas y no deben sumarse entre sí. Importes en RD$ (los comprobantes en USD se convierten con la tasa del documento).
+    </div>
+
+    <?php if ($canCartera): ?>
+    <table class="cols"><tr>
+        <td class="l">
+            <div class="section"><h3>Flujo de caja proyectado</h3>
+                <table class="data"><tr><th>Tramo</th><th class="r">Doc.</th><th class="r">Monto</th></tr>
+                <?php foreach ($cashflow['buckets'] as $ck => $cb): if ($cb['count'] === 0) { continue; } ?>
+                    <tr>
+                        <td<?= $ck === 'vencido' ? ' style="color:#b42318;font-weight:bold"' : '' ?>><?= $h($cb['label']) ?></td>
+                        <td class="r"><?= $h((string) $cb['count']) ?></td>
+                        <td class="r"<?= $ck === 'vencido' ? ' style="color:#b42318;font-weight:bold"' : '' ?>><?= $m0($cb['amount']) ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if ($cashflow['total']['count'] === 0): ?><tr><td colspan="3" class="muted">Sin saldo por cobrar.</td></tr><?php endif; ?>
+                <tr><td style="font-weight:bold;border-top:1.5px solid #d8e6dd">Total</td><td class="r" style="font-weight:bold;border-top:1.5px solid #d8e6dd"><?= $h((string) $cashflow['total']['count']) ?></td><td class="r" style="font-weight:bold;border-top:1.5px solid #d8e6dd"><?= $m0($cashflow['total']['amount']) ?></td></tr>
+                </table>
+                <div class="muted" style="margin-top:4px;font-size:8.2px;">Reparte el saldo vivo por su fecha de vencimiento; supone cobro el día que vence.</div>
+            </div>
+        </td>
+        <td class="r2">
+            <div class="section"><h3>Cobranza</h3>
+                <table class="data">
+                    <tr><td>DSO · días de venta por cobrar<br><span class="muted" style="font-size:8px">últimos <?= $h((string) $collection['dso_days']) ?> días</span></td><td class="r"><b><?= $collection['dso'] === null ? '—' : $h((string) $collection['dso']) . ' d' ?></b></td></tr>
+                    <tr><td>Tardanza real en cobrar</td><td class="r"><b><?= $collection['avg_days'] === null ? '—' : $h((string) $collection['avg_days']) . ' d' ?></b></td></tr>
+                    <tr><td>Cobrado dentro del plazo</td><td class="r"><b><?= $collection['on_time_pct'] === null ? '—' : $h((string) $collection['on_time_pct']) . '%' ?></b></td></tr>
+                </table>
+                <?php if ($payers): ?>
+                    <table class="data" style="margin-top:7px"><tr><th>Quien más tarda</th><th class="r">Tarda</th><th class="r">Saldo</th></tr>
+                    <?php foreach ($payers as $p): ?>
+                        <tr><td><?= $h($p['name']) ?></td><td class="r"><?= $p['avg_days'] === null ? '<span class="muted">sin hist.</span>' : $h((string) round($p['avg_days'])) . ' d' ?></td><td class="r"><?= $m0($p['balance']) ?></td></tr>
+                    <?php endforeach; ?>
+                    </table>
+                <?php endif; ?>
+            </div>
+        </td>
+    </tr></table>
+    <?php endif; ?>
 
     <table class="cols"><tr>
         <td class="l">

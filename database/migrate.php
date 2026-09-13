@@ -64,7 +64,62 @@ $out('clients.support_* y tickets.source/public_reference: OK');
 ensure_invoice_schema();
 $out('invoices/invoice_items/ncf_sequences + discount_pct: OK');
 
-/* 3) Verify the key columns the v2.0 features depend on. */
+ensure_products_schema();
+$out('products + product_id/unit_cost en partidas: OK');
+
+/*
+ * 3) Enlazar notas de crédito históricas.
+ *
+ * Antes, el NCF que modificaba una nota de crédito se escribía a mano en
+ * modifies_ncf y nadie llenaba modifies_invoice_id, así que esas notas no
+ * descontaban saldo: la factura seguía figurando por su importe completo en la
+ * cartera. Esto busca a qué comprobante apuntaba cada nota y las enlaza.
+ *
+ * Solo actúa cuando el NCF identifica a UN único comprobante. Si hubiera
+ * ambigüedad se deja como está y se informa: enlazar a la factura equivocada
+ * sería peor que no enlazar.
+ */
+if (table_exists('invoices') && column_exists('invoices', 'modifies_invoice_id') && column_exists('invoices', 'credited_amount')) {
+    $pending = fetch_all(
+        "SELECT id, modifies_ncf FROM invoices
+          WHERE ncf_type IN ('04','34')
+            AND modifies_ncf IS NOT NULL AND modifies_ncf <> ''
+            AND (modifies_invoice_id IS NULL OR modifies_invoice_id = 0)"
+    );
+    $linked = 0;
+    $ambiguous = 0;
+    $orphan = 0;
+    $touched = [];
+    foreach ($pending as $note) {
+        $matches = fetch_all('SELECT id FROM invoices WHERE ncf = ? AND id <> ?', [(string) $note['modifies_ncf'], (int) $note['id']]);
+        if (count($matches) === 1) {
+            $srcId = (int) $matches[0]['id'];
+            $pdo->prepare('UPDATE invoices SET modifies_invoice_id = ? WHERE id = ?')->execute([$srcId, (int) $note['id']]);
+            $touched[$srcId] = true;
+            $linked++;
+        } elseif (count($matches) > 1) {
+            $ambiguous++;
+        } else {
+            $orphan++;
+        }
+    }
+    foreach (array_keys($touched) as $srcId) {
+        invoice_recalc_credited((int) $srcId);
+    }
+    if ($pending === []) {
+        $out('notas de crédito: no hay ninguna pendiente de enlazar');
+    } else {
+        $out(sprintf(
+            'notas de crédito: %d enlazadas y aplicadas a %d comprobante(s)%s%s',
+            $linked,
+            count($touched),
+            $ambiguous > 0 ? "; {$ambiguous} con NCF ambiguo (revisar a mano)" : '',
+            $orphan > 0 ? "; {$orphan} apuntan a un NCF inexistente" : ''
+        ));
+    }
+}
+
+/* 4) Verify the key columns the v2.0 features depend on. */
 $out(str_repeat('-', 48));
 $checks = [
     ['quotes', 'category'],
@@ -74,6 +129,11 @@ $checks = [
     ['quotes', 'discount_amount'],
     ['quotes', 'discount_pct'],
     ['invoices', 'discount_pct'],
+    ['invoices', 'void_code'],
+    ['invoices', 'credited_amount'],
+    ['invoice_payments', 'receipt_number'],
+    ['invoice_items', 'unit_cost'],
+    ['quote_items', 'unit_cost'],
     ['equipment', 'last_service_at'],
     ['clients', 'support_slug'],
 ];

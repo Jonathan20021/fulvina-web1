@@ -9,12 +9,24 @@ $hasDb = db(false) && table_exists('equipment');
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && ($_POST['form'] ?? '') === 'schedule') {
         if (!current_can('agenda.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/agenda.php'); }
     $eq = (int) ($_POST['equipment_id'] ?? 0);
-    $date = $_POST['next_service_at'] ?: null;
-    if ($eq > 0 && $date) {
-        db()->prepare('UPDATE equipment SET next_service_at=?, updated_at=NOW() WHERE id=?')->execute([$date, $eq]);
-        flash('success', 'Servicio programado en la agenda.');
+    $date = valid_date($_POST['next_service_at'] ?? null);
+    if ($eq <= 0 || $date === null) {
+        flash('warning', 'Selecciona un equipo y una fecha válida (día, mes y año).');
     } else {
-        flash('warning', 'Selecciona un equipo y una fecha.');
+        /* Se confirma que el equipo existe antes de decir que se programó: sin
+           esta comprobación el UPDATE no tocaba ninguna fila y la pantalla
+           anunciaba un servicio que no quedó en ningún lado.
+           Se pregunta con un SELECT y no por rowCount(): esta conexión no pide
+           FOUND_ROWS, así que reprogramar la MISMA fecha cuenta cero filas
+           cambiadas y se leería como «el equipo no existe». */
+        $existe = fetch_one('SELECT id FROM equipment WHERE id=?', [$eq]);
+        if (!$existe) {
+            flash('warning', 'Ese equipo ya no existe: alguien lo eliminó mientras llenabas la agenda. Actualiza la pantalla y vuelve a intentarlo.');
+        } else {
+            db()->prepare('UPDATE equipment SET next_service_at=?, updated_at=NOW() WHERE id=?')->execute([$date, $eq]);
+            log_activity('equipment', $eq, 'servicio_programado', $date);
+            flash('success', 'Servicio programado para el ' . date('d/m/Y', strtotime($date)) . '.');
+        }
     }
     redirect('crm/agenda.php?ym=' . preg_replace('/[^0-9-]/', '', (string) ($_POST['ym'] ?? date('Y-m'))));
 }
@@ -34,7 +46,9 @@ $nextYm = date('Y-m', strtotime('+1 month', $firstTs));
 $today = date('Y-m-d');
 
 /* ---- Events for the month ------------------------------------------------ */
-$priorityColor = fn ($p) => in_array($p, ['Critica', 'Alta'], true) ? '#dc2626' : ($p === 'Media' ? '#d97706' : '#0666b3');
+/* Rojo solo para lo crítico, bronce para lo que pide atención, neutro para
+   el resto. La misma familia que el resto del CRM. */
+$priorityColor = fn ($p) => in_array($p, ['Critica', 'Alta'], true) ? '#C2202C' : ($p === 'Media' ? '#6C5E3D' : '#66746D');
 
 $eventsByDay = [];
 $add = function (string $date, array $ev) use (&$eventsByDay) {
@@ -44,7 +58,7 @@ $add = function (string $date, array $ev) use (&$eventsByDay) {
 
 if ($hasDb) {
     foreach (fetch_all('SELECT equipment.id, equipment.name, equipment.area, equipment.next_service_at AS d, clients.name AS client_name FROM equipment LEFT JOIN clients ON clients.id = equipment.client_id WHERE next_service_at BETWEEN ? AND ? ORDER BY next_service_at', [$monthStart, $monthEnd]) as $r) {
-        $add($r['d'], ['type' => 'Mantenimiento', 'icon' => 'wrench', 'color' => '#0a7d36', 'title' => $r['client_name'] ?? 'Cliente', 'sub' => ($r['name'] ?? 'Equipo') . ' · ' . ($r['area'] ?? 'Área'), 'href' => url('crm/equipos.php?edit=' . (int) $r['id'])]);
+        $add($r['d'], ['type' => 'Mantenimiento', 'icon' => 'wrench', 'color' => '#027F31', 'title' => $r['client_name'] ?? 'Cliente', 'sub' => ($r['name'] ?? 'Equipo') . ' · ' . ($r['area'] ?? 'Área'), 'href' => url('crm/equipos.php?edit=' . (int) $r['id'])]);
     }
     if (table_exists('tickets')) {
         foreach (fetch_all('SELECT tickets.id, tickets.subject, tickets.priority, tickets.due_at AS d, clients.name AS client_name FROM tickets LEFT JOIN clients ON clients.id = tickets.client_id WHERE due_at BETWEEN ? AND ? ORDER BY due_at', [$monthStart, $monthEnd]) as $r) {
@@ -55,7 +69,7 @@ if ($hasDb) {
     foreach ([['+0', 'Hospital Metropolitano', 'Tomógrafo Siemens · Imagenología'], ['+1', 'Plaza de la Salud', 'Ventilador Dräger · UCI'], ['+3', 'CEDIMAT', 'Monitor GE B450 · Cardiología'], ['+8', 'CAID', 'Central de gases · Terapia'], ['+8', 'Hospital General Plaza', 'Autoclave 90L · Esterilización'], ['+15', 'Plaza de la Salud', 'Bomba de infusión · Farmacia'], ['-2', 'CEDIMAT', 'Lámpara quirúrgica · Quirófano 2']] as [$off, $cli, $eq]) {
         $d = date('Y-m-d', strtotime($off . ' days'));
         if (date('Y-m', strtotime($d)) === $ym) {
-            $add($d, ['type' => 'Mantenimiento', 'icon' => 'wrench', 'color' => '#0a7d36', 'title' => $cli, 'sub' => $eq, 'href' => url('crm/equipos.php')]);
+            $add($d, ['type' => 'Mantenimiento', 'icon' => 'wrench', 'color' => '#027F31', 'title' => $cli, 'sub' => $eq, 'href' => url('crm/equipos.php')]);
         }
     }
 }
@@ -83,6 +97,9 @@ $cells = (int) (ceil(($lead + (int) date('t', $firstTs)) / 7) * 7);
 $crmTitle = 'Agenda';
 require_once __DIR__ . '/../includes/crm_header.php';
 ?>
+<?= sch_encabezado('Agenda', 'Mantenimientos programados y vencimientos del mes') ?>
+
+
 
 <div class="dash" x-data="agendaCalendar(<?= e(json_encode($eventsByDay, JSON_UNESCAPED_UNICODE)) ?>)">
     <div class="dash-bar">
@@ -105,8 +122,9 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <div class="dash-card__head">
                 <h3><i data-lucide="calendar"></i> <?= e($monthLabel) ?></h3>
                 <div class="dash-card__meta cal-legend">
-                    <span><i style="background:#0a7d36"></i>Mantenimiento</span>
-                    <span><i style="background:#0666b3"></i>Ticket</span>
+                    <span><i style="background:#027F31"></i>Mantenimiento</span>
+                    <span><i style="background:#66746D"></i>Ticket</span>
+                    <span><i style="background:#C2202C"></i>Crítico</span>
                 </div>
             </div>
             <div class="dash-card__body" style="padding-top:.5rem">
@@ -151,7 +169,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                     <div class="agenda-up">
                         <div class="agenda-up__date">
                             <b><?= e(date('d', strtotime($u['d']))) ?></b>
-                            <span><?= e($months_es[(int) date('n', strtotime($u['d']))]) ?></span>
+                            <span><?= e(mb_substr($months_es[(int) date('n', strtotime($u['d']))], 0, 3)) ?></span>
                         </div>
                         <div class="agenda-up__body">
                             <b><?= e($u['client_name'] ?? 'Cliente') ?></b>

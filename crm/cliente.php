@@ -111,9 +111,11 @@ if (!$demo && column_exists('clients', 'support_slug')) {
 $crmTitle = $client['name'];
 require_once __DIR__ . '/../includes/crm_header.php';
 ?>
+<?= sch_encabezado('Cliente', 'Ficha completa: equipos, cotizaciones, tickets y saldo') ?>
+
 
 <?php if ($demo): ?>
-    <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Vista de demostración. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para ver fichas reales de clientes.</div>
+    <div class="gas-aviso">Vista de demostración. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para ver fichas reales de clientes.</div>
 <?php endif; ?>
 
 <div class="mb-3 print:hidden">

@@ -21,6 +21,8 @@ function rbac_modules(): array
         'clientes'     => ['Clientes',      ['view', 'edit', 'delete']],
         'cotizaciones' => ['Cotizaciones',  ['view', 'edit', 'delete']],
         'facturas'     => ['Facturación',   ['view', 'edit', 'delete']],
+        'dgii'         => ['Formatos DGII', ['view']],
+        'productos'    => ['Productos',     ['view', 'edit', 'delete']],
         'leads'        => ['Leads',         ['view', 'edit', 'delete']],
         'equipos'      => ['Equipos',       ['view', 'edit', 'delete']],
         'tickets'      => ['Tickets',       ['view', 'edit', 'delete']],
@@ -257,6 +259,28 @@ function can_view_cartera(): bool
         return false;
     }
     return in_array($me, cartera_user_ids(), true);
+}
+
+/**
+ * Aviso para quien PUEDE arreglar que la cartera no se vea.
+ *
+ * La cartera es un permiso nominal: una lista blanca de usuarios, vacía al
+ * instalar. Eso es correcto —son cuentas por cobrar, no información general—
+ * pero el primer día el módulo simplemente no aparece y nadie sabe por qué.
+ * Devuelve el aviso solo si de verdad hay algo que hacer y quien mira puede
+ * hacerlo; en cualquier otro caso, cadena vacía y la pantalla no cambia.
+ */
+function cartera_aviso_config(): string
+{
+    if (can_view_cartera() || cartera_user_ids() !== [] || !current_can('usuarios.manage')) {
+        return '';
+    }
+    return '<div class="gas-aviso gas-aviso--nota">'
+         . '<i data-lucide="lock" style="width:16px;height:16px"></i>'
+         . '<span>La cartera y la antigüedad de cuentas por cobrar están restringidas a contabilidad, '
+         . 'y todavía no hay nadie autorizado. Asigna el permiso en '
+         . '<a href="' . url('crm/usuarios.php') . '">Usuarios</a>.</span>'
+         . '</div>';
 }
 
 /** Gate de página/endpoint para la información de cartera. */

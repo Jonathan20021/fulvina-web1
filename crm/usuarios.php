@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
                 log_activity('user', $uid, 'usuario_actualizado', $name);
                 flash('success', 'Usuario actualizado.');
             } catch (Throwable) {
-                flash('warning', 'No se pudo actualizar. Verifica que el correo no esté en uso.');
+                flash('error', 'No se pudo actualizar. Verifica que el correo no esté en uso.');
             }
         }
         redirect('crm/usuarios.php');
@@ -97,7 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
                 flash('success', 'Usuario creado.');
                 redirect('crm/usuarios.php');
             } catch (Throwable $e) {
-                flash('warning', 'No se pudo crear usuario. Verifica que el correo no exista.');
+                flash('error', 'No se pudo crear usuario. Verifica que el correo no exista.');
             }
         }
     }
@@ -139,15 +139,16 @@ $tones = ['green', 'blue', 'teal', 'gold', 'slate'];
 $crmTitle = 'Usuarios y accesos';
 require_once __DIR__ . '/../includes/crm_header.php';
 ?>
+<?= sch_encabezado('Usuarios', 'Quién entra al CRM y con qué rol') ?>
+
 
 <?php if (!$hasDb): ?>
-    <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para crear usuarios reales.</div>
+    <div class="gas-aviso">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para crear usuarios reales.</div>
 <?php endif; ?>
 
 <section class="crm-cockpit" x-data="crmFormModal({id:0,name:'',email:'',role:'soporte',status:'activo',password:'',cartera:false})">
     <div class="crm-cockpit__top">
         <div class="crm-cockpit__hero">
-            <span class="crm-kicker"><i data-lucide="users-round"></i>Control de acceso</span>
             <h2>Usuarios internos y sus accesos.</h2>
             <p>Gestiona el equipo que entra al CRM: alta, edición, rol y estado. Los permisos de cada rol se definen en Roles y permisos.</p>
             <div class="crm-cockpit__actions">
@@ -194,12 +195,12 @@ require_once __DIR__ . '/../includes/crm_header.php';
                             <td>
                                 <div class="dash-person">
                                     <span class="av av--<?= e($tones[$i % count($tones)]) ?>"><?= e($initialsOf((string) $user['name'])) ?></span>
-                                    <span class="dash-person__id"><b><?= e($user['name']) ?><?= (int) $user['id'] === $meId ? ' <small style="color:var(--brand-strong);font-weight:600">· Tú</small>' : '' ?></b><span><?= e($user['email']) ?><?= !empty($user['must_change_password']) ? ' <small style="color:#b45309;font-weight:600">· debe cambiar contraseña</small>' : '' ?></span></span>
+                                    <span class="dash-person__id"><b><?= e($user['name']) ?><?= (int) $user['id'] === $meId ? ' <small style="color:var(--brand-strong);font-weight:600">· Tú</small>' : '' ?></b><span><?= e($user['email']) ?><?= !empty($user['must_change_password']) ? ' <small class="usr-pendiente">· debe cambiar contraseña</small>' : '' ?></span></span>
                                 </div>
                             </td>
                             <td><span class="status-chip <?= e(role_class((string) $user['role'])) ?>"><?= e(role_label((string) $user['role'])) ?></span></td>
                             <td><span class="status-chip <?= e(status_class($user['status'])) ?>"><?= e(status_label($user['status'])) ?></span></td>
-                            <td><?php if (in_array((int) $user['id'], $carteraIds, true)): ?><span class="status-chip bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" title="Ve cuentas por cobrar por antigüedad">Autorizado</span><?php else: ?><span style="color:var(--muted);font-size:.8rem">—</span><?php endif; ?></td>
+                            <td><?php if (in_array((int) $user['id'], $carteraIds, true)): ?><span class="status-chip gas-estado--ok" title="Ve cuentas por cobrar por antigüedad">Autorizado</span><?php else: ?><span style="color:var(--muted);font-size:.8rem">—</span><?php endif; ?></td>
                             <td class="ops-nowrap"><?= e(date_es($user['created_at'] ?? null)) ?></td>
                             <td class="text-right">
                                 <div class="crm-row-actions">

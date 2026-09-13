@@ -63,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         log_activity('user', $uid, 'perfil_actualizado', null);
         flash('success', $changePass ? 'Perfil y contraseña actualizados.' : 'Perfil actualizado.');
     } catch (Throwable) {
-        flash('warning', 'No se pudo guardar. Verifica que el correo no esté en uso.');
+        flash('error', 'No se pudo guardar. Verifica que el correo no esté en uso.');
     }
     redirect('crm/perfil.php');
 }
@@ -73,9 +73,11 @@ $me = $isDemo ? $user : (fetch_one('SELECT name, email, role, created_at FROM us
 $crmTitle = 'Mi perfil';
 require_once __DIR__ . '/../includes/crm_header.php';
 ?>
+<?= sch_encabezado('Mi perfil', 'Tus datos de acceso') ?>
+
 
 <?php if ($isDemo): ?>
-    <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Estás usando el acceso demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> y entra con un usuario real para editar tu perfil.</div>
+    <div class="gas-aviso">Estás usando el acceso demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> y entra con un usuario real para editar tu perfil.</div>
 <?php endif; ?>
 
 <div class="crm-module-grid" style="max-width:720px;margin-inline:auto">

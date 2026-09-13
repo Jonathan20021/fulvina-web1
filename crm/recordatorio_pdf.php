@@ -166,7 +166,7 @@ ob_start();
     .head { width: 100%; border-collapse: collapse; margin-top: 12px; }
     .head td { vertical-align: top; }
     .brand-logo { width: 54px; height: auto; }
-    .brand-name { font-size: 14.5px; font-weight: bold; letter-spacing: -.2px; line-height: 1.25; color: #0a7d36; }
+    .brand-name { font-size: 14.5px; font-weight: bold; letter-spacing: -.2px; line-height: 1.25; color: #027F31; }
     .brand-meta { color: #5b6b7b; font-size: 8.4px; margin-top: 5px; line-height: 1.45; }
     .doc-box { border: 1px solid #d8e2ec; border-radius: 8px; padding: 8px 11px; }
     .doc-label { color: #8696a6; font-size: 8.2px; letter-spacing: 1.4px; text-transform: uppercase; }
@@ -203,7 +203,7 @@ ob_start();
     .doc-name { font-weight: bold; color: #0e1a28; }
     .ncf-mono { color: #0e1a28; font-weight: bold; letter-spacing: .3px; }
     .days-chip { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 8px; font-weight: bold; white-space: nowrap; }
-    .days-ok { background: #f5faf6; color: #066128; border: 1px solid #c7d6c9; }
+    .days-ok { background: #f5faf6; color: #016627; border: 1px solid #c7d6c9; }
     .days-warn { background: #fffaf0; color: #92660a; border: 1px solid #f4d58a; }
     .days-bad { background: #fef2f2; color: #b42318; border: 1px solid #f3c4c4; }
     table.items tr.tot td { border-top: 2px solid #0e1a28; border-bottom: none; font-weight: bold; font-size: 10.4px; padding-top: 7px; }
@@ -232,9 +232,9 @@ ob_start();
     table.items tbody tr, .lower, .kpis { page-break-inside: avoid; }
 
     .foot { position: fixed; left: -40px; right: -40px; bottom: -50px; height: 30px; }
-    .foot-inner { border-top: 2px solid #0a7d36; margin: 0 40px; padding-top: 6px; color: #5b6b7b; font-size: 8.2px; line-height: 1.4; }
+    .foot-inner { border-top: 2px solid #027F31; margin: 0 40px; padding-top: 6px; color: #5b6b7b; font-size: 8.2px; line-height: 1.4; }
     .foot-inner table { width: 100%; border-collapse: collapse; }
-    .foot-inner b { color: #0a7d36; }
+    .foot-inner b { color: #027F31; }
 </style>
 </head>
 <body>
@@ -341,7 +341,7 @@ ob_start();
                 </td>
                 <td class="kpi">
                     <div class="k">Mayor atraso</div>
-                    <div class="v" style="color: <?= (int) $doc['max_days'] > 0 ? '#b42318' : '#066128' ?>;"><?= $h((string) (int) $doc['max_days']) ?> día<?= (int) $doc['max_days'] === 1 ? '' : 's' ?></div>
+                    <div class="v" style="color: <?= (int) $doc['max_days'] > 0 ? '#b42318' : '#016627' ?>;"><?= $h((string) (int) $doc['max_days']) ?> día<?= (int) $doc['max_days'] === 1 ? '' : 's' ?></div>
                     <div class="n"><?= (int) $doc['max_days'] > 0 ? 'del comprobante más antiguo' : 'cuenta al día' ?></div>
                 </td>
             </tr>

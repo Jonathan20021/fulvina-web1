@@ -48,7 +48,7 @@ $category = trim((string) ($quote['category'] ?? ''));
 
 $st = strtolower((string) ($quote['status'] ?? 'borrador'));
 $statusColor = match ($st) {
-    'aprobado' => '#0a7d36',
+    'aprobado' => '#027F31',
     'enviado' => '#0666b3',
     'cotizado' => '#1fa6d8',
     'rechazado', 'cerrado' => '#64748b',
@@ -114,11 +114,11 @@ $buildHtml = function (int $level) use (
     h1, h2, h3 { margin: 0; }
 
     /* Header */
-    .topbar { height: 4px; background: #0a7d36; }
+    .topbar { height: 4px; background: #027F31; }
     .head { width: 100%; border-collapse: collapse; margin-top: 16px; }
     .head td { vertical-align: top; }
     .brand-logo { width: 60px; height: auto; }
-    .brand-name { font-size: 20px; font-weight: bold; color: #0a7d36; letter-spacing: -.3px; }
+    .brand-name { font-size: 20px; font-weight: bold; color: #027F31; letter-spacing: -.3px; }
     .brand-sub { color: #5b6b7b; font-size: 9px; margin-top: 1px; }
     .brand-meta { color: #5b6b7b; font-size: 8.6px; margin-top: 6px; line-height: 1.5; }
     .doc-box { border: 1px solid #d8e2ec; border-radius: 8px; padding: 9px 12px; }
@@ -134,19 +134,19 @@ $buildHtml = function (int $level) use (
     .pcard { border: 1px solid #e3eaf1; border-radius: 8px; padding: 11px 13px; min-height: 78px; }
     .pcard-l { margin-right: 8px; }
     .pcard-r { margin-left: 8px; }
-    .pcard h3 { color: #0a7d36; font-size: 8.5px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 5px; }
+    .pcard h3 { color: #027F31; font-size: 8.5px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 5px; }
     .pcard .name { font-size: 12px; font-weight: bold; color: #0e1a28; }
     .pcard p { margin: 3px 0 0; color: #5b6b7b; font-size: 9.3px; line-height: 1.5; }
 
-    .subject-row { margin-top: 14px; border-left: 3px solid #0a7d36; padding: 2px 0 2px 10px; }
+    .subject-row { margin-top: 14px; border-left: 3px solid #027F31; padding: 2px 0 2px 10px; }
     .subject-row .k { color: #8696a6; font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; }
     .subject-row .v { font-size: 12.5px; font-weight: bold; color: #0e1a28; }
-    .cat-tag { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 12px; background: #e8f4ec; color: #066128; font-size: 8.5px; font-weight: bold; }
+    .cat-tag { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 12px; background: #e8f4ec; color: #016627; font-size: 8.5px; font-weight: bold; }
 
     /* Items */
     table.items { width: 100%; border-collapse: collapse; margin-top: 16px; }
     table.items thead th {
-        background: #0a7d36; color: #fff; font-size: 9px; font-weight: bold;
+        background: #027F31; color: #fff; font-size: 9px; font-weight: bold;
         text-transform: uppercase; letter-spacing: .5px; padding: 8px 10px; text-align: left;
     }
     table.items thead th.r { text-align: right; }
@@ -166,7 +166,7 @@ $buildHtml = function (int $level) use (
     .tt td.k { color: #5b6b7b; }
     .tt td.v { text-align: right; font-weight: bold; color: #0e1a28; white-space: nowrap; }
     .tt tr.sep td { border-top: 1px solid #e3eaf1; }
-    .tt tr.total td { background: #0a7d36; color: #fff; font-size: 13.5px; font-weight: bold; }
+    .tt tr.total td { background: #027F31; color: #fff; font-size: 13.5px; font-weight: bold; }
     .tt tr.total td.k { color: #eafff2; }
     .words { border: 1px dashed #c7d6c9; border-radius: 7px; background: #f5faf6; padding: 8px 11px; margin-top: 6px; }
     .words .k { color: #8696a6; font-size: 7.6px; letter-spacing: 1.4px; text-transform: uppercase; }
@@ -186,7 +186,7 @@ $buildHtml = function (int $level) use (
        los pies de figura queden alineados aunque las fotos tengan proporciones
        distintas (retrato y paisaje mezclados). */
     .annex { page-break-before: always; }
-    .annex-head { border-bottom: 2px solid #0a7d36; padding-bottom: 7px; margin-bottom: 14px; }
+    .annex-head { border-bottom: 2px solid #027F31; padding-bottom: 7px; margin-bottom: 14px; }
     .annex-head .t { font-size: 14px; font-weight: bold; color: #0e1a28; }
     .annex-head .s { color: #5b6b7b; font-size: 9px; margin-top: 2px; }
     table.annex-grid { width: 100%; border-collapse: separate; border-spacing: 9px; }
@@ -196,7 +196,7 @@ $buildHtml = function (int $level) use (
     table.fig-frame { width: 100%; height: <?= ANNEX_BOX_H ?>px; border-collapse: collapse; background: #f7faf8; }
     table.fig-frame td { text-align: center; vertical-align: middle; padding: 0; }
     .fig-cap { margin-top: 7px; color: #41515f; font-size: 8.8px; line-height: 1.4; }
-    .fig-cap b { color: #0a7d36; }
+    .fig-cap b { color: #027F31; }
 
     /* Signatures */
     .signs { width: 100%; border-collapse: collapse; margin-top: 34px; page-break-inside: avoid; }
@@ -207,9 +207,9 @@ $buildHtml = function (int $level) use (
 
     /* Fixed footer */
     .foot { position: fixed; left: -40px; right: -40px; bottom: -<?= $footBottom ?>px; height: 60px; }
-    .foot-inner { border-top: 2px solid #0a7d36; margin: 0 40px; padding-top: 7px; color: #5b6b7b; font-size: 8.4px; line-height: 1.5; }
+    .foot-inner { border-top: 2px solid #027F31; margin: 0 40px; padding-top: 7px; color: #5b6b7b; font-size: 8.4px; line-height: 1.5; }
     .foot-inner table { width: 100%; border-collapse: collapse; }
-    .foot-inner b { color: #0a7d36; }
+    .foot-inner b { color: #027F31; }
 
 <?php if ($level >= 1): ?>
     /* Densidad compacta: gana ~1 bloque de firmas sin tocar la jerarquía visual. */
@@ -285,7 +285,7 @@ $buildHtml = function (int $level) use (
                     <tr>
                         <?php if ($logoData): ?><td style="width: 70px; vertical-align: top;"><img src="<?= $logoData ?>" class="brand-logo"></td><?php endif; ?>
                         <td style="vertical-align: top; padding-top: 2px;">
-                            <div class="brand-name"><?= $h(APP_LEGAL) ?></div>
+                            <div class="brand-name"><?= $h(sin_viudas(APP_LEGAL)) ?></div>
                             <div class="brand-meta">Equipos médicos · Gases medicinales · Diseño, instalación,<br>certificación y soporte técnico hospitalario.<br><?= $h(APP_ADDRESS) ?> · Tel. <?= $h(APP_PHONE) ?></div>
                         </td>
                     </tr>

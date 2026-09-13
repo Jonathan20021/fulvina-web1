@@ -1,5 +1,7 @@
 DirectoryIndex index.php
-ErrorDocument 404 /fulvina-web/404.php
+# La carpeta real es fulvina-web1: con el nombre viejo el 404 nunca resolvía y
+# el servidor devolvía su propia página en vez de la del sitio.
+ErrorDocument 404 /fulvina-web1/404.php
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
@@ -8,9 +10,12 @@ ErrorDocument 404 /fulvina-web/404.php
   RewriteCond %{HTTP_HOST} ^(www\.)?schmedicos\.kyrosrd\.com$ [NC]
   RewriteRule ^ https://schmedicos.com%{REQUEST_URI} [R=301,L]
 
-  # force HTTPS (skip when behind a proxy that already terminated TLS)
+  # force HTTPS (skip when behind a proxy that already terminated TLS, and on
+  # localhost: XAMPP solo tiene certificado autofirmado, así que forzar HTTPS
+  # en desarrollo obliga a saltarse un aviso del navegador en cada arranque)
   RewriteCond %{HTTPS} off
   RewriteCond %{HTTP:X-Forwarded-Proto} !https
+  RewriteCond %{HTTP_HOST} !^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$ [NC]
   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
 
   # index.php (any level) -> clean directory root

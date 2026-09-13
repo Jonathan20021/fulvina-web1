@@ -30,8 +30,6 @@ $pipelineTotal = array_sum(array_column($stages, 'amount')) ?: 1;
 $pipelineValue = (float) $kpis['pipeline']['value'];
 $openQuoteCount = array_sum(array_column($stages, 'count'));
 $wonValue = (float) $kpis['won']['value'];
-$wonDelta = (float) $kpis['won']['delta'];
-$winRate  = (float) $kpis['win_rate']['value'];
 $openTickets = (int) $kpis['open_tickets']['value'];
 $criticalTickets = $hasDb && table_exists('tickets') ? db_count('tickets', "priority IN ('Critica','Alta') AND status NOT IN ('Resuelto','Cerrado')") : ($demo ? 3 : 0);
 
@@ -39,8 +37,22 @@ $stats = ['open' => $openTickets, 'quotes' => $openQuoteCount];
 
 // Financial figures (pipeline, ingresos, montos) are role-gated: only users with
 // the "Datos financieros" permission (finanzas.view) see money on the dashboard.
+/* El panel resume módulos enteros: si una tarjeta muestra tickets, cotizaciones
+   o equipos, tiene que pedir el mismo permiso que la pantalla de la que resume.
+   Antes solo se protegía el dinero, y un rol sin acceso a Cotizaciones veía en
+   el panel qué hospital estaba cotizando qué, con el enlace «Ver todas» que
+   luego devuelve 403. La frontera la marca el permiso, no la pantalla. */
 $canFinance = current_can('finanzas.view');
-$defaultMetric = $canFinance ? 'ingresos' : 'tickets';
+$canTickets = current_can('tickets.view');
+$canQuotes  = current_can('cotizaciones.view');
+$canAssets  = current_can('equipos.view');
+$canAgenda  = current_can('agenda.view');
+$defaultMetric = $canFinance ? 'facturado' : 'tickets';
+// Facturación real: lo emitido y lo cobrado, que no es lo mismo que lo aprobado.
+$billing = analytics_billing($period);
+// La cartera es permiso NOMINAL, no de rol: la caja de zona solo aparece
+// para quien esté en la lista blanca.
+$canCartera = can_view_cartera();
 
 /* ---- Team (real): tone + presence --------------------------------------- */
 $tones = ['green', 'blue', 'teal', 'gold', 'slate'];
@@ -70,8 +82,11 @@ if ($hasDb) {
 $linesHas  = !empty($lines) && array_sum(array_column($lines, 'amount')) > 0;
 $brandTotal = array_sum(array_map(fn ($b) => (int) $b['total'], $brandRows)) ?: 0;
 $brandsHas = $brandTotal > 0;
-$trendHas  = array_sum($trend['ingresos_raw']) > 0 || array_sum($trend['cotizaciones']) > 0 || array_sum($trend['tickets']) > 0;
-$brandPalette = ['#0a7d36', '#0666b3', '#1bb6c2', '#9c7d34', '#94a3b8'];
+$trendHas  = array_sum($trend['ingresos_raw']) > 0 || array_sum($trend['cotizaciones']) > 0 || array_sum($trend['tickets']) > 0
+    || array_sum($trend['facturado_raw']) > 0 || array_sum($trend['cobrado_raw']) > 0;
+/* Una sola familia, derivada del verde del logo, más el bronce de las alas.
+   Nada de azul ni cian: en esta interfaz el color no es decoración. */
+$brandPalette = ['#027F31', '#0BA344', '#6C5E3D', '#7C8A83', '#014D1E'];
 
 /* ---- Live operational tables (real when DB present) --------------------- */
 $recentTickets = $hasDb && table_exists('tickets')
@@ -98,57 +113,16 @@ $overdueServices = analytics_overdue_services(8);
 /* ---- Helpers ------------------------------------------------------------- */
 $money0 = fn ($v) => 'RD$ ' . number_format((float) $v, 0, '.', ',');
 $kfmt = fn ($v) => $v >= 1000000 ? number_format($v / 1000000, 2) . 'M' : ($v >= 1000 ? number_format($v / 1000, 0) . 'k' : (string) (int) $v);
-$delta_chip = function (float $d): string {
-    $up = $d >= 0;
-    return '<span class="dash-delta ' . ($up ? 'dash-delta--up' : 'dash-delta--down') . '"><i data-lucide="' . ($up ? 'trending-up' : 'trending-down') . '"></i>' . ($up ? '+' : '') . e((string) $d) . '%</span>';
-};
 
-/** Inline SVG area sparkline from a numeric series. */
-function spark_svg(array $pts, string $id, string $stroke = '#0a7d36'): string
-{
-    $n = count($pts);
-    if ($n < 2) return '';
-    $min = min($pts); $max = max($pts); $range = ($max - $min) ?: 1;
-    $w = 100.0; $h = 40.0; $pad = 4.0;
-    $coords = [];
-    foreach (array_values($pts) as $i => $p) {
-        $x = $i / ($n - 1) * $w;
-        $y = $h - $pad - (($p - $min) / $range) * ($h - 2 * $pad);
-        $coords[] = round($x, 2) . ',' . round($y, 2);
-    }
-    $line = 'M' . implode(' L', $coords);
-    $area = $line . " L{$w},{$h} L0,{$h} Z";
-    $lastParts = explode(',', end($coords));
-    return '<svg viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-hidden="true">'
-        . '<defs><linearGradient id="' . $id . '" x1="0" y1="0" x2="0" y2="1">'
-        . '<stop offset="0%" stop-color="' . $stroke . '" stop-opacity=".22"/>'
-        . '<stop offset="100%" stop-color="' . $stroke . '" stop-opacity="0"/>'
-        . '</linearGradient></defs>'
-        . '<path d="' . $area . '" fill="url(#' . $id . ')"/>'
-        . '<path d="' . $line . '" fill="none" stroke="' . $stroke . '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>'
-        . '<circle cx="' . $lastParts[0] . '" cy="' . $lastParts[1] . '" r="2.6" fill="' . $stroke . '" vector-effect="non-scaling-stroke"/>'
-        . '</svg>';
-}
 
 $heroParts = explode('.', number_format($pipelineValue, 2, '.', ','));
-
-/* Monthly accent-chart metadata derived from real trend */
-$avgOf = fn (array $a) => count($a) ? array_sum($a) / count($a) : 0;
-$lastIngreso = $trend['ingresos_raw'] ? (float) end($trend['ingresos_raw']) : 0.0;
-$lastCot = $trend['cotizaciones'] ? (int) end($trend['cotizaciones']) : 0;
-$lastTk = $trend['tickets'] ? (int) end($trend['tickets']) : 0;
-$monthlyMeta = [
-    'ingresos'     => ['label' => 'RD$ ' . $kfmt($lastIngreso), 'avg' => 'RD$ ' . $kfmt($avgOf($trend['ingresos_raw'])), 'meta' => 'RD$ ' . $kfmt($trend['ingresos_raw'] ? max($trend['ingresos_raw']) : 0)],
-    'cotizaciones' => ['label' => $lastCot . ' cotiz.', 'avg' => round($avgOf($trend['cotizaciones'])) . ' cotiz.', 'meta' => ($trend['cotizaciones'] ? max($trend['cotizaciones']) : 0) . ' cotiz.'],
-    'tickets'      => ['label' => $lastTk . ' tickets', 'avg' => round($avgOf($trend['tickets'])) . ' tickets', 'meta' => ($trend['tickets'] ? max($trend['tickets']) : 0) . ' tickets'],
-];
 
 $crmTitle = 'Panel de operaciones';
 require_once __DIR__ . '/../includes/crm_header.php';
 ?>
 
 <?php if (!$hasDb): ?>
-    <div class="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs font-semibold text-amber-800">
+    <div class="gas-aviso">
         MySQL aún no está instalado. Este panel muestra datos de muestra. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para conectar datos reales.
     </div>
 <?php endif; ?>
@@ -189,113 +163,162 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 </div>
             </div>
 
+            <?php if (current_can('reportes.view')): ?>
             <a href="<?= url('crm/reportes.php') ?>" class="dash-chip"><i data-lucide="bar-chart-3"></i><span class="dash-chip__hide">Reportes</span></a>
+            <?php endif; ?>
             <button type="button" class="dash-iconbtn" @click="window.dashExport()" aria-label="Exportar CSV" title="Exportar CSV"><i data-lucide="download"></i></button>
             <button type="button" class="dash-iconbtn dash-iconbtn--solid" @click="window.dashShare()" aria-label="Compartir panel" title="Compartir panel"><i data-lucide="share-2"></i></button>
         </div>
     </div>
 
-    <!-- ============ Summary band: hero + KPI cluster ============ -->
-    <section class="dash-summary">
+    <!-- ============ Encabezado + lecturas del periodo ============ -->
+    <?php
+    /*
+     * El primer viewport responde cuatro preguntas en orden de dinero: cuánto
+     * se facturó, cuánto entró en caja, cuánto falta por cobrar y qué soporte
+     * está abierto. Cada lectura da la cifra grande, su variación contra el
+     * periodo anterior y la salida a los registros que la componen.
+     *
+     * La primera tarjeta lleva además los accesos que se usan a diario, porque
+     * quien abre el panel por la mañana viene a emitir o a cobrar.
+     */
+
+    /** Cápsula de variación. La flecha la pone el CSS: el color no va solo. */
+    $sch_delta = static function (?float $d, string $ref = 'contra el periodo anterior'): string {
+        if ($d === null) {
+            // Sin periodo anterior no hay porcentaje: decirlo es más útil que
+            // enseñar la referencia temporal sin cifra al lado.
+            return '<span class="sch-lectura__ref">Sin base de comparación</span>';
+        }
+        $cls = abs($d) < 0.05 ? 'neutro' : ($d > 0 ? 'sube' : 'baja');
+        $txt = ($d > 0 ? '+' : '') . number_format($d, 1) . '%';
+        return '<span class="sch-delta sch-delta--' . $cls . '">' . e($txt) . '</span>'
+             . '<span class="sch-lectura__ref">' . e($ref) . '</span>';
+    };
+    ?>
+    <?php /* El panel ya se presenta en .dash-bar, con su periodo y sus
+             herramientas: un segundo encabezado sería decir lo mismo dos veces. */ ?>
+    <?= cartera_aviso_config() ?>
+
+    <section class="sch-lecturas" aria-label="Lecturas del periodo">
         <?php if ($canFinance): ?>
-        <article class="dash-hero">
-            <p class="dash-hero__label"><span class="dot"></span> Valor del pipeline activo</p>
-            <div class="dash-hero__value">
-                <span class="cur">RD$</span><?= e($heroParts[0]) ?><span class="dec">.<?= e($heroParts[1] ?? '00') ?></span>
-            </div>
-            <div class="dash-hero__meta">
-                <?= $delta_chip($wonDelta) ?>
-                <span class="dash-delta dash-delta--solid">Ganado <?= e($money0($wonValue)) ?></span>
-            </div>
-            <p class="dash-hero__sub"><b><?= e((string) $openQuoteCount) ?></b> cotizaciones abiertas · <?= e($periodLabel) ?></p>
-            <?php if ($trendHas): ?><div class="dash-hero__spark"><?= spark_svg($trend['ingresos'], 'heroSpark', '#0a7d36') ?></div><?php endif; ?>
-        </article>
-        <?php else: ?>
-        <article class="dash-hero">
-            <p class="dash-hero__label"><span class="dot"></span> Tickets abiertos</p>
-            <div class="dash-hero__value"><?= e((string) $openTickets) ?></div>
-            <div class="dash-hero__meta">
-                <span class="dash-delta dash-delta--solid"><?= e((string) $criticalTickets) ?> de alta prioridad</span>
-            </div>
-            <p class="dash-hero__sub"><b><?= e((string) count($overdueServices)) ?></b> mantenimientos vencidos · <?= e($periodLabel) ?></p>
-        </article>
+            <article class="sch-tarjeta">
+                <div class="sch-lectura">
+                    <div class="sch-lectura__cab">
+                        <span class="sch-lectura__t">Facturado</span>
+                        <span class="gas-placa"><?= e((string) $billing['billed']['count']) ?> NCF</span>
+                    </div>
+                    <div class="sch-lectura__v">RD$ <?= e($kfmt($billing['billed']['value'])) ?></div>
+                    <div class="sch-lectura__pie">
+                        <span style="display:flex;align-items:center;gap:.4rem">
+                            <?= $sch_delta($billing['billed']['delta'] ?? null) ?>
+                        </span>
+                        <a class="sch-mas" href="<?= url('crm/facturas.php') ?>">Ver más <i data-lucide="arrow-up-right"></i></a>
+                    </div>
+                </div>
+                <div class="sch-acciones">
+                    <?php if (current_can('facturas.edit')): ?>
+                        <a class="sch-accion" href="<?= url('crm/facturas.php?new=1') ?>">
+                            <span class="sch-accion__ic"><i data-lucide="file-plus-2"></i></span>Facturar
+                        </a>
+                        <a class="sch-accion" href="<?= url('crm/cobro.php') ?>">
+                            <span class="sch-accion__ic"><i data-lucide="hand-coins"></i></span>Cobrar
+                        </a>
+                    <?php endif; ?>
+                    <?php if (current_can('cotizaciones.edit')): ?>
+                        <a class="sch-accion" href="<?= url('crm/cotizaciones.php?new=1') ?>">
+                            <span class="sch-accion__ic"><i data-lucide="file-text"></i></span>Cotizar
+                        </a>
+                    <?php endif; ?>
+                    <a class="sch-accion" href="<?= url('crm/dgii.php') ?>">
+                        <span class="sch-accion__ic"><i data-lucide="landmark"></i></span>DGII
+                    </a>
+                </div>
+            </article>
+
+            <article class="sch-tarjeta">
+                <div class="sch-lectura">
+                    <div class="sch-lectura__cab">
+                        <span class="sch-lectura__t">Cobrado</span>
+                        <span class="gas-placa"><?= e((string) $billing['collected']['count']) ?> recibos</span>
+                    </div>
+                    <div class="sch-lectura__v">RD$ <?= e($kfmt($billing['collected']['value'])) ?></div>
+                    <div class="sch-lectura__pie">
+                        <span style="display:flex;align-items:center;gap:.4rem">
+                            <?= $sch_delta($billing['collected']['delta'] ?? null) ?>
+                        </span>
+                        <a class="sch-mas" href="<?= url('crm/cobro.php') ?>">Registrar <i data-lucide="arrow-up-right"></i></a>
+                    </div>
+                </div>
+
+                <?php if ($canCartera):
+                    $porCobrar = (float) $billing['outstanding']['value'];
+                    $vencido   = (float) $billing['outstanding']['overdue_value'];
+                    $pctVenc   = $porCobrar > 0.009 ? min(100.0, $vencido / $porCobrar * 100) : 0.0;
+                ?>
+                    <div class="sch-lectura" style="border-top:1px solid var(--linea);padding-top:.9rem">
+                        <div class="sch-lectura__cab">
+                            <span class="sch-lectura__t">Por cobrar</span>
+                            <span class="gas-placa"><?= e((string) $billing['outstanding']['count']) ?> docs</span>
+                        </div>
+                        <div class="sch-lectura__v">RD$ <?= e($kfmt($porCobrar)) ?></div>
+                        <div class="sch-lectura__pie">
+                            <?php if ($vencido > 0.009): ?>
+                                <span class="sch-delta sch-delta--riesgo">RD$ <?= e($kfmt($vencido)) ?></span>
+                                <span class="sch-lectura__ref">vencido · <?= e((string) round($pctVenc)) ?>% de la cartera</span>
+                            <?php else: ?>
+                                <span class="sch-delta sch-delta--ok">Al día</span>
+                                <span class="sch-lectura__ref">nada vencido</span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
+            </article>
         <?php endif; ?>
 
-        <div class="dash-kpis">
-            <article class="dash-kpi dash-kpi--feature">
-                <div class="dash-kpi__top">
-                    <span class="dash-kpi__label">Top técnico</span>
-                    <span class="dash-kpi__icon"><i data-lucide="award"></i></span>
+        <?php if ($canTickets || $canAgenda || $canAssets): ?>
+        <article class="sch-tarjeta">
+            <?php if ($canTickets): ?>
+            <div class="sch-lectura">
+                <div class="sch-lectura__cab">
+                    <span class="sch-lectura__t">Soporte abierto</span>
+                    <?php if ($criticalTickets > 0): ?>
+                        <span class="status-chip gas-estado--alarma"><?= e((string) $criticalTickets) ?> de prioridad alta</span>
+                    <?php endif; ?>
                 </div>
-                <div class="dash-kpi__value"><?= e((string) $topTech['metric']) ?> <small><?= e($topTech['metricLabel']) ?></small></div>
-                <div class="dash-kpi__foot">
-                    <span class="av av--green"><?= e($topTech['initials']) ?></span>
-                    <span><?= e($topTech['name']) ?></span>
+                <div class="sch-lectura__v"><?= e((string) $openTickets) ?> <small>tickets</small></div>
+                <div class="sch-lectura__pie">
+                    <?php if ($resolution['overdue'] > 0): ?>
+                        <span class="sch-delta sch-delta--riesgo"><?= e((string) $resolution['overdue']) ?></span>
+                        <span class="sch-lectura__ref">fuera de plazo</span>
+                    <?php else: ?>
+                        <span class="sch-delta sch-delta--ok">En plazo</span>
+                        <span class="sch-lectura__ref">ninguno vencido</span>
+                    <?php endif; ?>
+                    <a class="sch-mas" href="<?= url('crm/tickets.php') ?>">Atender <i data-lucide="arrow-up-right"></i></a>
                 </div>
-            </article>
-
-            <?php if ($canFinance): ?>
-            <article class="dash-kpi dash-kpi--dark">
-                <span class="dash-kpi__star"><i data-lucide="star"></i></span>
-                <div class="dash-kpi__top">
-                    <span class="dash-kpi__label">Mejor cotización</span>
-                </div>
-                <div class="dash-kpi__value"><span class="amt"><?= e($money0($bestQuote['amount'])) ?></span></div>
-                <div class="dash-kpi__foot">
-                    <i data-lucide="building-2" class="h-4 w-4" style="color:#9fb2c4"></i>
-                    <span><?= e($bestQuote['client']) ?></span>
-                </div>
-            </article>
+            </div>
             <?php endif; ?>
 
-            <article class="dash-kpi">
-                <div class="dash-kpi__top">
-                    <span class="dash-kpi__label">Tickets abiertos</span>
-                    <span class="dash-kpi__icon dash-kpi__icon--amber"><i data-lucide="life-buoy"></i></span>
+            <?php
+            /* Mantenimientos vencidos: el trabajo de campo que ya debió hacerse.
+               Va aquí porque nace de la misma cola que los tickets. */
+            $mantVenc = count($overdueServices);
+            ?>
+            <?php if ($canAgenda || $canAssets): ?>
+            <div class="sch-lectura"<?= $canTickets ? ' style="border-top:1px solid var(--linea);padding-top:.9rem"' : '' ?>>
+                <div class="sch-lectura__cab">
+                    <span class="sch-lectura__t">Mantenimientos vencidos</span>
                 </div>
-                <div class="dash-kpi__value"><?= e((string) $stats['open']) ?></div>
-                <div class="dash-kpi__foot"><span class="dash-sub"><?= e((string) $criticalTickets) ?> de alta prioridad</span></div>
-            </article>
-
-            <?php if ($canFinance): ?>
-            <article class="dash-kpi">
-                <div class="dash-kpi__top">
-                    <span class="dash-kpi__label">Valor ganado</span>
-                    <span class="dash-kpi__icon dash-kpi__icon--gold"><i data-lucide="wallet"></i></span>
+                <div class="sch-lectura__v"><?= e((string) $mantVenc) ?> <small>equipos</small></div>
+                <div class="sch-lectura__pie">
+                    <span class="sch-lectura__ref">programados y sin ejecutar</span>
+                    <a class="sch-mas" href="<?= url('crm/agenda.php') ?>">Agenda <i data-lucide="arrow-up-right"></i></a>
                 </div>
-                <div class="dash-kpi__value">RD$ <?= e($kfmt($wonValue)) ?></div>
-                <div class="dash-kpi__foot"><?= $delta_chip($wonDelta) ?><span class="dash-sub"><?= e((string) $stats['quotes']) ?> activas</span></div>
-            </article>
+            </div>
             <?php endif; ?>
-
-            <article class="dash-kpi">
-                <div class="dash-kpi__top">
-                    <span class="dash-kpi__label">Tasa de cierre</span>
-                    <span class="dash-kpi__icon"><i data-lucide="target"></i></span>
-                </div>
-                <div class="dash-kpi__value"><?= e((string) $winRate) ?>%</div>
-                <div class="dash-kpi__foot"><span class="dash-sub">aprobadas / cerradas · histórico</span></div>
-            </article>
-
-            <?php if (!$canFinance): ?>
-            <article class="dash-kpi">
-                <div class="dash-kpi__top">
-                    <span class="dash-kpi__label">Mantenimientos vencidos</span>
-                    <span class="dash-kpi__icon dash-kpi__icon--amber"><i data-lucide="alert-triangle"></i></span>
-                </div>
-                <div class="dash-kpi__value"><?= e((string) count($overdueServices)) ?></div>
-                <div class="dash-kpi__foot"><span class="dash-sub">requieren atención</span></div>
-            </article>
-            <article class="dash-kpi">
-                <div class="dash-kpi__top">
-                    <span class="dash-kpi__label">Garantías por vencer</span>
-                    <span class="dash-kpi__icon"><i data-lucide="shield-alert"></i></span>
-                </div>
-                <div class="dash-kpi__value"><?= e((string) count($maintenance)) ?></div>
-                <div class="dash-kpi__foot"><span class="dash-sub">próximas a expirar</span></div>
-            </article>
-            <?php endif; ?>
-        </div>
+        </article>
+        <?php endif; ?>
     </section>
 
     <!-- ============ Pipeline stage pills ============ -->
@@ -314,13 +337,227 @@ require_once __DIR__ . '/../includes/crm_header.php';
         </div>
     <?php endif; ?>
 
+    <!-- ============ Gráficos del panel ============ -->
+    <?php
+    /*
+     * Cuatro lecturas que no caben en una cifra:
+     *
+     *   1. Flujo de facturación y cobro — la brecha entre lo emitido y lo que
+     *      entró en caja, mes a mes. Es la pregunta que manda en una empresa
+     *      que vende a crédito.
+     *   2. Cartera por antigüedad — dónde está parado el dinero que falta.
+     *   3. Embudo comercial — cuántas propuestas sobreviven cada etapa.
+     *   4. Soporte — si la cola crece o se drena.
+     *
+     * Todo sale de analytics_*(). Ningún dato se inventa: si una serie no
+     * existe, la tarjeta lo dice en vez de dibujar una línea plana.
+     */
+    $trend12 = analytics_monthly_trend(12);
+    $flujo = [
+        'labels'    => $trend12['labels'],
+        'facturado' => array_map(fn ($v) => round((float) $v, 2), $trend12['facturado_raw']),
+        'cobrado'   => array_map(fn ($v) => round((float) $v, 2), $trend12['cobrado_raw']),
+        'tickets'   => array_map('intval', $trend12['tickets']),
+        'resueltos' => array_map('intval', $trend12['resueltos']),
+    ];
+    $hayFlujo = array_sum($flujo['facturado']) > 0 || array_sum($flujo['cobrado']) > 0;
+    $haySoporte = array_sum($flujo['tickets']) > 0 || array_sum($flujo['resueltos']) > 0;
+
+    $forecast = $canCartera ? analytics_cashflow_forecast() : null;
+    $embudo = analytics_quote_funnel();
+    $embudoTope = max(1, (int) ($embudo[0]['count'] ?? 1));
+    ?>
+
+    <?php if ($canFinance || $canTickets): ?>
+    <section class="sch-graficos" aria-label="Gráficos del periodo">
+
+        <?php if ($canFinance): ?>
+        <!-- Flujo de facturación y cobro -->
+        <article class="sch-tarjeta sch-gr sch-gr--ancha" x-data="{ meses: 6 }">
+            <div class="sch-gr__cab">
+                <div>
+                    <h3 class="sch-gr__t">Facturado contra cobrado</h3>
+                    <p class="sch-gr__d">Lo emitido y lo que entró en caja, mes a mes. La línea es qué proporción se cobró.</p>
+                </div>
+                <?php if ($hayFlujo): ?>
+                    <div class="dash-seg" role="tablist" aria-label="Meses a mostrar">
+                        <button type="button" role="tab" :class="{ 'is-active': meses === 6 }" class="is-active"
+                                @click="meses = 6; schFlujo(6)" :aria-selected="meses === 6">6 meses</button>
+                        <button type="button" role="tab" :class="{ 'is-active': meses === 12 }"
+                                @click="meses = 12; schFlujo(12)" :aria-selected="meses === 12">12 meses</button>
+                    </div>
+                <?php endif; ?>
+            </div>
+
+            <?php if ($hayFlujo): ?>
+                <div class="sch-gr__leyenda" role="list">
+                    <button type="button" class="sch-llave is-on" role="listitem" data-serie="0" onclick="schAlternar(0, this)">
+                        <i style="background:#027F31"></i>Facturado
+                    </button>
+                    <button type="button" class="sch-llave is-on" role="listitem" data-serie="1" onclick="schAlternar(1, this)">
+                        <i style="background:#9FD4B2"></i>Cobrado
+                    </button>
+                    <button type="button" class="sch-llave is-on" role="listitem" data-serie="2" onclick="schAlternar(2, this)">
+                        <i class="sch-llave__linea" style="background:#6C5E3D"></i>% cobrado
+                    </button>
+                </div>
+                <div class="sch-gr__lienzo sch-gr__lienzo--alta"><canvas id="schFlujoCv"></canvas></div>
+            <?php else: ?>
+                <div class="sch-gr__vacio">
+                    <i data-lucide="bar-chart-3"></i>
+                    <strong>Todavía no hay comprobantes emitidos</strong>
+                    <p>El gráfico aparece en cuanto exista la primera factura del periodo.</p>
+                </div>
+            <?php endif; ?>
+        </article>
+
+        <!-- Cartera por antigüedad -->
+        <?php if ($canCartera && $forecast !== null): ?>
+            <?php
+            $carteraTotal = (float) $forecast['total']['amount'];
+            $anillo = [];
+            $tonos = [
+                'vencido' => '#C2202C',
+                '0-30'    => '#027F31',
+                '31-60'   => '#0BA344',
+                '61-90'   => '#6C5E3D',
+                '90+'     => '#9A8348',
+            ];
+            foreach ($forecast['buckets'] as $k => $b) {
+                if ($b['amount'] <= 0.009) { continue; }
+                $anillo[] = [
+                    'k'     => $k,
+                    'label' => $b['label'],
+                    'monto' => round((float) $b['amount'], 2),
+                    'docs'  => (int) $b['count'],
+                    'color' => $tonos[$k] ?? '#66746D',
+                    'pct'   => $carteraTotal > 0.009 ? round($b['amount'] / $carteraTotal * 100) : 0,
+                ];
+            }
+            ?>
+            <article class="sch-tarjeta sch-gr">
+                <div class="sch-gr__cab">
+                    <div>
+                        <h3 class="sch-gr__t">Cartera por antigüedad</h3>
+                        <p class="sch-gr__d">Dónde está parado lo que falta por cobrar.</p>
+                    </div>
+                </div>
+
+                <?php if ($anillo): ?>
+                    <div class="sch-anillo">
+                        <div class="sch-anillo__cv"><canvas id="schCarteraCv"></canvas></div>
+                        <div class="sch-anillo__centro">
+                            <span>Total</span>
+                            <b>RD$ <?= e($kfmt($carteraTotal)) ?></b>
+                            <small><?= e((string) $forecast['total']['count']) ?> comprobantes</small>
+                        </div>
+                    </div>
+                    <div class="sch-anillo__lista">
+                        <?php foreach ($anillo as $a): ?>
+                            <a class="sch-anillo__f" href="<?= url('crm/facturas.php') ?>">
+                                <i style="background:<?= e($a['color']) ?>"></i>
+                                <span class="sch-anillo__n"><?= e($a['label']) ?></span>
+                                <span class="sch-anillo__p"><?= e((string) $a['pct']) ?>%</span>
+                                <b>RD$ <?= e($kfmt($a['monto'])) ?></b>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <div class="sch-gr__vacio">
+                        <i data-lucide="check-circle-2"></i>
+                        <strong>Sin cartera pendiente</strong>
+                        <p>Todos los comprobantes emitidos están saldados.</p>
+                    </div>
+                <?php endif; ?>
+            </article>
+        <?php endif; ?>
+
+        <!-- Embudo comercial -->
+        <article class="sch-tarjeta sch-gr">
+            <div class="sch-gr__cab">
+                <div>
+                    <h3 class="sch-gr__t">Cotizaciones por etapa</h3>
+                    <p class="sch-gr__d">Dónde están paradas las propuestas ahora mismo.</p>
+                </div>
+                <a class="sch-mas" href="<?= url('crm/cotizaciones.php') ?>">Cotizaciones <i data-lucide="arrow-up-right"></i></a>
+            </div>
+            <div class="sch-embudo">
+                <?php
+                /*
+                 * Esto es una FOTO, no una cohorte. analytics_quote_funnel() cuenta
+                 * cotizaciones por estado hoy: la que está en «Aprobado» no pasó
+                 * por el «Negociación» de hoy, es otra propuesta distinta. Por eso
+                 * la última columna es la parte del total, que sí es cierta, y no
+                 * un porcentaje de conversión, que no lo sería.
+                 */
+                $embudoTotal = max(1, array_sum(array_column($embudo, 'count')));
+                foreach ($embudo as $e):
+                    $n = (int) $e['count'];
+                    // Cero es cero: un mínimo de ancho pintaría color donde no hay nada.
+                    $ancho = $n > 0 ? max(3, round($n / $embudoTope * 100)) : 0;
+                    $parte = round($n / $embudoTotal * 100);
+                    $color = $stages[$e['stage']]['color'] ?? '#66746D';
+                ?>
+                    <div class="sch-embudo__f">
+                        <span class="sch-embudo__n"><?= e($e['stage']) ?></span>
+                        <span class="sch-embudo__b">
+                            <i style="width:<?= e((string) $ancho) ?>%;background:<?= e($color) ?>"></i>
+                        </span>
+                        <b class="sch-embudo__v"><?= e((string) $n) ?></b>
+                        <span class="sch-embudo__c"><?= e((string) $parte) ?>%</span>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <p class="sch-gr__pie">Cuántas hay hoy en cada estado y qué parte del total representa. No mide conversión: para eso haría falta el historial de cambios de estado, que el CRM todavía no guarda.</p>
+        </article>
+        <?php endif; ?>
+
+        <?php if ($canTickets): ?>
+        <!-- Soporte: entrada contra resolución.
+             Vivía dentro del bloque financiero, así que el técnico de soporte
+             era justo quien NO veía su propia cola. Cuenta tickets, no dinero:
+             su permiso es tickets.view. -->
+        <article class="sch-tarjeta sch-gr sch-gr--ancha">
+            <div class="sch-gr__cab">
+                <div>
+                    <h3 class="sch-gr__t">Cola de soporte</h3>
+                    <p class="sch-gr__d">Tickets que entran contra los que se cierran.</p>
+                </div>
+                <a class="sch-mas" href="<?= url('crm/tickets.php') ?>">Soporte <i data-lucide="arrow-up-right"></i></a>
+            </div>
+            <?php if ($haySoporte): ?>
+                <div class="sch-gr__leyenda">
+                    <span class="sch-llave is-on"><i class="sch-llave__linea" style="background:#6C5E3D"></i>Nuevos</span>
+                    <span class="sch-llave is-on"><i class="sch-llave__linea" style="background:#027F31"></i>Resueltos</span>
+                </div>
+                <div class="sch-gr__lienzo"><canvas id="schSoporteCv"></canvas></div>
+            <?php else: ?>
+                <div class="sch-gr__vacio">
+                    <i data-lucide="life-buoy"></i>
+                    <strong>Sin tickets registrados</strong>
+                    <p>El gráfico aparece con el primer caso de soporte.</p>
+                </div>
+            <?php endif; ?>
+        </article>
+        <?php endif; ?>
+
+    </section>
+
+    <?php if ($canFinance): ?>
+    <script>
+    window.SCH_FLUJO = <?= json_encode($flujo, JSON_UNESCAPED_UNICODE) ?>;
+    window.SCH_CARTERA = <?= json_encode($anillo ?? [], JSON_UNESCAPED_UNICODE) ?>;
+    </script>
+    <?php endif; ?>
+    <?php endif; ?>
+
     <!-- ============ Mid row: business lines + monthly accent chart ============ -->
     <section class="dash-mid">
         <?php if ($canFinance): ?>
         <article class="dash-card">
             <div class="dash-card__head">
-                <h3><i data-lucide="layers"></i> Ingresos por línea de negocio</h3>
-                <a class="dash-card__meta" href="<?= url('crm/reportes.php') ?>">Reporte <i data-lucide="arrow-up-right" class="h-3.5 w-3.5"></i></a>
+                <h3><i data-lucide="layers"></i> Línea de negocio <span style="font-weight:600;color:var(--muted);font-size:.78rem">· cotizado</span></h3>
+                <?php if (current_can('reportes.view')): ?><a class="dash-card__meta" href="<?= url('crm/reportes.php') ?>">Reporte <i data-lucide="arrow-up-right" class="h-3.5 w-3.5"></i></a><?php endif; ?>
             </div>
             <div class="dash-card__body">
                 <?php if ($linesHas): ?>
@@ -342,33 +579,6 @@ require_once __DIR__ . '/../includes/crm_header.php';
             </div>
         </article>
         <?php endif; ?>
-
-        <article class="dash-accent" x-data="{ metric: '<?= $defaultMetric ?>' }">
-            <div class="dash-accent__head">
-                <div>
-                    <h3>Promedio mensual</h3>
-                    <p>Últimos 6 meses · <?= date('Y') ?></p>
-                </div>
-                <?php if ($trendHas): ?>
-                    <div class="dash-seg" role="tablist" aria-label="Métrica del gráfico">
-                        <?php if ($canFinance): ?><button type="button" class="is-active" :class="{ 'is-active': metric==='ingresos' }" @click="metric='ingresos'; dashSetMonthly('ingresos')">Ingresos</button><?php endif; ?>
-                        <button type="button" class="<?= $defaultMetric === 'cotizaciones' ? 'is-active' : '' ?>" :class="{ 'is-active': metric==='cotizaciones' }" @click="metric='cotizaciones'; dashSetMonthly('cotizaciones')">Cotiz.</button>
-                        <button type="button" class="<?= $defaultMetric === 'tickets' ? 'is-active' : '' ?>" :class="{ 'is-active': metric==='tickets' }" @click="metric='tickets'; dashSetMonthly('tickets')">Tickets</button>
-                    </div>
-                <?php endif; ?>
-            </div>
-            <?php if ($trendHas): ?>
-                <div class="dash-accent__value">
-                    <span id="dashMonthlyValue"><?= e($monthlyMeta[$defaultMetric]['label']) ?></span>
-                </div>
-                <div class="dash-accent__chart"><canvas id="dashMonthly"></canvas></div>
-                <div class="dash-accent__foot"><span>Promedio: <b id="dashMonthlyAvg" style="color:#fff"><?= e($monthlyMeta[$defaultMetric]['avg']) ?></b></span><span>Máximo: <b id="dashMonthlyMeta" style="color:#fff"><?= e($monthlyMeta[$defaultMetric]['meta']) ?></b></span></div>
-            <?php else: ?>
-                <div class="dash-accent__chart" style="display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.75);text-align:center;padding:1.5rem">
-                    <div><i data-lucide="bar-chart-2" style="width:28px;height:28px;opacity:.7"></i><p style="margin-top:.5rem;font-size:.85rem">Aún no hay actividad mensual registrada.</p></div>
-                </div>
-            <?php endif; ?>
-        </article>
     </section>
 
     <!-- ============ Team performance ============ -->
@@ -415,6 +625,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
     </article>
 
     <!-- ============ Inventory by brand ============ -->
+    <?php if ($canAssets): ?>
     <article class="dash-card">
         <div class="dash-card__head">
             <h3><i data-lucide="package"></i> Inventario instalado por marca</h3>
@@ -425,9 +636,9 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <div class="dash-brands">
                     <?php foreach ($brandRows as $i => $b): $pct = round($b['total'] / max(1, $brandTotal) * 100); $color = $brandPalette[$i % count($brandPalette)]; $mono = mb_strtoupper(mb_substr((string) $b['brand'], 0, 2)); ?>
                         <div class="dash-brand">
-                            <span class="dash-brand__mono" style="background:<?= e($color) ?>1a;color:<?= e($color) ?>"><?= e($mono) ?></span>
+                            <span class="dash-brand__mono"><?= e($mono) ?></span>
                             <div class="dash-brand__main">
-                                <div class="dash-brand__row"><b><?= e($b['brand']) ?></b><span style="color:<?= e($color) ?>"><?= e((string) $pct) ?>%</span></div>
+                                <div class="dash-brand__row"><b><?= e($b['brand']) ?></b><span><?= e((string) $pct) ?>%</span></div>
                                 <div class="dash-brand__track"><span class="dash-brand__fill" style="width:<?= e((string) max(3, $pct)) ?>%;background:<?= e($color) ?>"></span></div>
                                 <span class="dash-brand__amt"><?= e((string) (int) $b['total']) ?> equipo<?= (int) $b['total'] === 1 ? '' : 's' ?></span>
                             </div>
@@ -439,30 +650,14 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <?php endif; ?>
         </div>
     </article>
+    <?php endif; ?>
 
-    <!-- ============ Service dynamics line chart ============ -->
-    <article class="dash-card">
-        <div class="dash-card__head">
-            <h3><i data-lucide="activity"></i> Dinámica mensual de servicio</h3>
-            <div class="dash-legend">
-                <span style="--c:#0666b3">Tickets nuevos</span>
-                <span style="--c:#0a7d36">Resueltos</span>
-                <span style="--c:#9c7d34">Cotizaciones</span>
-            </div>
-        </div>
-        <div class="dash-card__body" style="padding-bottom:.6rem">
-            <?php if ($trendHas): ?>
-                <div class="dash-dynamic__chart"><canvas id="dashDynamic"></canvas></div>
-            <?php else: ?>
-                <div class="chart-empty"><i data-lucide="activity"></i><strong>Sin movimiento aún</strong><p>La dinámica de tickets y cotizaciones aparecerá con la operación diaria.</p></div>
-            <?php endif; ?>
-        </div>
-    </article>
-
+    <?php if ($canTickets || $canAgenda || $canAssets || $canQuotes): ?>
     <p class="dash-section-label">Operación en vivo</p>
+    <?php endif; ?>
 
-    <?php if ($overdueServices): ?>
-        <article class="ops-card" style="border-color:#fecaca;background:linear-gradient(180deg,#fef2f2,#fff)">
+    <?php if (($canAgenda || $canAssets) && $overdueServices): ?>
+        <article class="ops-card sch-caja--alarma">
             <header class="ops-card__head">
                 <h3><i data-lucide="alert-triangle" class="h-4 w-4 text-red-600"></i>Mantenimientos vencidos <span class="ops-status bg-red-100 text-red-700"><?= e((string) count($overdueServices)) ?></span></h3>
                 <a href="<?= url('crm/agenda.php') ?>">Agenda</a>
@@ -477,7 +672,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                                 <td><?= e($ov['name'] ?? 'Equipo') ?></td>
                                 <td><?= e($ov['area'] ?: '—') ?></td>
                                 <td class="ops-nowrap"><?= e(date_es($ov['next_service_at'])) ?></td>
-                                <td class="text-right"><span class="ops-status bg-red-50 text-red-700 ring-1 ring-red-200"><?= e((string) $days) ?> d</span></td>
+                                <td class="text-right"><span class="ops-status gas-estado--alarma"><?= e((string) $days) ?> d</span></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -487,6 +682,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
     <?php endif; ?>
 
     <!-- ============ Live operational tables (real CRM records) ============ -->
+    <?php if ($canTickets): ?>
     <article class="ops-card">
         <header class="ops-card__head">
             <h3><i data-lucide="life-buoy" class="h-4 w-4 text-red-500"></i>Tickets urgentes <span class="ops-status bg-red-100 text-red-700"><?= e((string) count($recentTickets)) ?></span></h3>
@@ -517,9 +713,10 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <div class="crm-empty"><i data-lucide="check-circle-2" class="h-6 w-6"></i><strong>No hay tickets urgentes</strong><p>Todos los casos están resueltos o no hay tickets abiertos.</p></div>
         <?php endif; ?>
     </article>
+    <?php endif; ?>
 
     <div class="ops-row ops-row--split">
-        <?php if ($selectedTicket): ?>
+        <?php if ($canTickets && $selectedTicket): ?>
             <article class="ops-card ops-focus">
                 <header class="ops-card__head">
                     <h3><i data-lucide="crosshair" class="h-4 w-4 text-sch-blue"></i>Ticket en foco</h3>
@@ -547,6 +744,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
             </article>
         <?php endif; ?>
 
+        <?php if ($canAgenda): ?>
         <article class="ops-card">
             <header class="ops-card__head">
                 <h3><i data-lucide="calendar-days" class="h-4 w-4 text-sch-blue"></i>Próximos servicios</h3>
@@ -572,8 +770,10 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <div class="crm-empty"><i data-lucide="calendar-check" class="h-6 w-6"></i><strong>Sin servicios próximos</strong><p>Programa mantenimientos desde la agenda.</p></div>
             <?php endif; ?>
         </article>
+        <?php endif; ?>
     </div>
 
+    <?php if ($canQuotes): ?>
     <article class="ops-card">
         <header class="ops-card__head">
             <h3><i data-lucide="file-text" class="h-4 w-4 text-sch-blue"></i>Cotizaciones recientes</h3>
@@ -603,8 +803,10 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <div class="crm-empty"><i data-lucide="file-text" class="h-6 w-6"></i><strong>Aún no hay cotizaciones</strong><p>Crea la primera desde el módulo de cotizaciones.</p></div>
         <?php endif; ?>
     </article>
+    <?php endif; ?>
 
     <div class="ops-row ops-row--split">
+        <?php if ($canAssets): ?>
         <article class="ops-card">
             <header class="ops-card__head">
                 <h3><i data-lucide="shield-alert" class="h-4 w-4 text-amber-500"></i>Garantías por vencer</h3>
@@ -624,7 +826,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                                     <td><?= e($item['client_name'] ?? 'Cliente') ?></td>
                                     <td class="ops-nowrap"><?= e(date_es($item['warranty_until'] ?? null)) ?></td>
                                     <td class="text-right"><?= e((string) $days) ?></td>
-                                    <td><span class="ops-status <?= $days < 90 ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200' : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' ?>"><?= $days < 90 ? 'Por vencer' : 'Vigente' ?></span></td>
+                                    <td><span class="ops-status <?= $days < 90 ? 'gas-estado--espera' : 'gas-estado--ok' ?>"><?= $days < 90 ? 'Por vencer' : 'Vigente' ?></span></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -634,11 +836,13 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <div class="crm-empty"><i data-lucide="shield-check" class="h-6 w-6"></i><strong>Sin garantías próximas</strong><p>No hay equipos con garantía por vencer.</p></div>
             <?php endif; ?>
         </article>
+        <?php endif; ?>
 
+        <?php if ($canTickets): ?>
         <article class="ops-card">
             <header class="ops-card__head">
                 <h3><i data-lucide="history" class="h-4 w-4 text-sch-blue"></i>Actividad reciente</h3>
-                <a href="<?= url('crm/reportes.php') ?>">Reportes</a>
+                <?php if (current_can('reportes.view')): ?><a href="<?= url('crm/reportes.php') ?>">Reportes</a><?php endif; ?>
             </header>
             <?php if ($recentTickets): ?>
                 <div class="ops-activity">
@@ -655,6 +859,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <div class="crm-empty"><i data-lucide="history" class="h-6 w-6"></i><strong>Sin actividad reciente</strong><p>Los movimientos del CRM aparecerán aquí.</p></div>
             <?php endif; ?>
         </article>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -664,18 +869,20 @@ require_once __DIR__ . '/../includes/crm_header.php';
     // Only emit financial series/values when the user holds finanzas.view, so
     // the numbers never reach the browser (not even in page source) otherwise.
     $jsTrend = ['cotizaciones' => $trend['cotizaciones'], 'tickets' => $trend['tickets'], 'resueltos' => $trend['resueltos']];
-    $jsMonthlyMeta = ['cotizaciones' => $monthlyMeta['cotizaciones'], 'tickets' => $monthlyMeta['tickets']];
     $jsDashData = [
         'periodo' => $periodLabel,
         'equipo'  => array_map(fn ($t) => array_merge(
             ['nombre' => $t['name'], 'rol' => $t['role'] ?? '', 'cotizaciones' => (int) $t['cotizaciones'], 'resueltos' => (int) $t['resueltos']],
             $canFinance ? ['ingresos' => (float) $t['ingresos']] : []
         ), $team),
-        'marcas'  => array_map(fn ($b) => ['marca' => $b['brand'], 'equipos' => (int) $b['total']], $brandRows),
+        'marcas'  => $canAssets ? array_map(fn ($b) => ['marca' => $b['brand'], 'equipos' => (int) $b['total']], $brandRows) : [],
     ];
     if ($canFinance) {
         $jsTrend['ingresos'] = $trend['ingresos'];
-        $jsMonthlyMeta['ingresos'] = $monthlyMeta['ingresos'];
+        $jsTrend['facturado'] = $trend['facturado'];
+        $jsTrend['cobrado'] = $trend['cobrado'];
+        $jsDashData['facturado'] = $billing['billed']['value'];
+        $jsDashData['cobrado'] = $billing['collected']['value'];
         $jsDashData['pipeline'] = $pipelineValue;
         $jsDashData['ganado'] = $wonValue;
         $jsDashData['stages'] = array_values(array_map(fn ($k, $v) => ['etapa' => $k, 'monto' => $v['amount'], 'cotizaciones' => $v['count']], array_keys($stages), $stages));
@@ -683,8 +890,6 @@ require_once __DIR__ . '/../includes/crm_header.php';
     }
 ?>
     var trend = <?= json_encode($jsTrend, JSON_HEX_TAG | JSON_HEX_AMP) ?>;
-    var trendLabels = <?= json_encode($trend['labels'], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
-    var monthlyMeta = <?= json_encode($jsMonthlyMeta, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 
     var dashData = <?= json_encode($jsDashData, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
@@ -706,9 +911,13 @@ require_once __DIR__ . '/../includes/crm_header.php';
         rows.push([]);
         rows.push(fin ? ['Equipo', 'Rol', 'Ingresos (RD$)', 'Cotizaciones', 'Resueltos'] : ['Equipo', 'Rol', 'Cotizaciones', 'Resueltos']);
         dashData.equipo.forEach(function (t) { rows.push(fin ? [t.nombre, t.rol, t.ingresos, t.cotizaciones, t.resueltos] : [t.nombre, t.rol, t.cotizaciones, t.resueltos]); });
-        rows.push([]);
-        rows.push(['Inventario por marca', 'Equipos']);
-        dashData.marcas.forEach(function (b) { rows.push([b.marca, b.equipos]); });
+        // Sin permiso de Equipos el arreglo llega vacío: no se escribe ni el
+        // encabezado, para no dejar una sección huérfana en el CSV.
+        if (dashData.marcas.length) {
+            rows.push([]);
+            rows.push(['Inventario por marca', 'Equipos']);
+            dashData.marcas.forEach(function (b) { rows.push([b.marca, b.equipos]); });
+        }
         var csv = rows.map(function (r) {
             return r.map(function (c) {
                 c = (c == null ? '' : String(c));
@@ -731,70 +940,250 @@ require_once __DIR__ . '/../includes/crm_header.php';
         }
     };
 
-    var monthlyChart = null;
-    function buildMonthly(metric) {
-        var ctx = document.getElementById('dashMonthly');
-        if (!ctx || !window.Chart) return;
-        var data = trend[metric];
-        var last = data.length - 1;
-        var colors = data.map(function (_, i) { return i === last ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.38)'; });
-        var fmt = metric === 'ingresos' ? function (v) { return 'RD$ ' + v + 'k'; } : (metric === 'cotizaciones' ? function (v) { return v + ' cotiz.'; } : function (v) { return v + ' tickets'; });
-        if (monthlyChart) {
-            monthlyChart.data.datasets[0].data = data;
-            monthlyChart.data.datasets[0].backgroundColor = colors;
-            monthlyChart.options.plugins.tooltip.callbacks.label = function (c) { return fmt(c.parsed.y); };
-            monthlyChart.update();
-            return;
-        }
-        monthlyChart = new Chart(ctx, {
-            type: 'bar',
-            data: { labels: trendLabels, datasets: [{ data: data, backgroundColor: colors, borderRadius: 6, borderSkipped: false, maxBarThickness: 30 }] },
+    /* =====================================================================
+       GRÁFICOS DEL PANEL
+       =====================================================================
+       Tres piezas: el flujo de facturación y cobro, el anillo de cartera y la
+       cola de soporte. Comparten paleta y comportamiento; ninguna anima sola
+       más allá de su entrada. */
+
+    /* Los colores de un gráfico viven en JS, así que no se enteran de que el
+       CSS cambió de tema. Se leen en cada pintado y los lienzos se rehacen
+       cuando el tema cambia. */
+    function schOscuro() { return document.documentElement.getAttribute('data-tema') === 'oscuro'; }
+
+    var SCH;
+    function schPaleta() {
+        SCH = schOscuro()
+            ? { verde: '#0BA344', claro: '#2E7A4C', bronce: '#C0A25C', tinta: '#E9F0EB',
+                eje: '#93A79A', red: '#24312A', papel: '#141D18' }
+            : { verde: '#027F31', claro: '#9FD4B2', bronce: '#6C5E3D', tinta: '#0F1B14',
+                eje: '#66746D', red: '#EDF0F2', papel: '#FFFFFF' };
+        return SCH;
+    }
+    schPaleta();
+
+    /* Formato corto de dinero: el eje no puede llevar siete dígitos por marca. */
+    function schCorto(v) {
+        v = Number(v) || 0;
+        if (Math.abs(v) >= 1e6) { return (v / 1e6).toFixed(2).replace(/\.00$/, '') + 'M'; }
+        if (Math.abs(v) >= 1e3) { return Math.round(v / 1e3) + 'k'; }
+        return String(Math.round(v));
+    }
+    function schPesos(v) { return 'RD$ ' + schCorto(v); }
+
+    /* Relleno de área: degradado vertical que da cuerpo a la traza sin tapar
+       la cuadrícula. Necesita el contexto del canvas, así que es una función. */
+    function schArea(color) {
+        return function (ctx) {
+            var a = ctx.chart.chartArea;
+            if (!a) { return color + '00'; }
+            var g = ctx.chart.ctx.createLinearGradient(0, a.top, 0, a.bottom);
+            g.addColorStop(0, color + '3D');
+            g.addColorStop(1, color + '00');
+            return g;
+        };
+    }
+
+    function schTip() { return Object.assign({}, schTooltip, { backgroundColor: schOscuro() ? 'rgba(6,12,9,.96)' : 'rgba(15,27,20,.95)' }); }
+    var schTooltip = {
+        backgroundColor: 'rgba(15,27,20,.95)',
+        padding: 11,
+        cornerRadius: 10,
+        titleFont: { weight: '600', size: 12 },
+        bodyFont: { size: 12 },
+        displayColors: true,
+        usePointStyle: true,
+        boxPadding: 5
+    };
+
+    /* ---- 1 · Facturado contra cobrado --------------------------------------
+       Barras para las dos series y una línea con la proporción cobrada en un
+       eje propio. La brecha entre las barras ES la lectura. */
+    var flujoChart = null;
+
+    window.schFlujo = function (meses) {
+        mesesActuales = meses;
+        var d = window.SCH_FLUJO;
+        var cv = document.getElementById('schFlujoCv');
+        if (!d || !cv || !window.Chart) { return; }
+
+        var n = Math.min(meses, d.labels.length);
+        var corte = function (a) { return a.slice(-n); };
+        var fac = corte(d.facturado);
+        var cob = corte(d.cobrado);
+        /* Sin base no hay porcentaje: null deja el punto fuera en vez de
+           dibujar un cero que se leería como «no se cobró nada». */
+        var pct = fac.map(function (f, i) {
+            return f > 0 ? Math.round(cob[i] / f * 100) : null;
+        });
+
+        if (flujoChart) { flujoChart.destroy(); }
+        flujoChart = new Chart(cv, {
+            data: {
+                labels: corte(d.labels),
+                datasets: [
+                    {
+                        type: 'bar', label: 'Facturado', data: fac,
+                        backgroundColor: SCH.verde, borderRadius: 6, borderSkipped: false,
+                        maxBarThickness: 26, order: 2, yAxisID: 'y'
+                    },
+                    {
+                        type: 'bar', label: 'Cobrado', data: cob,
+                        backgroundColor: SCH.claro, borderRadius: 6, borderSkipped: false,
+                        maxBarThickness: 26, order: 3, yAxisID: 'y'
+                    },
+                    {
+                        type: 'line', label: '% cobrado', data: pct,
+                        borderColor: SCH.bronce, borderWidth: 2.5, tension: .38,
+                        pointRadius: 0, pointHoverRadius: 5,
+                        pointHoverBackgroundColor: SCH.bronce,
+                        pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
+                        spanGaps: true, fill: false, order: 1, yAxisID: 'pct'
+                    }
+                ]
+            },
             options: {
                 responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(8,18,30,.92)', padding: 10, displayColors: false, callbacks: { label: function (c) { return fmt(c.parsed.y); } } } },
-                scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: 'rgba(255,255,255,.78)', font: { weight: '600', size: 11 } } }, y: { display: false, beginAtZero: true, grace: '12%' } }
+                interaction: { mode: 'index', intersect: false },
+                animation: { duration: 520, easing: 'easeOutQuart' },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: Object.assign(schTip(), {
+                        callbacks: {
+                            label: function (c) {
+                                if (c.dataset.yAxisID === 'pct') {
+                                    return c.parsed.y === null ? '% cobrado: sin base' : '% cobrado: ' + c.parsed.y + '%';
+                                }
+                                return c.dataset.label + ': ' + schPesos(c.parsed.y);
+                            }
+                        }
+                    })
+                },
+                scales: {
+                    x: { grid: { display: false }, border: { display: false },
+                         ticks: { color: SCH.eje, font: { weight: '600', size: 11 } } },
+                    y: { beginAtZero: true, border: { display: false },
+                         grid: { color: SCH.red },
+                         ticks: { color: SCH.eje, maxTicksLimit: 5, font: { size: 11 },
+                                  callback: function (v) { return schCorto(v); } } },
+                    pct: { position: 'right', beginAtZero: true, max: 100,
+                           border: { display: false }, grid: { display: false },
+                           ticks: { color: SCH.eje, maxTicksLimit: 3, font: { size: 11 },
+                                    callback: function (v) { return v + '%'; } } }
+                }
+            }
+        });
+    };
+
+    /* Apagar y encender una serie desde la leyenda. */
+    window.schAlternar = function (i, el) {
+        if (!flujoChart) { return; }
+        var visible = flujoChart.isDatasetVisible(i);
+        flujoChart.setDatasetVisibility(i, !visible);
+        flujoChart.update();
+        el.classList.toggle('is-on', !visible);
+        el.setAttribute('aria-pressed', String(!visible));
+    };
+
+    /* ---- 2 · Cartera por antigüedad ---------------------------------------- */
+    var carteraChart = null;
+    function buildCartera() {
+        var cv = document.getElementById('schCarteraCv');
+        if (!cv || !window.Chart) { return; }
+        var d = window.SCH_CARTERA || [];
+        if (!d.length) { return; }
+        if (carteraChart) { carteraChart.destroy(); }
+        carteraChart = new Chart(cv, {
+            type: 'doughnut',
+            data: {
+                labels: d.map(function (x) { return x.label; }),
+                datasets: [{
+                    data: d.map(function (x) { return x.monto; }),
+                    backgroundColor: d.map(function (x) { return x.color; }),
+                    borderColor: SCH.papel,
+                    borderWidth: 3,
+                    hoverOffset: 8,
+                    hoverBorderColor: SCH.papel
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                cutout: '72%',
+                animation: { duration: 620, easing: 'easeOutQuart' },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: Object.assign(schTip(), {
+                        callbacks: {
+                            label: function (c) {
+                                var x = d[c.dataIndex];
+                                return schPesos(x.monto) + ' · ' + x.docs + ' doc' + (x.docs === 1 ? '' : 's');
+                            }
+                        }
+                    })
+                }
             }
         });
     }
 
-    window.dashSetMonthly = function (metric) {
-        buildMonthly(metric);
-        var m = monthlyMeta[metric];
-        if (!m) return;
-        var vEl = document.getElementById('dashMonthlyValue');
-        var aEl = document.getElementById('dashMonthlyAvg');
-        var mEl = document.getElementById('dashMonthlyMeta');
-        if (vEl) vEl.textContent = m.label;
-        if (aEl) aEl.textContent = m.avg;
-        if (mEl) mEl.textContent = m.meta;
-    };
+    /* ---- 3 · Cola de soporte ----------------------------------------------- */
+    var soporteChart = null;
+    function buildSoporte() {
+        var d = window.SCH_FLUJO;
+        var cv = document.getElementById('schSoporteCv');
+        if (!d || !cv || !window.Chart) { return; }
+        if (soporteChart) { soporteChart.destroy(); }
+        var n = Math.min(6, d.labels.length);
+        var corte = function (a) { return a.slice(-n); };
 
-    function buildDynamic() {
-        var ctx = document.getElementById('dashDynamic');
-        if (!ctx || !window.Chart) return;
-        function ds(data, color) {
-            return { data: data, borderColor: color, backgroundColor: color + '22', borderWidth: 2.5, tension: .4, fill: true, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: color, pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2 };
+        function serie(label, data, color) {
+            return {
+                label: label, data: data, borderColor: color, backgroundColor: schArea(color),
+                borderWidth: 2.5, tension: .38, fill: true,
+                pointRadius: 0, pointHoverRadius: 5,
+                pointHoverBackgroundColor: color, pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2
+            };
         }
-        new Chart(ctx, {
+
+        soporteChart = new Chart(cv, {
             type: 'line',
-            data: { labels: trendLabels, datasets: [
-                Object.assign({ label: 'Tickets nuevos' }, ds(trend.tickets, '#0666b3')),
-                Object.assign({ label: 'Resueltos' }, ds(trend.resueltos, '#0a7d36')),
-                Object.assign({ label: 'Cotizaciones' }, ds(trend.cotizaciones, '#9c7d34'))
-            ] },
+            data: {
+                labels: corte(d.labels),
+                datasets: [
+                    serie('Nuevos', corte(d.tickets), SCH.bronce),
+                    serie('Resueltos', corte(d.resueltos), SCH.verde)
+                ]
+            },
             options: {
-                responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-                plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(8,18,30,.92)', padding: 10, cornerRadius: 8, usePointStyle: true } },
-                scales: { x: { grid: { display: false }, border: { display: false }, ticks: { color: '#56697b', font: { weight: '600', size: 11 } } }, y: { beginAtZero: true, border: { display: false }, grid: { color: '#eef3f8' }, ticks: { color: '#8696a6', maxTicksLimit: 5, font: { size: 11 } } } }
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                animation: { duration: 520, easing: 'easeOutQuart' },
+                plugins: { legend: { display: false }, tooltip: schTip() },
+                scales: {
+                    x: { grid: { display: false }, border: { display: false },
+                         ticks: { color: SCH.eje, font: { weight: '600', size: 11 } } },
+                    y: { beginAtZero: true, border: { display: false }, grid: { color: SCH.red },
+                         ticks: { color: SCH.eje, maxTicksLimit: 4, precision: 0, font: { size: 11 } } }
+                }
             }
         });
+    }
+
+    var mesesActuales = 6;
+
+    function pintarTodo() {
+        schPaleta();
+        Chart.defaults.color = SCH.eje;
+        window.schFlujo(mesesActuales);
+        buildCartera();
+        buildSoporte();
     }
 
     function init() {
         if (!window.Chart) { return setTimeout(init, 120); }
-        Chart.defaults.font.family = "Inter, system-ui, sans-serif";
-        buildMonthly('<?= $defaultMetric ?>');
-        buildDynamic();
+        Chart.defaults.font.family = 'Aptos, "Segoe UI", system-ui, sans-serif';
+        pintarTodo();
+        window.addEventListener('sch:tema', pintarTodo);
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

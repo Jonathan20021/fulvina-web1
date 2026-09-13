@@ -63,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '')
                 if (@move_uploaded_file($up['tmp_name'], $dest)) {
                     $logoPath = 'assets/media/' . $fname;
                 } else {
-                    flash('warning', 'No se pudo guardar el logo (revisa permisos de assets/media).');
+                    flash('error', 'No se pudo guardar el logo (revisa permisos de assets/media).');
                 }
             } else {
                 flash('warning', 'Formato de logo no válido. Usa PNG, JPG o WEBP.');
@@ -153,7 +153,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '')
     } catch (Throwable $e) {
         try { $pdo->exec('SET FOREIGN_KEY_CHECKS=1'); } catch (Throwable) { /* ignore */ }
         error_log('wipe_demo: ' . $e->getMessage());
-        flash('warning', 'No se pudo completar la limpieza. Revisa los permisos de la base de datos.');
+        flash('error', 'No se pudo completar la limpieza. Revisa los permisos de la base de datos.');
     }
     redirect('crm/configuracion.php');
 }
@@ -188,15 +188,16 @@ $turnstileSecretSet = setting_get('turnstile_secret_key', '') !== '';
 $crmTitle = 'Configuración';
 require_once __DIR__ . '/../includes/crm_header.php';
 ?>
+<?= sch_encabezado('Configuración', 'Perfil de la empresa y preferencias del sistema') ?>
+
 
 <?php if (!$hasDb): ?>
-    <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para guardar la configuración.</div>
+    <div class="gas-aviso">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para guardar la configuración.</div>
 <?php endif; ?>
 
 <section class="crm-cockpit">
     <div class="crm-cockpit__top">
         <div class="crm-cockpit__hero">
-            <span class="crm-kicker"><i data-lucide="settings"></i>Sistema</span>
             <h2>Configuración del CRM.</h2>
             <p>Personaliza los datos de tu empresa y los valores por defecto del CRM. Todo se aplica al instante en encabezados, pie de página, PDFs y SEO.</p>
             <div class="crm-cockpit__actions">
@@ -405,12 +406,12 @@ require_once __DIR__ . '/../includes/crm_header.php';
     </div>
 
     <!-- Zona de peligro: limpiar datos demo -->
-    <article class="crm-card cfg-card" style="margin-top:1rem;border-color:#f3c9c9;background:#fffafa">
+    <article class="crm-card cfg-card sch-caja--alarma" style="margin-top:1rem">
         <div class="crm-card__head">
-            <div><h2 style="color:#b42318"><i data-lucide="alert-triangle" class="cfg-ic"></i> Limpiar datos demo</h2><p>Borra todos los datos operativos de ejemplo para arrancar producción en limpio.</p></div>
+            <div><h2 class="sch-titulo--alarma"><i data-lucide="alert-triangle" class="cfg-ic"></i> Limpiar datos demo</h2><p>Borra todos los datos operativos de ejemplo para arrancar producción en limpio.</p></div>
         </div>
         <div class="crm-card__body" style="display:grid;gap:.9rem">
-            <div style="font-size:.86rem;color:#7c2d2d;background:#fff1f1;border:1px solid #f3c9c9;border-radius:10px;padding:.7rem .85rem;line-height:1.55">
+            <div class="sch-caja sch-caja--alarma" style="font-size:.86rem;line-height:1.55">
                 <strong>Se eliminarán:</strong> clientes, contactos, equipos, cotizaciones, tickets, leads y facturas.<br>
                 <strong>Se conservan:</strong> usuarios, configuración (empresa / OTP) y roles.<br>
                 <strong>⚠️ Esta acción no se puede deshacer.</strong>

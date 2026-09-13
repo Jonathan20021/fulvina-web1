@@ -28,16 +28,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         $equipmentId = (int) ($_POST['equipment_id'] ?? 0) ?: null;
         $subject = trim((string) ($_POST['subject'] ?? ''));
         $description = trim((string) ($_POST['description'] ?? ''));
-        $priority = trim((string) ($_POST['priority'] ?? 'Media'));
-        $status = trim((string) ($_POST['status'] ?? 'Abierto'));
+        $priority = ticket_priority_or_default($_POST['priority'] ?? '');
+        $status = ticket_status_or_default($_POST['status'] ?? '');
         $reportedBy = trim((string) ($_POST['reported_by'] ?? ''));
         $reportedEmail = trim((string) ($_POST['reported_email'] ?? ''));
         $reportedPhone = trim((string) ($_POST['reported_phone'] ?? ''));
         $assignedTo = (int) ($_POST['assigned_to'] ?? 0) ?: null;
-        $dueAt = $_POST['due_at'] ?: null;
+        $dueAt = valid_date($_POST['due_at'] ?? null);
 
         if ($clientId <= 0 || $subject === '' || $description === '') {
             flash('warning', 'Cliente, asunto y descripción son obligatorios.');
+        } elseif (!fetch_one('SELECT id FROM clients WHERE id=?', [$clientId])) {
+            flash('warning', 'Ese cliente ya no existe. Actualiza la pantalla y vuelve a elegirlo.');
         } else {
             if (column_exists('tickets', 'source')) {
                 $stmt = db()->prepare('INSERT INTO tickets (client_id, equipment_id, subject, description, priority, status, source, reported_by, reported_email, reported_phone, assigned_to, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, "interno", ?, ?, ?, ?, ?, NOW(), NOW())');
@@ -56,10 +58,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
     if ($form === 'update') {
         if (!current_can('tickets.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/tickets.php'); }
         $id = (int) ($_POST['id'] ?? 0);
-        $status = trim((string) ($_POST['status'] ?? 'Abierto'));
-        $priority = trim((string) ($_POST['priority'] ?? 'Media'));
+        $status = ticket_status_or_default($_POST['status'] ?? '');
+        $priority = ticket_priority_or_default($_POST['priority'] ?? '');
         $assignedTo = (int) ($_POST['assigned_to'] ?? 0) ?: null;
-        $dueAt = $_POST['due_at'] ?: null;
+        $dueAt = valid_date($_POST['due_at'] ?? null);
         $resolvedAt = in_array($status, ['Resuelto', 'Cerrado'], true) ? date('Y-m-d H:i:s') : null;
         $stmt = db()->prepare('UPDATE tickets SET status=?, priority=?, assigned_to=?, due_at=?, resolved_at=?, updated_at=NOW() WHERE id=?');
         $stmt->execute([$status, $priority, $assignedTo, $dueAt, $resolvedAt, $id]);
@@ -87,6 +89,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         $id = (int) ($_POST['ticket_id'] ?? 0);
         $body = trim((string) ($_POST['body'] ?? ''));
         $isInternal = isset($_POST['is_internal']) ? 1 : 0;
+        /* Si el ticket desapareció mientras se escribía el comentario, la clave
+           foránea lanzaba una excepción sin capturar: el técnico perdía el
+           texto y veía una pantalla en blanco. Ahora se le dice qué pasó. */
+        if ($id > 0 && $body !== '' && !fetch_one('SELECT id FROM tickets WHERE id=?', [$id])) {
+            flash('warning', 'Ese ticket ya no existe: alguien lo eliminó mientras escribías. Copia tu comentario antes de salir.');
+            redirect('crm/tickets.php');
+        }
         if ($id > 0 && $body !== '') {
             $stmt = db()->prepare('INSERT INTO ticket_comments (ticket_id, user_id, author_name, body, is_internal, created_at) VALUES (?, ?, ?, ?, ?, NOW())');
             $stmt->execute([$id, current_user()['id'] ?: null, current_user()['name'] ?? 'SCH', $body, $isInternal]);
@@ -239,9 +248,11 @@ $emptyTicket = ['id' => 0, 'client_id' => '', 'equipment_id' => '', 'subject' =>
 $crmTitle = 'Centro helpdesk';
 require_once __DIR__ . '/../includes/crm_header.php';
 ?>
+<?= sch_encabezado('Soporte', 'Cola de trabajo por cliente y por equipo') ?>
+
 
 <?php if (!$hasDb): ?>
-    <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para guardar tickets.</div>
+    <div class="gas-aviso">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para guardar tickets.</div>
 <?php endif; ?>
 
 <div class="helpdesk-v2" x-data="crmFormModal(<?= e(json_encode($emptyTicket)) ?>, <?= isset($_GET['new']) ? '{}' : 'null' ?>)">
@@ -335,7 +346,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                                     <span class="helpdesk-board-card__client"><?= e($ticket['client_name'] ?? 'Sin cliente') ?></span>
                                     <span class="helpdesk-board-card__foot">
                                         <small><?= e($ticket['priority']) ?></small>
-                                        <?php if ($isOverdue): ?><small class="status-chip bg-red-50 text-red-700 ring-1 ring-red-200">Vencido</small><?php else: ?><small><?= e(date_es($ticket['due_at'] ?? null)) ?></small><?php endif; ?>
+                                        <?php if ($isOverdue): ?><small class="status-chip gas-estado--alarma">Vencido</small><?php else: ?><small><?= e(date_es($ticket['due_at'] ?? null)) ?></small><?php endif; ?>
                                     </span>
                                 </button>
                             <?php endforeach; ?>
@@ -377,7 +388,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                                 <td data-label="Prioridad"><span class="status-chip <?= e(priority_class($ticket['priority'])) ?>"><?= e($ticket['priority']) ?></span></td>
                                 <td data-label="Responsable"><?= e($ticket['assigned_name'] ?? 'Sin asignar') ?></td>
                                 <?php $isOverdue = !empty($ticket['due_at']) && strtotime((string) $ticket['due_at']) < strtotime('today') && !in_array((string) $ticket['status'], ['Resuelto', 'Cerrado'], true); ?>
-                                <td data-label="Vence"><?php if ($isOverdue): ?><span class="status-chip bg-red-50 text-red-700 ring-1 ring-red-200">Vencido</span> <?php endif; ?><?= e(date_es($ticket['due_at'] ?? null)) ?></td>
+                                <td data-label="Vence"><?php if ($isOverdue): ?><span class="status-chip gas-estado--alarma">Vencido</span> <?php endif; ?><?= e(date_es($ticket['due_at'] ?? null)) ?></td>
                                 <td data-label="Origen"><?= ($ticket['source'] ?? '') === 'portal_cliente' ? 'Portal' : 'Interno' ?></td>
                                 <td data-label="Acción" class="text-right">
                                     <button type="button" class="crm-secondary-btn helpdesk-list-action" onclick="document.getElementById('<?= e($modalId) ?>').showModal()"><i data-lucide="panel-right-open"></i>Detalle</button>
@@ -400,9 +411,9 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <span><?= e((string) $totalTickets) ?> tickets visibles</span>
             <?php if ($totalPages > 1): ?>
                 <nav aria-label="Paginación de tickets">
-                    <a class="<?= $page <= 1 ? 'is-disabled' : '' ?>" href="<?= $page <= 1 ? '#' : url('crm/tickets.php?' . $queryForPage($page - 1)) ?>">Anterior</a>
+                    <a class="<?= $page <= 1 ? 'is-disabled' : '' ?>"<?= $page <= 1 ? ' aria-disabled="true" tabindex="-1"' : '' ?> href="<?= $page <= 1 ? '#' : url('crm/tickets.php?' . $queryForPage($page - 1)) ?>">Anterior</a>
                     <b><?= e((string) $page) ?> / <?= e((string) $totalPages) ?></b>
-                    <a class="<?= $page >= $totalPages ? 'is-disabled' : '' ?>" href="<?= $page >= $totalPages ? '#' : url('crm/tickets.php?' . $queryForPage($page + 1)) ?>">Siguiente</a>
+                    <a class="<?= $page >= $totalPages ? 'is-disabled' : '' ?>"<?= $page >= $totalPages ? ' aria-disabled="true" tabindex="-1"' : '' ?> href="<?= $page >= $totalPages ? '#' : url('crm/tickets.php?' . $queryForPage($page + 1)) ?>">Siguiente</a>
                 </nav>
             <?php endif; ?>
         </footer>
@@ -452,7 +463,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                             </div>
                             <div class="helpdesk-timeline">
                                 <?php if (!$comments): ?>
-                                    <div class="helpdesk-lane__empty">Aun no hay notas para este ticket</div>
+                                    <div class="helpdesk-lane__empty">Aún no hay notas para este ticket</div>
                                 <?php endif; ?>
                                 <?php foreach ($comments as $comment): ?>
                                     <article>

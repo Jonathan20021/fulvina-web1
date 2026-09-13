@@ -9,15 +9,19 @@ $userRole = $user['role'] ?? 'Administrador';
 $parts = preg_split('/\s+/', trim($userName)) ?: [];
 $initials = strtoupper(mb_substr($parts[0] ?? 'S', 0, 1) . (isset($parts[1]) ? mb_substr($parts[1], 0, 1) : ''));
 
-// Notifications (recent tickets) for the top bell
-$navHasTickets = db(false) && table_exists('tickets');
-$navNotifs = $navHasTickets
+/* Notificaciones (tickets recientes) de la campana.
+   La campana vive en la cabecera, así que aparece en TODAS las pantallas: sin
+   este permiso mostraba el asunto de la avería y el hospital a cualquier rol,
+   aunque no pudiera abrir el módulo de tickets. */
+$navCanTickets = current_can('tickets.view');
+$navHasTickets = $navCanTickets && db(false) && table_exists('tickets');
+$navNotifs = !$navCanTickets ? [] : ($navHasTickets
     ? fetch_all("SELECT tickets.id, tickets.subject, tickets.status, tickets.priority, tickets.created_at, clients.name AS client_name FROM tickets LEFT JOIN clients ON clients.id = tickets.client_id ORDER BY tickets.created_at DESC LIMIT 5")
     : [
         ['id' => 267, 'subject' => 'Tomógrafo intermitente, error 8042', 'status' => 'Abierto', 'priority' => 'Alta', 'created_at' => date('Y-m-d H:i:s'), 'client_name' => 'Hospital Metropolitano'],
         ['id' => 258, 'subject' => 'Alarma de presión baja', 'status' => 'Abierto', 'priority' => 'Critica', 'created_at' => date('Y-m-d H:i:s', strtotime('-2 hour')), 'client_name' => 'CAID'],
         ['id' => 263, 'subject' => 'Falla de encendido', 'status' => 'En proceso', 'priority' => 'Alta', 'created_at' => date('Y-m-d H:i:s', strtotime('-5 hour')), 'client_name' => 'Plaza de la Salud'],
-    ];
+    ]);
 $navOpenCount = $navHasTickets ? db_count('tickets', "status IN ('Abierto','En proceso')") : count($navNotifs);
 
 // Sidebar live counts
@@ -40,6 +44,8 @@ $crmNavGroups = [
         'clientes.php'     => ['Clientes', 'building-2', 'clientes', false, 'clientes.view'],
         'cotizaciones.php' => ['Cotizaciones', 'file-text', 'cotizaciones', false, 'cotizaciones.view'],
         'facturas.php'     => ['Facturación', 'receipt', 'facturas', true, 'facturas.view'],
+        'dgii.php'         => ['Formatos DGII', 'file-spreadsheet', null, false, 'dgii.view'],
+        'productos.php'    => ['Productos', 'package', null, false, 'productos.view'],
         'leads.php'        => ['Leads', 'inbox', 'leads', false, 'leads.view'],
     ],
     'Soporte técnico' => [
@@ -72,23 +78,43 @@ unset($crmNavGroup, $crmNavItems);
     <meta name="robots" content="noindex, nofollow">
     <title><?= e($crmTitle) ?> | CRM SCH MEDICOS</title>
     <link rel="icon" href="<?= asset('assets/media/cropped-logo_SCH_-removebg-preview-32x32.png') ?>" sizes="32x32">
-    <script>(function(){try{if(localStorage.getItem('crmNav')==='collapsed')document.documentElement.classList.add('crm-collapsed');}catch(e){}})();</script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <script>(function(){var d=document.documentElement;try{if(localStorage.getItem('crmNav')==='collapsed')d.classList.add('crm-collapsed');}catch(e){}
+    /* El tema se resuelve antes del primer pintado: guardado si lo hay,
+       y si no, el del sistema. Con defer habria un destello blanco. */
+    try{var t=localStorage.getItem('schTema');
+    if(!t){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'oscuro':'claro';}
+    if(t==='oscuro')d.setAttribute('data-tema','oscuro');}catch(e){}})();</script>
     <link rel="stylesheet" href="<?= asset_v('assets/css/tailwind.css') ?>">
     <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="<?= asset_v('assets/css/app.css') ?>">
+    <link rel="stylesheet" href="<?= asset_v('assets/css/sch.css') ?>">
     <script defer src="<?= asset_v('assets/js/app.js') ?>"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script defer src="https://unpkg.com/lucide@latest"></script>
 </head>
-<body class="bg-sch-page text-slate-900" x-data="{ nav: false }">
+<body class="bg-sch-page text-slate-900 crm-sch" x-data="{ nav: false }">
+<!--
+  TESIS: El CRM es el panel de control de la operación de SCH MEDICOS. Se lee
+  como una herramienta financiera moderna: la cifra manda, la variación la
+  acompaña, y el detalle está a un clic. Nada decora.
+  MUNDO: Un panel que flota sobre un lienzo gris claro. Tarjetas blancas de
+  esquina suave (18px), filete casi invisible y sombra corta. Un solo acento:
+  el verde #027F31 de las letras del logo, medido del archivo. El bronce
+  #6C5E3D de las alas del caduceo es el acento secundario; el rojo solo para
+  vencido o crítico.
+  HISTORIA: Alguien de SCH abre el CRM y en la primera pantalla ve cuánto se
+  facturó, cuánto entró, qué falta por cobrar y qué soporte está abierto.
+  PRIMER VIEWPORT: Encabezado con el módulo y su periodo; tira de lecturas con
+  cifra grande y cápsula de variación; accesos directos; el gráfico del mes.
+  FORMA: Panel financiero moderno, sobre la paleta del logo de SCH.
+  ACABADO: sin revisar y sin documentar es sin terminar.
+-->
 <a href="#contenido" class="skip-link">Saltar al contenido</a>
 <div class="crm-shell">
     <header class="crm-topbar">
         <div class="crm-topbar__brand">
             <?= brand_lock('crm') ?>
-            <button class="crm-icon-btn lg:hidden" type="button" @click.stop="nav = !nav" :aria-expanded="nav" aria-label="Abrir navegacion" aria-controls="crm-sidebar">
+            <button class="crm-icon-btn lg:hidden" type="button" @click.stop="nav = !nav" :aria-expanded="nav" aria-label="Abrir navegación" aria-controls="crm-sidebar">
                 <i data-lucide="menu" class="h-5 w-5"></i>
             </button>
         </div>
@@ -103,6 +129,13 @@ unset($crmNavGroup, $crmNavItems);
             <?php if (current_can('cotizaciones.edit')): ?><a href="<?= url('crm/cotizaciones.php?new=1') ?>" class="crm-top-btn"><i data-lucide="plus" class="h-4 w-4"></i><span>Nueva cotización</span></a><?php endif; ?>
             <?php if (current_can('tickets.edit')): ?><a href="<?= url('crm/tickets.php?new=1') ?>" class="crm-top-btn crm-top-btn--ghost"><i data-lucide="plus" class="h-4 w-4"></i><span>Nuevo ticket</span></a><?php endif; ?>
 
+            <button type="button" class="sch-tema" onclick="schTema()"
+                    aria-label="Cambiar entre tema claro y oscuro" title="Cambiar tema">
+                <i data-lucide="moon" class="sch-tema__luna"></i>
+                <i data-lucide="sun" class="sch-tema__sol"></i>
+            </button>
+
+            <?php if ($navCanTickets): /* Sin acceso a tickets la campana no tiene nada que anunciar. */ ?>
             <div class="dash-dd" @click.outside="bell = false">
                 <button type="button" class="crm-bell" @click="bell = !bell; user = false" :aria-expanded="bell" aria-label="Notificaciones">
                     <i data-lucide="bell" class="h-5 w-5" aria-hidden="true"></i>
@@ -123,6 +156,7 @@ unset($crmNavGroup, $crmNavItems);
                     <a class="dash-pop__item" href="<?= url('crm/tickets.php') ?>"><i data-lucide="inbox"></i>Ver todos los tickets</a>
                 </div>
             </div>
+            <?php endif; ?>
 
             <div class="dash-dd" @click.outside="user = false">
                 <div class="crm-user-chip" role="button" tabindex="0" @click="user = !user; bell = false" @keydown.enter="user = !user" @keydown.space.prevent="user = !user" :aria-expanded="user">
@@ -163,7 +197,7 @@ unset($crmNavGroup, $crmNavItems);
                     <span>Contraer menú</span>
                 </button>
             </div>
-            <nav class="crm-nav__links" aria-label="Navegacion CRM">
+            <nav class="crm-nav__links" aria-label="Navegación del CRM">
                 <?php foreach ($crmNavGroups as $groupLabel => $groupItems): ?>
                     <p class="crm-nav__label"><?= e($groupLabel) ?></p>
                     <?php foreach ($groupItems as $href => [$label, $icon, $countKey, $isAlert]): ?>
@@ -177,6 +211,7 @@ unset($crmNavGroup, $crmNavItems);
                     <?php endforeach; ?>
                 <?php endforeach; ?>
             </nav>
+
             <div class="crm-nav__footer">
                 <div class="crm-local-card">
                     <p><?= e(APP_LEGAL) ?></p>
@@ -200,14 +235,27 @@ unset($crmNavGroup, $crmNavItems);
 
         <div class="crm-content">
             <div class="crm-page-title">
-                <p>SCH MEDICOS &middot; CRM</p>
                 <h1><?= e($crmTitle) ?></h1>
             </div>
 
             <?php foreach (flashes() as $i => $item): ?>
-                <div id="flash-crm-<?= $i ?>" class="mx-4 mt-4 rounded-xl border <?= $item['type'] === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800' ?> px-4 py-3 text-sm font-semibold lg:mx-0">
+                <?php
+                /* Un fallo y una advertencia no pueden verse igual: «no se pudo
+                   registrar el cobro» y «quedan 3 NCF» pedían cosas distintas y
+                   salían con el mismo ámbar. Cada tipo lleva ahora su color, su
+                   icono y su papel ARIA — un error se anuncia solo al lector de
+                   pantalla; un aviso espera su turno. */
+                $fTipo = $item['type'] ?? 'warning';
+                [$fClase, $fIcono, $fRol] = match ($fTipo) {
+                    'success'         => ['gas-aviso--ok',     'check-circle-2', 'status'],
+                    'error', 'danger' => ['gas-aviso--alarma', 'octagon-alert',  'alert'],
+                    'info'            => ['gas-aviso--nota',   'info',           'status'],
+                    default           => ['',                  'alert-triangle', 'status'],
+                };
+                ?>
+                <div id="flash-crm-<?= $i ?>" class="gas-aviso <?= $fClase ?> mx-4 mt-4 lg:mx-0" role="<?= $fRol ?>"<?= $fRol === 'alert' ? '' : ' aria-live="polite"' ?>>
                     <div class="flex items-center justify-between gap-3">
-                        <span class="flex items-center gap-2"><i data-lucide="<?= $item['type'] === 'success' ? 'check-circle-2' : 'alert-triangle' ?>" class="h-4 w-4"></i><?= e($item['message']) ?></span>
+                        <span class="flex items-center gap-2"><i data-lucide="<?= $fIcono ?>" class="h-4 w-4"></i><?= e($item['message']) ?></span>
                         <button type="button" data-dismiss="#flash-crm-<?= $i ?>" class="rounded p-1 hover:bg-black/5" aria-label="Cerrar mensaje"><i data-lucide="x" class="h-4 w-4"></i></button>
                     </div>
                 </div>

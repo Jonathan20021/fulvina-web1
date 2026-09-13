@@ -15,12 +15,15 @@ declare(strict_types=1);
 /** Canonical commercial pipeline stages (ordered) with display colours. */
 function analytics_stage_meta(): array
 {
+    /* El embudo avanza del neutro al verde de la marca: el color mide avance,
+       no categoría. El bronce del logo marca la negociación, que es donde el
+       trato todavía puede caerse. */
     return [
-        'Borrador'    => '#94a3b8',
-        'Enviado'     => '#0666b3',
-        'Cotizado'    => '#1fa6d8',
-        'Negociacion' => '#9c7d34',
-        'Aprobado'    => '#0a7d36',
+        'Borrador'    => '#C3CCC7',
+        'Enviado'     => '#7C8A83',
+        'Cotizado'    => '#6C5E3D',
+        'Negociacion' => '#0BA344',
+        'Aprobado'    => '#027F31',
     ];
 }
 
@@ -33,14 +36,16 @@ function analytics_open_states(): array
 /** Canonical business lines => [lucide icon, hex colour]. Also the quote category list. */
 function quote_categories(): array
 {
+    /* Siete líneas de negocio en una sola familia: del verde del logo hacia
+       el bronce del caduceo, pasando por los neutros. Ningún azul ni cian. */
     return [
-        'Equipos médicos'             => ['monitor', '#0a7d36'],
-        'Gases medicinales'           => ['wind', '#12a04a'],
-        'Diseño hospitalario'         => ['ruler', '#1fa6d8'],
-        'Instalación y certificación' => ['wrench', '#9c7d34'],
-        'Soporte y mantenimiento'     => ['life-buoy', '#0666b3'],
-        'Equipos industriales'        => ['factory', '#475569'],
-        'Productos arquitectónicos'   => ['blocks', '#0e7490'],
+        'Equipos médicos'             => ['monitor', '#027F31'],
+        'Gases medicinales'           => ['wind', '#0BA344'],
+        'Diseño hospitalario'         => ['ruler', '#4F9E6E'],
+        'Instalación y certificación' => ['wrench', '#6C5E3D'],
+        'Soporte y mantenimiento'     => ['life-buoy', '#9A8348'],
+        'Equipos industriales'        => ['factory', '#66746D'],
+        'Productos arquitectónicos'   => ['blocks', '#A9B4AE'],
     ];
 }
 
@@ -113,7 +118,8 @@ function analytics_period(string $key = 'month'): array
         default:
             $from = date('Y-m-01');
             $to = date('Y-m-t');
-            $label = 'Mes de ' . $months_es[(int) date('n')] . ' ' . date('Y');
+            $meses_largos = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
+            $label = $meses_largos[(int) date('n')] . ' ' . date('Y');
             $prevFrom = date('Y-m-01', strtotime('-1 month'));
             $prevTo = date('Y-m-t', strtotime('-1 month'));
             $key = 'month';
@@ -129,10 +135,18 @@ function analytics_period_options(): array
 }
 
 /** Percentage delta between two values (0 when base is 0). */
-function analytics_delta(float $current, float $previous): float
+/**
+ * Variación porcentual contra el periodo anterior.
+ *
+ * Devuelve NULL cuando no hay base de comparación. Antes devolvía 100.0 en ese
+ * caso, y la pantalla mostraba «+100%» donde la verdad era que el periodo
+ * anterior estaba en cero: pasar de RD$0 a RD$1.5M no es un aumento del 100%.
+ * Quien lee el panel toma decisiones con esa cifra, así que el hueco se dice.
+ */
+function analytics_delta(float $current, float $previous): ?float
 {
     if ($previous <= 0) {
-        return $current > 0 ? 100.0 : 0.0;
+        return $current > 0 ? null : 0.0;
     }
     return round(($current - $previous) / $previous * 100, 1);
 }
@@ -229,6 +243,488 @@ function analytics_kpis(array $period): array
     ];
 }
 
+/* =========================================================================
+   Facturación real — emitido, cobrado y por cobrar
+   =========================================================================
+   Los KPIs comerciales de arriba miden COTIZACIONES (intención de compra).
+   Estas funciones miden COMPROBANTES FISCALES (dinero facturado) y PAGOS
+   (dinero cobrado). Son magnitudes distintas y no deben mezclarse: una
+   cotización aprobada que nunca se facturó no es un ingreso, y una factura
+   emitida que nadie pagó tampoco es caja. El panel las muestra por separado.
+   ========================================================================= */
+
+/** True cuando el esquema de facturación está disponible para analítica. */
+function analytics_has_billing(): bool
+{
+    return analytics_has('invoices');
+}
+
+/**
+ * Fecha a la que se atribuye un comprobante: el sello de emisión si existe y,
+ * en su defecto, la fecha fiscal del documento. Nunca created_at — un borrador
+ * creado en un mes y emitido en el siguiente pertenece al mes en que se
+ * convirtió en documento fiscal.
+ */
+function billing_date_sql(string $t = 'invoices'): string
+{
+    return "DATE(COALESCE({$t}.emitted_at, {$t}.issue_date))";
+}
+
+/** Condición que aísla comprobantes fiscales reales: sin borradores, proformas ni anuladas. */
+function billing_real_sql(string $t = 'invoices'): string
+{
+    $cond = "{$t}.status IN ('Emitida','Pagada')";
+    if (column_exists('invoices', 'is_proforma')) {
+        $cond .= " AND {$t}.is_proforma = 0";
+    }
+    return $cond;
+}
+
+/** Saldo vivo del comprobante. Delega en la fórmula única de functions.php. */
+function billing_balance_sql(string $t = 'invoices'): string
+{
+    return invoice_balance_sql($t);
+}
+
+/**
+ * Total del comprobante con signo: una nota de crédito RESTA de lo facturado.
+ * Sin esto, devolverle 10.000 a un cliente subiría las ventas del mes en 10.000.
+ * (En el archivo 607 la nota sí va como línea propia y positiva — la DGII hace
+ * la resta de su lado. Son dos lecturas distintas del mismo documento.)
+ */
+function billing_signed_total_sql(string $t = 'invoices'): string
+{
+    return "(CASE WHEN {$t}.ncf_type IN ('04','34') THEN -{$t}.total ELSE {$t}.total END)";
+}
+
+/**
+ * Facturado / cobrado / por cobrar, todo en RD$ (los comprobantes en USD se
+ * convierten con la tasa del propio documento, igual que la cartera).
+ *
+ * «Facturado» y «cobrado» son del periodo; «por cobrar» es una foto de HOY,
+ * porque el saldo vivo no pertenece a ningún mes en particular.
+ */
+function analytics_billing(array $period): array
+{
+    if (!analytics_live() || !analytics_has_billing()) {
+        return [
+            'live' => false,
+            'billed'      => ['value' => 486300.0, 'count' => 9, 'delta' => 8.0],
+            'collected'   => ['value' => 351750.0, 'count' => 14, 'delta' => 15.0],
+            'outstanding' => ['value' => 274900.0, 'count' => 11, 'overdue_value' => 98400.0, 'overdue_count' => 4],
+        ];
+    }
+
+    [$f, $t, $pf, $pt] = [$period['from'], $period['to'], $period['prev_from'], $period['prev_to']];
+    $rate = invoice_rate_sql();
+    $date = billing_date_sql();
+    $real = billing_real_sql();
+
+    $signed = billing_signed_total_sql();
+    $billedSql = "SELECT COUNT(*) c, COALESCE(SUM({$signed} * {$rate}),0) v
+                    FROM invoices WHERE {$real} AND {$date} BETWEEN ? AND ?";
+    $bCur  = fetch_one($billedSql, [$f, $t])   ?? ['c' => 0, 'v' => 0];
+    $bPrev = fetch_one($billedSql, [$pf, $pt]) ?? ['c' => 0, 'v' => 0];
+
+    $cCur = $cPrev = ['c' => 0, 'v' => 0];
+    if (analytics_has('invoice_payments')) {
+        // El abono está en la moneda de su factura, así que se convierte con la
+        // tasa de esa factura (no con la del día).
+        $paySql = "SELECT COUNT(*) c, COALESCE(SUM(p.amount * {$rate}),0) v
+                     FROM invoice_payments p
+                     JOIN invoices ON invoices.id = p.invoice_id
+                    WHERE invoices.status <> 'Anulada' AND p.paid_at BETWEEN ? AND ?";
+        $cCur  = fetch_one($paySql, [$f, $t])   ?? $cCur;
+        $cPrev = fetch_one($paySql, [$pf, $pt]) ?? $cPrev;
+    }
+
+    // Por cobrar reutiliza literalmente la condición de la cartera de
+    // Facturación, de modo que las dos pantallas no puedan divergir nunca.
+    $bal = billing_balance_sql();
+    $due = invoice_due_sql();
+    $receivable = invoice_receivable_sql();
+    $out = fetch_one("SELECT COUNT(*) c, COALESCE(SUM({$bal} * {$rate}),0) v
+                        FROM invoices WHERE {$receivable}") ?? ['c' => 0, 'v' => 0];
+    $ovd = fetch_one("SELECT COUNT(*) c, COALESCE(SUM({$bal} * {$rate}),0) v
+                        FROM invoices WHERE {$receivable} AND {$due} < CURDATE()") ?? ['c' => 0, 'v' => 0];
+
+    return [
+        'live' => true,
+        'billed' => [
+            'value' => (float) $bCur['v'], 'count' => (int) $bCur['c'],
+            'delta' => analytics_delta((float) $bCur['v'], (float) $bPrev['v']),
+        ],
+        'collected' => [
+            'value' => (float) $cCur['v'], 'count' => (int) $cCur['c'],
+            'delta' => analytics_delta((float) $cCur['v'], (float) $cPrev['v']),
+        ],
+        'outstanding' => [
+            'value' => (float) $out['v'], 'count' => (int) $out['c'],
+            'overdue_value' => (float) $ovd['v'], 'overdue_count' => (int) $ovd['c'],
+        ],
+    ];
+}
+
+/* =========================================================================
+   Margen — cuánto se ganó de verdad
+   =========================================================================
+   El margen se calcula SOLO sobre las partidas cuyo costo se conoce. Una
+   partida sin costo no vale cero: vale «no se sabe», y meterla en el cálculo
+   la haría aparecer con margen del 100% e inflaría el resultado. Por eso cada
+   cifra viene acompañada de su COBERTURA: qué porcentaje de lo facturado entró
+   realmente en la cuenta. Un margen del 42% sobre el 8% de las ventas no es un
+   margen del 42%, y la pantalla tiene que decirlo.
+   ========================================================================= */
+
+/** ¿Se puede calcular margen en esta base? */
+function analytics_has_margin(): bool
+{
+    return analytics_has('invoice_items') && column_exists('invoice_items', 'unit_cost');
+}
+
+/** Costo de una partida en la moneda del documento: costo unitario × cantidad. */
+function margin_cost_sql(string $t = 'invoice_items'): string
+{
+    return "({$t}.unit_cost * {$t}.quantity)";
+}
+
+/**
+ * Margen del periodo sobre comprobantes emitidos.
+ *
+ * Devuelve el ingreso y el costo de las partidas CON costo, más la cobertura
+ * (ingreso con costo / ingreso total). Las notas de crédito restan por ambos
+ * lados, igual que en «facturado».
+ */
+function analytics_margin(array $period): array
+{
+    $empty = [
+        'live' => false, 'revenue' => 0.0, 'cost' => 0.0, 'margin' => 0.0, 'pct' => null,
+        'covered' => 0.0, 'total_revenue' => 0.0, 'coverage' => null, 'lines' => 0, 'lines_costed' => 0,
+    ];
+    if (!analytics_live()) {
+        // Sin base de datos: dataset de muestra, como el resto del panel.
+        return ['live' => false, 'revenue' => 486300.0, 'cost' => 291780.0, 'margin' => 194520.0, 'pct' => 40.0,
+                'covered' => 486300.0, 'total_revenue' => 612000.0, 'coverage' => 79.5, 'lines' => 48, 'lines_costed' => 38];
+    }
+    if (!analytics_has_margin()) {
+        // Base conectada pero sin la columna de costo: ceros honestos, no muestra.
+        return $empty;
+    }
+
+    [$f, $t] = [$period['from'], $period['to']];
+    $rate = invoice_rate_sql();
+    // La nota de crédito resta ingreso y costo: devolvió mercancía, no la vendió.
+    $sign = "(CASE WHEN invoices.ncf_type IN ('04','34') THEN -1 ELSE 1 END)";
+    $cost = margin_cost_sql();
+
+    $row = fetch_one(
+        // OJO con los alias: «lines» es palabra reservada en MariaDB y rompe la
+        // consulta al prepararla, así que las cuentas van con otro nombre.
+        "SELECT
+            COUNT(*) line_count,
+            SUM(CASE WHEN invoice_items.unit_cost IS NOT NULL THEN 1 ELSE 0 END) costed_count,
+            COALESCE(SUM({$sign} * invoice_items.total * {$rate}),0) total_revenue,
+            COALESCE(SUM(CASE WHEN invoice_items.unit_cost IS NOT NULL THEN {$sign} * invoice_items.total * {$rate} ELSE 0 END),0) revenue,
+            COALESCE(SUM(CASE WHEN invoice_items.unit_cost IS NOT NULL THEN {$sign} * {$cost} * {$rate} ELSE 0 END),0) cost
+           FROM invoice_items
+           JOIN invoices ON invoices.id = invoice_items.invoice_id
+          WHERE " . billing_real_sql() . ' AND ' . billing_date_sql() . ' BETWEEN ? AND ?',
+        [$f, $t]
+    ) ?? [];
+
+    $revenue = round((float) ($row['revenue'] ?? 0), 2);
+    $costTotal = round((float) ($row['cost'] ?? 0), 2);
+    $totalRevenue = round((float) ($row['total_revenue'] ?? 0), 2);
+    $margin = round($revenue - $costTotal, 2);
+
+    return [
+        'live' => true,
+        'revenue' => $revenue,
+        'cost' => $costTotal,
+        'margin' => $margin,
+        'pct' => $revenue > 0.009 ? round($margin / $revenue * 100, 1) : null,
+        'covered' => $revenue,
+        'total_revenue' => $totalRevenue,
+        'coverage' => $totalRevenue > 0.009 ? round($revenue / $totalRevenue * 100, 1) : null,
+        'lines' => (int) ($row['line_count'] ?? 0),
+        'lines_costed' => (int) ($row['costed_count'] ?? 0),
+    ];
+}
+
+/**
+ * Margen por producto del catálogo en el periodo. Solo entran las partidas
+ * enlazadas a una ficha y con costo: es lo único sobre lo que se puede afirmar
+ * algo. Ordena por margen descendente.
+ */
+function analytics_margin_by_product(array $period, int $limit = 10): array
+{
+    if (!analytics_live() || !analytics_has_margin() || !analytics_has('products')
+        || !column_exists('invoice_items', 'product_id')) {
+        return [];
+    }
+    [$f, $t] = [$period['from'], $period['to']];
+    $rate = invoice_rate_sql();
+    $sign = "(CASE WHEN invoices.ncf_type IN ('04','34') THEN -1 ELSE 1 END)";
+    $cost = margin_cost_sql();
+    $limit = max(1, min(50, $limit));
+
+    return fetch_all(
+        "SELECT products.id, products.name, products.category,
+                COALESCE(SUM({$sign} * invoice_items.quantity),0) qty,
+                COALESCE(SUM({$sign} * invoice_items.total * {$rate}),0) revenue,
+                COALESCE(SUM({$sign} * {$cost} * {$rate}),0) cost,
+                COALESCE(SUM({$sign} * (invoice_items.total - {$cost}) * {$rate}),0) margin
+           FROM invoice_items
+           JOIN invoices ON invoices.id = invoice_items.invoice_id
+           JOIN products ON products.id = invoice_items.product_id
+          WHERE " . billing_real_sql() . ' AND ' . billing_date_sql() . " BETWEEN ? AND ?
+            AND invoice_items.unit_cost IS NOT NULL
+          GROUP BY products.id, products.name, products.category
+         HAVING revenue <> 0
+         ORDER BY margin DESC
+          LIMIT {$limit}",
+        [$f, $t]
+    );
+}
+
+/* =========================================================================
+   Cobranza — cuándo entra el dinero y quién paga tarde
+   =========================================================================
+   La cartera por antigüedad mira hacia atrás: qué está vencido y desde cuándo.
+   Esto mira hacia adelante (cuándo se espera cobrar) y hacia el hábito (cuánto
+   tarda de verdad cada cliente en pagar). Son preguntas distintas y la segunda
+   es la que permite anticiparse en vez de perseguir.
+   ========================================================================= */
+
+/** Tramos de la proyección de caja, en orden. Miran al FUTURO, no al pasado. */
+function cashflow_buckets(): array
+{
+    return [
+        'vencido' => 'Ya vencido',
+        '0-30'    => 'Próximos 30 días',
+        '31-60'   => 'Días 31 a 60',
+        '61-90'   => 'Días 61 a 90',
+        '90+'     => 'Más de 90 días',
+    ];
+}
+
+/**
+ * Proyección de cobros: el saldo vivo repartido por su fecha de vencimiento.
+ *
+ * Supone que cada comprobante se cobra el día que vence — es un supuesto, no
+ * una predicción, y la pantalla lo dice. El tramo «ya vencido» es dinero que
+ * debería haber entrado y no entró: no es proyección, es gestión pendiente.
+ */
+function analytics_cashflow_forecast(): array
+{
+    $buckets = [];
+    foreach (cashflow_buckets() as $k => $label) {
+        $buckets[$k] = ['label' => $label, 'count' => 0, 'amount' => 0.0];
+    }
+    $total = ['count' => 0, 'amount' => 0.0];
+
+    if (!analytics_live() || !analytics_has_billing()) {
+        $demo = ['vencido' => [4, 98400.0], '0-30' => [6, 212500.0], '31-60' => [3, 96300.0], '61-90' => [2, 41200.0], '90+' => [1, 18700.0]];
+        foreach ($demo as $k => [$c, $v]) {
+            $buckets[$k]['count'] = $c;
+            $buckets[$k]['amount'] = $v;
+            $total['count'] += $c;
+            $total['amount'] += $v;
+        }
+        return ['buckets' => $buckets, 'total' => $total, 'live' => false];
+    }
+
+    $due = invoice_due_sql();
+    $d = "DATEDIFF({$due}, CURDATE())";
+    $sql = "SELECT CASE
+                     WHEN {$d} < 0  THEN 'vencido'
+                     WHEN {$d} <= 30 THEN '0-30'
+                     WHEN {$d} <= 60 THEN '31-60'
+                     WHEN {$d} <= 90 THEN '61-90'
+                     ELSE '90+'
+                   END AS bucket,
+                   COUNT(*) c,
+                   COALESCE(SUM(" . billing_balance_sql() . ' * ' . invoice_rate_sql() . "),0) v
+              FROM invoices
+             WHERE " . invoice_receivable_sql() . '
+             GROUP BY bucket';
+
+    foreach (fetch_all($sql) as $r) {
+        $k = (string) $r['bucket'];
+        if (!isset($buckets[$k])) {
+            continue;
+        }
+        $buckets[$k]['count'] = (int) $r['c'];
+        $buckets[$k]['amount'] = (float) $r['v'];
+        $total['count'] += (int) $r['c'];
+        $total['amount'] += (float) $r['v'];
+    }
+
+    return ['buckets' => $buckets, 'total' => $total, 'live' => true];
+}
+
+/**
+ * Indicadores de cobranza del periodo.
+ *
+ *  · dso          Días de venta pendientes de cobro: (saldo / facturado) × días
+ *                 de la ventana. Cuántos días de facturación tienes en la calle.
+ *  · avg_days     Días que tardó de verdad el dinero en entrar, ponderado por
+ *                 monto (un abono grande pesa más que uno chico).
+ *  · on_time_pct  Porcentaje del dinero cobrado que entró en o antes de la
+ *                 fecha de vencimiento.
+ *
+ * El DSO se calcula SIEMPRE sobre los últimos 90 días, no sobre el periodo
+ * elegido: la fórmula escala con el largo de la ventana, así que mirarlo "por
+ * año" devolvería 200 y pico de días y se leería como una catástrofe que no es.
+ * Fijarlo lo vuelve comparable mes a mes. avg_days y on_time_pct sí siguen el
+ * periodo, porque ahí la pregunta es "¿cómo nos fue en estas fechas?".
+ *
+ * Devuelven null cuando no hay base para calcularlos: un cero inventado haría
+ * pensar que se cobra el mismo día.
+ */
+function analytics_collection_metrics(array $period): array
+{
+    if (!analytics_live() || !analytics_has_billing()) {
+        return ['live' => false, 'dso' => 52.0, 'dso_days' => 90, 'avg_days' => 41.0, 'on_time_pct' => 63.0, 'days' => 30];
+    }
+
+    [$f, $t] = [$period['from'], $period['to']];
+    $days = max(1, (int) ((strtotime($t) - strtotime($f)) / 86400) + 1);
+    $rate = invoice_rate_sql();
+
+    $dsoDays = 90;
+    $dsoFrom = date('Y-m-d', strtotime('-' . ($dsoDays - 1) . ' days'));
+    $billed = (float) (fetch_one(
+        'SELECT COALESCE(SUM(' . billing_signed_total_sql() . " * {$rate}),0) v
+           FROM invoices WHERE " . billing_real_sql() . ' AND ' . billing_date_sql() . ' BETWEEN ? AND ?',
+        [$dsoFrom, date('Y-m-d')]
+    )['v'] ?? 0);
+
+    $outstanding = (float) (fetch_one(
+        'SELECT COALESCE(SUM(' . billing_balance_sql() . " * {$rate}),0) v
+           FROM invoices WHERE " . invoice_receivable_sql()
+    )['v'] ?? 0);
+
+    $dso = $billed > 0.009 ? round($outstanding / $billed * $dsoDays, 1) : null;
+
+    $avgDays = null;
+    $onTime = null;
+    if (analytics_has('invoice_payments')) {
+        $due = invoice_due_sql();
+        $row = fetch_one(
+            "SELECT COALESCE(SUM(p.amount * {$rate}),0) paid,
+                    SUM(p.amount * {$rate} * DATEDIFF(p.paid_at, DATE(COALESCE(invoices.emitted_at, invoices.issue_date)))) lag_sum,
+                    SUM(CASE WHEN p.paid_at <= {$due} THEN p.amount * {$rate} ELSE 0 END) on_time
+               FROM invoice_payments p
+               JOIN invoices ON invoices.id = p.invoice_id
+              WHERE invoices.status <> 'Anulada' AND p.paid_at BETWEEN ? AND ?",
+            [$f, $t]
+        );
+        $paid = (float) ($row['paid'] ?? 0);
+        if ($paid > 0.009) {
+            if ($row['lag_sum'] !== null) {
+                $avgDays = round((float) $row['lag_sum'] / $paid, 1);
+            }
+            $onTime = round((float) ($row['on_time'] ?? 0) / $paid * 100, 1);
+        }
+    }
+
+    return ['live' => true, 'dso' => $dso, 'dso_days' => $dsoDays, 'avg_days' => $avgDays, 'on_time_pct' => $onTime, 'days' => $days];
+}
+
+/**
+ * Comportamiento de pago por cliente, sobre TODO el historial de cobros (no
+ * solo el periodo): un hábito necesita más de un mes para verse. Ordena por el
+ * que más tarda, que es a quien hay que llamar primero.
+ */
+function analytics_collection_by_client(int $limit = 8): array
+{
+    if (!analytics_live() || !analytics_has_billing() || !analytics_has('invoice_payments')) {
+        return [
+            ['client_id' => 0, 'name' => 'Hospital Regional del Este', 'paid' => 412000.0, 'avg_days' => 68.4, 'on_time_pct' => 22.0, 'balance' => 186400.0, 'overdue' => 142900.0],
+            ['client_id' => 0, 'name' => 'Clínica Unión Médica', 'paid' => 318500.0, 'avg_days' => 47.1, 'on_time_pct' => 51.0, 'balance' => 92300.0, 'overdue' => 0.0],
+            ['client_id' => 0, 'name' => 'CEDIMAT', 'paid' => 604200.0, 'avg_days' => 21.8, 'on_time_pct' => 88.0, 'balance' => 43100.0, 'overdue' => 0.0],
+        ];
+    }
+
+    $limit = max(1, min(50, $limit));
+    $rate = invoice_rate_sql();
+    $due = invoice_due_sql();
+
+    $rows = fetch_all(
+        "SELECT invoices.client_id,
+                COALESCE(clients.name, invoices.client_name, 'Cliente') AS name,
+                COALESCE(SUM(p.amount * {$rate}),0) AS paid,
+                SUM(p.amount * {$rate} * DATEDIFF(p.paid_at, DATE(COALESCE(invoices.emitted_at, invoices.issue_date)))) AS lag_sum,
+                SUM(CASE WHEN p.paid_at <= {$due} THEN p.amount * {$rate} ELSE 0 END) AS on_time
+           FROM invoice_payments p
+           JOIN invoices ON invoices.id = p.invoice_id
+           LEFT JOIN clients ON clients.id = invoices.client_id
+          WHERE invoices.status <> 'Anulada' AND p.paid_at IS NOT NULL
+          GROUP BY invoices.client_id, name
+         HAVING paid > 0.009"
+    );
+
+    // Saldo y vencido actuales por cliente, con la misma definición de cartera.
+    $balances = [];
+    foreach (fetch_all(
+        'SELECT invoices.client_id,
+                COALESCE(clients.name, invoices.client_name, \'Cliente\') AS name,
+                COALESCE(SUM(' . billing_balance_sql() . " * {$rate}),0) AS balance,
+                COALESCE(SUM(CASE WHEN {$due} < CURDATE() THEN " . billing_balance_sql() . " * {$rate} ELSE 0 END),0) AS overdue
+           FROM invoices
+           LEFT JOIN clients ON clients.id = invoices.client_id
+          WHERE " . invoice_receivable_sql() . '
+          GROUP BY invoices.client_id, name'
+    ) as $b) {
+        $balances[(int) $b['client_id']] = [
+            'name' => (string) $b['name'],
+            'balance' => (float) $b['balance'],
+            'overdue' => (float) $b['overdue'],
+        ];
+    }
+
+    $out = [];
+    $seen = [];
+    foreach ($rows as $r) {
+        $cid = (int) $r['client_id'];
+        $paid = (float) $r['paid'];
+        $seen[$cid] = true;
+        $out[] = [
+            'client_id' => $cid,
+            'name' => (string) $r['name'],
+            'paid' => $paid,
+            'avg_days' => $r['lag_sum'] === null ? null : round((float) $r['lag_sum'] / $paid, 1),
+            'on_time_pct' => round((float) ($r['on_time'] ?? 0) / $paid * 100, 1),
+            'balance' => $balances[$cid]['balance'] ?? 0.0,
+            'overdue' => $balances[$cid]['overdue'] ?? 0.0,
+        ];
+    }
+
+    // Clientes que deben dinero pero nunca han pagado nada todavía: no tienen
+    // hábito que medir, y justamente por eso son los que más conviene mirar.
+    // Entran con la tardanza en blanco en vez de quedar fuera del informe.
+    foreach ($balances as $cid => $b) {
+        if ($b['balance'] <= 0.009 || isset($seen[$cid])) {
+            continue;
+        }
+        $out[] = [
+            'client_id' => $cid,
+            'name' => $b['name'],
+            'paid' => 0.0,
+            'avg_days' => null,
+            'on_time_pct' => null,
+            'balance' => $b['balance'],
+            'overdue' => $b['overdue'],
+        ];
+    }
+
+    // Primero quien más tarda; los sin historial quedan al final, ordenados por
+    // lo que tienen vencido.
+    usort($out, fn ($a, $b) => [$b['avg_days'] ?? -1, $b['overdue']] <=> [$a['avg_days'] ?? -1, $a['overdue']]);
+    return array_slice($out, 0, $limit);
+}
+
 /** Monthly trend for the last N months: labels + ingresos(k) + cotizaciones + tickets. */
 function analytics_monthly_trend(int $months = 6): array
 {
@@ -243,6 +739,8 @@ function analytics_monthly_trend(int $months = 6): array
 
     if (!analytics_live()) {
         $base = [820, 940, 760, 1080, 990, 1284, 1120, 1340, 1180, 1420, 1290, 1510];
+        $fac = [610, 720, 640, 880, 815, 1010, 905, 1075, 960, 1160, 1045, 1230];
+        $cob = [540, 660, 590, 790, 735, 900, 830, 960, 880, 1030, 950, 1105];
         $cot = [22, 26, 19, 31, 28, 34, 27, 35, 30, 38, 33, 41];
         $tk = [38, 41, 35, 44, 40, 42, 39, 46, 43, 48, 45, 50];
         $res = [33, 37, 31, 40, 38, 41, 36, 44, 41, 46, 43, 48];
@@ -251,6 +749,10 @@ function analytics_monthly_trend(int $months = 6): array
             'labels' => $labels,
             'ingresos' => array_slice($base, -$n),
             'ingresos_raw' => array_map(fn ($v) => $v * 1000, array_slice($base, -$n)),
+            'facturado' => array_slice($fac, -$n),
+            'facturado_raw' => array_map(fn ($v) => $v * 1000, array_slice($fac, -$n)),
+            'cobrado' => array_slice($cob, -$n),
+            'cobrado_raw' => array_map(fn ($v) => $v * 1000, array_slice($cob, -$n)),
             'cotizaciones' => array_slice($cot, -$n),
             'tickets' => array_slice($tk, -$n),
             'resueltos' => array_slice($res, -$n),
@@ -258,6 +760,8 @@ function analytics_monthly_trend(int $months = 6): array
     }
 
     $ingresos = array_fill_keys($keys, 0.0);
+    $fac = array_fill_keys($keys, 0.0);
+    $cob = array_fill_keys($keys, 0.0);
     $cot = array_fill_keys($keys, 0);
     $tk = array_fill_keys($keys, 0);
     $res = array_fill_keys($keys, 0);
@@ -268,6 +772,28 @@ function analytics_monthly_trend(int $months = 6): array
     }
     foreach (fetch_all("SELECT DATE_FORMAT(created_at,'%Y-%m') m, COUNT(*) c FROM quotes GROUP BY m") as $r) {
         if (isset($cot[$r['m']])) $cot[$r['m']] = (int) $r['c'];
+    }
+
+    // Facturado y cobrado reales, en RD$. Van aparte de «ingresos» (cotizaciones
+    // aprobadas) porque responden preguntas distintas.
+    if (analytics_has_billing()) {
+        $rate = invoice_rate_sql();
+        $signed = billing_signed_total_sql();
+        $sql = "SELECT DATE_FORMAT(COALESCE(invoices.emitted_at, invoices.issue_date),'%Y-%m') m,
+                       COALESCE(SUM({$signed} * {$rate}),0) v
+                  FROM invoices WHERE " . billing_real_sql() . " GROUP BY m";
+        foreach (fetch_all($sql) as $r) {
+            if (isset($fac[$r['m']])) $fac[$r['m']] = (float) $r['v'];
+        }
+        if (analytics_has('invoice_payments')) {
+            $sql = "SELECT DATE_FORMAT(p.paid_at,'%Y-%m') m, COALESCE(SUM(p.amount * {$rate}),0) v
+                      FROM invoice_payments p
+                      JOIN invoices ON invoices.id = p.invoice_id
+                     WHERE invoices.status <> 'Anulada' AND p.paid_at IS NOT NULL GROUP BY m";
+            foreach (fetch_all($sql) as $r) {
+                if (isset($cob[$r['m']])) $cob[$r['m']] = (float) $r['v'];
+            }
+        }
     }
     if (analytics_has('tickets')) {
         foreach (fetch_all("SELECT DATE_FORMAT(created_at,'%Y-%m') m, COUNT(*) c FROM tickets GROUP BY m") as $r) {
@@ -281,10 +807,17 @@ function analytics_monthly_trend(int $months = 6): array
     }
 
     $ingresosRaw = array_values($ingresos);
+    $facRaw = array_values($fac);
+    $cobRaw = array_values($cob);
+    $toK = fn (array $rows) => array_map(fn ($v) => round($v / 1000, 1), $rows);
     return [
         'labels' => $labels,
-        'ingresos' => array_map(fn ($v) => round($v / 1000, 1), $ingresosRaw),
+        'ingresos' => $toK($ingresosRaw),
         'ingresos_raw' => $ingresosRaw,
+        'facturado' => $toK($facRaw),
+        'facturado_raw' => $facRaw,
+        'cobrado' => $toK($cobRaw),
+        'cobrado_raw' => $cobRaw,
         'cotizaciones' => array_values($cot),
         'tickets' => array_values($tk),
         'resueltos' => array_values($res),
@@ -304,7 +837,7 @@ function analytics_revenue_by_line(?array $period = null): array
         if (!analytics_live()) {
             $total = array_sum(array_column($demo, 1)) ?: 1;
             return array_map(function ($r) use ($cats, $total) {
-                $m = $cats[$r[0]] ?? ['layers', '#0a7d36'];
+                $m = $cats[$r[0]] ?? ['layers', '#027F31'];
                 return ['line' => $r[0], 'icon' => $m[0], 'color' => $m[1], 'amount' => (float) $r[1], 'count' => 0, 'pct' => round($r[1] / $total * 100, 1)];
             }, $demo);
         }
@@ -323,7 +856,7 @@ function analytics_revenue_by_line(?array $period = null): array
 
     $total = array_sum(array_map(fn ($r) => (float) $r['a'], $rows)) ?: 1;
     return array_map(function ($r) use ($cats, $total) {
-        $m = $cats[$r['line']] ?? ['layers', '#64748b'];
+        $m = $cats[$r['line']] ?? ['layers', '#66746D'];
         return ['line' => $r['line'], 'icon' => $m[0], 'color' => $m[1], 'amount' => (float) $r['a'], 'count' => (int) $r['c'], 'pct' => round((float) $r['a'] / $total * 100, 1)];
     }, $rows);
 }

@@ -24,6 +24,8 @@ require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/otp.php';
 require_once __DIR__ . '/rbac.php';
 require_once __DIR__ . '/analytics.php';
+require_once __DIR__ . '/dgii.php';
+require_once __DIR__ . '/products.php';
 
 // Define APP_* company constants from the editable profile (DB settings → defaults).
 app_define_company();

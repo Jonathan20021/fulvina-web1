@@ -1,0 +1,2857 @@
+/* =========================================================================
+   SCH MEDICOS · CRM — capa de interfaz
+   =========================================================================
+   Se carga DESPUÉS de app.css y reemplaza su lenguaje visual.
+
+   TESIS
+   El CRM es el panel de control de la operación de SCH: equipos instalados en
+   hospitales, cotizaciones, comprobantes fiscales y una cola de soporte que no
+   puede esperar. Debe leerse como una herramienta financiera moderna —cifra
+   grande primero, variación después, detalle a un clic— a pantalla completa,
+   con tarjetas de esquina suave y una sola familia de color.
+
+   EL COLOR SALE DEL LOGO, MEDIDO PÍXEL A PÍXEL
+     #027F31  el verde de las letras SCH   → acento, acción, dato positivo
+     #6C5E3D  el bronce de las alas         → acento secundario, atención
+     #818181  el gris del asta              → escala neutra
+
+   REGLAS
+   · El verde es el único acento de acción. No hay azul de sistema.
+   · El rojo aparece solo en lo vencido o crítico; nunca decora.
+   · Una cifra por tarjeta manda: grande, apretada, en cifras tabulares.
+   · Nada se mueve salvo por una acción del usuario.
+   ========================================================================= */
+
+body.crm-sch {
+  /* --- Marca, del logo --------------------------------------------------- */
+  --verde:        #027F31;   /* el verde de las letras SCH */
+  --verde-tinta:  #016627;   /* el mismo, cuando es texto pequeño o hover */
+  --verde-hondo:  #014D1E;
+  --verde-vivo:   #0BA344;   /* solo gráficos y degradados, nunca texto */
+  --verde-suave:  #E7F4EC;   /* tinte de fondo */
+  --verde-tenue:  #F2FAF5;
+  --bronce:       #6C5E3D;   /* el bronce de las alas */
+  --bronce-tinta: #7A6320;
+  --bronce-suave: #F8F3E7;
+
+  /* --- Neutros ----------------------------------------------------------- */
+  --lienzo:   #EBEDEF;   /* solo la pantalla de acceso, donde la tarjeta de
+                            entrada sí flota. El CRM va a sangre. */
+  --papel:    #FFFFFF;   /* la tarjeta */
+  --nube:     #F6F8F7;   /* superficie hundida dentro de una tarjeta */
+  --nube-2:   #F0F3F1;
+  --linea:    #EDF0F2;   /* filete de tarjeta */
+  --linea-2:  #E1E6E9;   /* filete de control */
+  --tinta:    #0F1B14;   /* titulares y cifras */
+  --tinta-2:  #5B6B62;   /* texto secundario */
+  --tinta-3:  #66746D;   /* rótulos y marcas de eje. Tiene que leerse: a
+                            #7C8A83 se quedaba en 3.6:1 sobre blanco. */
+
+  /* --- Señales ----------------------------------------------------------- */
+  --sube:  #027F31;
+  --baja:  #C2202C;
+  --baja-suave: #FCEEEF;
+
+  /* --- Forma ------------------------------------------------------------- */
+  --r-panel: 24px;
+  --r-tarjeta: 18px;
+  --r-interior: 13px;
+  --r-control: 11px;
+  --sombra:      0 1px 2px rgba(15, 27, 20, .04), 0 10px 28px -18px rgba(15, 27, 20, .22);
+  --sombra-alta: 0 2px 6px rgba(15, 27, 20, .05), 0 20px 44px -22px rgba(15, 27, 20, .26);
+  --curva: cubic-bezier(.22, .61, .36, 1);
+}
+
+/* =========================================================================
+   1 · EL LIENZO Y EL PANEL FLOTANTE
+   ========================================================================= */
+
+body.crm-sch {
+  background: var(--nube);
+  color: var(--tinta);
+  font-family: var(--font-display);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* El CRM ocupa la pantalla completa, de borde a borde. Es una herramienta de
+   trabajo: quien la usa la tiene abierta todo el día y cada pixel de ancho es
+   una columna más de tabla. Nada de marco ni de lienzo alrededor.
+
+   El armazón ya es el correcto —cabezal pegajoso de 60px y riel de 244px a
+   altura completa— así que aquí solo se quita lo que estorbaba: márgenes,
+   esquina redondeada y el overflow que recortaba el pegado. */
+body.crm-sch .crm-shell {
+  max-width: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--nube);
+  box-shadow: none;
+  overflow: visible;
+}
+
+body.crm-sch .crm-main {
+  background: var(--nube);
+  padding: 1.1rem;
+}
+@media (min-width: 1280px) {
+  body.crm-sch .crm-main { padding: 1.25rem 1.5rem 2rem; }
+}
+body.crm-sch .crm-content { background: var(--nube); }
+
+/* =========================================================================
+   2 · LA BARRA SUPERIOR
+   ========================================================================= */
+
+body.crm-sch .crm-topbar {
+  border-bottom: 1px solid var(--linea);
+  background: var(--papel);
+  box-shadow: none;
+}
+body.crm-sch .crm-topbar__brand strong,
+body.crm-sch .crm-topbar__brand b { color: var(--tinta); }
+body.crm-sch .crm-topbar__brand span,
+body.crm-sch .crm-topbar__brand small { color: var(--tinta-2); }
+
+/* La búsqueda: una cápsula hundida, no una caja con borde fuerte. */
+body.crm-sch .crm-search {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--nube);
+  transition: background .18s var(--curva), border-color .18s var(--curva);
+}
+body.crm-sch .crm-search:focus-within {
+  border-color: var(--verde);
+  background: var(--papel);
+  box-shadow: 0 0 0 3px rgba(2, 127, 49, .12);
+}
+body.crm-sch .crm-search input { color: var(--tinta); }
+body.crm-sch .crm-search input::placeholder { color: var(--tinta-3); }
+body.crm-sch .crm-search > svg { color: var(--tinta-3); }
+body.crm-sch .crm-search kbd {
+  border: 1px solid var(--linea-2);
+  border-radius: 6px;
+  background: var(--papel);
+  color: var(--tinta-3);
+  font-family: var(--font-mono);
+  font-size: .64rem;
+}
+
+/* Los atajos: uno sólido, el resto en contorno. */
+body.crm-sch .crm-top-btn {
+  height: 38px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--verde);
+  background: var(--verde);
+  color: #fff;
+  font-size: .85rem;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(2, 127, 49, .18);
+  transition: background .18s var(--curva), box-shadow .18s var(--curva);
+}
+body.crm-sch .crm-top-btn:hover {
+  background: var(--verde-tinta);
+  border-color: var(--verde-tinta);
+  transform: none;
+  box-shadow: 0 4px 14px -4px rgba(2, 127, 49, .4);
+}
+body.crm-sch .crm-top-btn--ghost,
+body.crm-sch .crm-top-btn.is-ghost {
+  border-color: var(--linea-2);
+  background: var(--papel);
+  color: var(--tinta);
+  box-shadow: none;
+}
+body.crm-sch .crm-top-btn--ghost:hover { background: var(--nube); border-color: var(--linea-2); box-shadow: none; }
+
+body.crm-sch .crm-bell,
+body.crm-sch .crm-icon-btn {
+  border: 1px solid var(--linea-2);
+  border-radius: 50%;
+  background: var(--papel);
+  color: var(--tinta-2);
+}
+body.crm-sch .crm-bell:hover,
+body.crm-sch .crm-icon-btn:hover { background: var(--nube); color: var(--tinta); }
+body.crm-sch .crm-bell b {
+  background: var(--baja);
+  color: #fff;
+  font-weight: 700;
+}
+
+/* =========================================================================
+   3 · EL RIEL DE NAVEGACIÓN
+   =========================================================================
+   Claro, no oscuro. El módulo activo es una cápsula verde suave con el rótulo
+   en verde: el color indica dónde estás, no adorna. */
+
+body.crm-sch .crm-nav {
+  border-right: 1px solid var(--linea);
+  background: var(--papel);
+}
+body.crm-sch .crm-nav__label {
+  color: var(--tinta-3);
+  font-size: .66rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+body.crm-sch .crm-nav__links a {
+  position: relative;
+  gap: .7rem;
+  margin: 1px .5rem;
+  padding: .58rem .7rem;
+  border-radius: var(--r-control);
+  color: var(--tinta-2);
+  font-size: .875rem;
+  font-weight: 500;
+  transition: background .16s var(--curva), color .16s var(--curva);
+}
+body.crm-sch .crm-nav__links a::before { content: none; }
+body.crm-sch .crm-nav__links a svg { width: 18px; height: 18px; color: var(--tinta-3); }
+body.crm-sch .crm-nav__links a:hover { background: var(--nube); color: var(--tinta); }
+body.crm-sch .crm-nav__links a:hover svg { color: var(--tinta-2); }
+body.crm-sch .crm-nav__links a.is-active {
+  background: var(--verde-suave);
+  color: var(--verde-tinta);
+  font-weight: 600;
+}
+body.crm-sch .crm-nav__links a.is-active svg { color: var(--verde); }
+
+/* El contador de cada módulo: una cuenta, no una alarma. */
+body.crm-sch .crm-nav__links a .crm-nav__count,
+body.crm-sch .crm-nav__badge {
+  min-width: 20px;
+  padding: 0 .38rem;
+  border-radius: 999px;
+  background: var(--nube-2);
+  color: var(--tinta-2);
+  font-size: .68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+body.crm-sch .crm-nav__links a.is-active .crm-nav__count,
+body.crm-sch .crm-nav__links a.is-active .crm-nav__badge {
+  background: var(--verde);
+  color: #fff;
+}
+
+body.crm-sch .crm-nav-collapse {
+  border: 1px solid var(--linea-2);
+  border-radius: var(--r-control);
+  background: var(--papel);
+  color: var(--tinta-2);
+}
+body.crm-sch .crm-nav-collapse:hover { background: var(--nube); color: var(--tinta); }
+
+/* =========================================================================
+   4 · EL ENCABEZADO DE PANTALLA
+   =========================================================================
+   La primera línea de cada pantalla: qué estoy viendo, de qué periodo, y el
+   dato vivo que la resume. Es el equivalente al saludo de un panel financiero:
+   nombre grande, contexto debajo, una cápsula de estado a la derecha. */
+
+.sch-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+.sch-head__t {
+  margin: 0;
+  color: var(--tinta);
+  font-size: 1.45rem;
+  font-weight: 650;
+  letter-spacing: -.028em;
+  line-height: 1.15;
+}
+.sch-head__d {
+  margin: .2rem 0 0;
+  color: var(--tinta-2);
+  font-size: .875rem;
+  line-height: 1.5;
+}
+.sch-head__dato {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .42rem .8rem;
+  border: 1px solid var(--linea-2);
+  border-radius: 999px;
+  background: var(--papel);
+  color: var(--tinta-2);
+  font-size: .78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.sch-head__dato::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--verde);
+}
+
+/* =========================================================================
+   5 · SUPERFICIES
+   ========================================================================= */
+
+body.crm-sch .crm-card,
+body.crm-sch .crm-data-surface,
+body.crm-sch .dash-card,
+body.crm-sch .rep-kpi,
+body.crm-sch .rep-flow,
+body.crm-sch .cobro-sum__cell,
+body.crm-sch .crm-empty,
+body.crm-sch .crm-cockpit__metrics,
+body.crm-sch .helpdesk-v2__hero,
+body.crm-sch .helpdesk-v2__metrics,
+body.crm-sch .helpdesk-v2__surface,
+body.crm-sch .sch-tarjeta {
+  border: 1px solid var(--linea);
+  border-radius: var(--r-tarjeta);
+  background: var(--papel);
+  box-shadow: var(--sombra);
+}
+
+body.crm-sch .crm-card__head h3,
+body.crm-sch .dash-card__head h3,
+body.crm-sch .crm-data-surface__head h3 {
+  color: var(--tinta);
+  font-size: .98rem;
+  font-weight: 650;
+  letter-spacing: -.015em;
+}
+body.crm-sch .crm-card__head p,
+body.crm-sch .dash-card__head p,
+body.crm-sch .crm-data-surface__head p { color: var(--tinta-2); font-size: .82rem; }
+
+/* «Ver más»: el enlace de salida de cada tarjeta. */
+body.crm-sch .dash-card__meta,
+.sch-mas {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  color: var(--verde-tinta);
+  font-size: .78rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: opacity .16s var(--curva);
+}
+body.crm-sch .dash-card__meta:hover,
+.sch-mas:hover { opacity: .72; color: var(--verde-tinta); }
+.sch-mas svg { width: 14px; height: 14px; }
+
+/* =========================================================================
+   6 · LA LECTURA: cifra grande, variación, salida
+   =========================================================================
+   El bloque que define este lenguaje. Rótulo pequeño arriba, la cifra mandando
+   en el medio, y debajo una cápsula de variación con su referencia temporal. */
+
+.sch-lectura {
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+  padding: 1.05rem 1.15rem 1.1rem;
+}
+.sch-lectura__cab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  margin-bottom: .35rem;
+}
+.sch-lectura__t {
+  color: var(--tinta-2);
+  font-size: .8rem;
+  font-weight: 600;
+  letter-spacing: -.005em;
+}
+.sch-lectura__v {
+  color: var(--tinta);
+  font-size: clamp(1.65rem, 2.6vw, 2.1rem);
+  font-weight: 680;
+  letter-spacing: -.04em;
+  line-height: 1.08;
+  font-variant-numeric: tabular-nums;
+}
+.sch-lectura__v small {
+  margin-left: .2rem;
+  color: var(--tinta-3);
+  font-size: .48em;
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+.sch-lectura__pie {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  margin-top: .55rem;
+  flex-wrap: wrap;
+}
+.sch-lectura__ref { color: var(--tinta-3); font-size: .74rem; }
+
+/* La cápsula de variación. La flecha va aparte del signo: el glifo dice la
+   dirección aunque el color no llegue. */
+.sch-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: .22rem;
+  padding: .18rem .48rem;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+}
+.sch-delta::after { font-size: .82em; line-height: 1; }
+.sch-delta--sube { background: var(--verde-suave); color: var(--verde-tinta); }
+.sch-delta--sube::after { content: "\2191"; }
+.sch-delta--baja { background: var(--baja-suave); color: var(--baja); }
+.sch-delta--baja::after { content: "\2193"; }
+.sch-delta--neutro { background: var(--nube-2); color: var(--tinta-2); }
+
+/* Tira de lecturas: la fila de cabecera de casi todas las pantallas. */
+.sch-lecturas {
+  display: grid;
+  gap: .85rem;
+  margin-bottom: .95rem;
+  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+}
+
+/* =========================================================================
+   7 · ACCIONES RÁPIDAS
+   =========================================================================
+   La rejilla de atajos: icono en cápsula, rótulo al lado. Son entradas a un
+   flujo, no botones de formulario, así que pesan menos que la acción primaria
+   de la pantalla. */
+
+.sch-acciones {
+  display: grid;
+  gap: .55rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0 1.15rem 1.1rem;
+}
+.sch-accion {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .55rem .7rem;
+  border: 1px solid var(--linea);
+  border-radius: var(--r-interior);
+  background: var(--papel);
+  color: var(--tinta);
+  font-size: .82rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color .16s var(--curva), background .16s var(--curva);
+}
+.sch-accion:hover { border-color: var(--verde); background: var(--verde-tenue); color: var(--verde-tinta); }
+.sch-accion__ic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  background: var(--nube);
+  color: var(--tinta-2);
+}
+.sch-accion:hover .sch-accion__ic { background: var(--verde); color: #fff; }
+.sch-accion__ic svg { width: 15px; height: 15px; }
+
+/* =========================================================================
+   8 · BOTONES Y CONTROLES
+   ========================================================================= */
+
+body.crm-sch .crm-primary-btn {
+  border-radius: var(--r-control);
+  border: 1px solid var(--verde);
+  background: var(--verde);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(2, 127, 49, .18);
+  transition: background .18s var(--curva), box-shadow .18s var(--curva);
+}
+body.crm-sch .crm-primary-btn:hover {
+  background: var(--verde-tinta);
+  border-color: var(--verde-tinta);
+  transform: none;
+  box-shadow: 0 6px 18px -6px rgba(2, 127, 49, .45);
+}
+body.crm-sch .crm-secondary-btn {
+  border-radius: var(--r-control);
+  border: 1px solid var(--linea-2);
+  background: var(--papel);
+  color: var(--tinta);
+  font-weight: 600;
+}
+body.crm-sch .crm-secondary-btn:hover { background: var(--nube); border-color: var(--linea-2); transform: none; }
+
+body.crm-sch .dash-chip,
+body.crm-sch .dash-iconbtn,
+body.crm-sch .dash-iconbtn--solid {
+  border: 1px solid var(--linea-2);
+  border-radius: var(--r-control);
+  background: var(--papel);
+  color: var(--tinta);
+  box-shadow: none;
+}
+body.crm-sch .dash-chip:hover,
+body.crm-sch .dash-iconbtn:hover,
+body.crm-sch .dash-iconbtn--solid:hover { background: var(--nube); color: var(--tinta); transform: none; }
+body.crm-sch .dash-chip--accent { background: var(--nube); }
+
+/* El selector de periodo / métrica: teclas dentro de una cápsula hundida. */
+body.crm-sch .dash-seg,
+body.crm-sch .rep-seg {
+  padding: 3px;
+  border: 1px solid var(--linea);
+  border-radius: 999px;
+  background: var(--nube);
+  box-shadow: none;
+}
+body.crm-sch .dash-seg button,
+body.crm-sch .rep-seg a {
+  border-radius: 999px;
+  padding: .36rem .72rem;
+  color: var(--tinta-2);
+  font-size: .76rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  transition: background .16s var(--curva), color .16s var(--curva);
+}
+body.crm-sch .dash-seg button:hover,
+body.crm-sch .rep-seg a:hover { background: transparent; color: var(--tinta); }
+body.crm-sch .dash-seg button.is-active,
+body.crm-sch .rep-seg a.is-active,
+body.crm-sch .crm-cockpit__hero .rep-seg a.is-active {
+  background: var(--papel);
+  color: var(--tinta);
+  box-shadow: 0 1px 3px rgba(15, 27, 20, .12);
+}
+
+/* =========================================================================
+   9 · ESTADO
+   =========================================================================
+   Cápsula suave con punto de color. El punto lleva forma además de tono: un
+   estado que solo se distingue por color no se distingue impreso. */
+
+body.crm-sch .status-chip,
+body.crm-sch .ops-status {
+  gap: .35rem;
+  padding: .2rem .58rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--nube-2);
+  color: var(--tinta-2);
+  font-size: .73rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+body.crm-sch .status-chip::before,
+body.crm-sch .ops-status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+}
+body.crm-sch .gas-estado--ok      { background: var(--verde-suave);  color: var(--verde-tinta); }
+body.crm-sch .gas-estado--curso   { background: var(--nube-2);       color: var(--tinta-2); }
+body.crm-sch .gas-estado--espera  { background: var(--bronce-suave); color: var(--bronce-tinta); }
+body.crm-sch .gas-estado--alarma  { background: var(--baja-suave);   color: var(--baja); }
+body.crm-sch .gas-estado--cerrado { background: var(--nube-2);       color: var(--tinta-3); }
+/* «En curso» y «cerrado» comparten fondo: el anillo los separa sin color. */
+body.crm-sch .gas-estado--curso::before { box-shadow: 0 0 0 2px var(--nube-2), 0 0 0 3px currentColor; background: transparent; }
+
+/* =========================================================================
+   10 · AVISOS
+   ========================================================================= */
+
+body.crm-sch .gas-aviso {
+  display: flex;
+  align-items: flex-start;
+  gap: .6rem;
+  margin-bottom: .9rem;
+  padding: .75rem .95rem;
+  border: 1px solid var(--linea-2);
+  border-radius: var(--r-interior);
+  background: var(--papel);
+  color: var(--tinta);
+  font-size: .84rem;
+  line-height: 1.55;
+  box-shadow: none;
+}
+body.crm-sch .gas-aviso::before { content: none; }
+/* El aviso se distingue por su tinte y por el color de su icono, no por una
+   franja lateral: esa franja no medía nada y es el gesto más repetido de la
+   interfaz generada. */
+body.crm-sch .gas-aviso          { background: var(--bronce-suave); border-color: #E8DEC5; }
+body.crm-sch .gas-aviso svg     { color: var(--bronce-tinta); flex: 0 0 auto; }
+body.crm-sch .gas-aviso--ok     { background: var(--verde-suave);  border-color: #CFE7D8; }
+body.crm-sch .gas-aviso--ok svg { color: var(--verde-tinta); }
+body.crm-sch .gas-aviso--alarma     { background: var(--baja-suave); border-color: #F3D6D9; }
+body.crm-sch .gas-aviso--alarma svg { color: var(--baja); }
+body.crm-sch .gas-aviso--nota       { background: var(--nube); border-color: var(--linea-2); }
+body.crm-sch .gas-aviso--nota svg   { color: var(--tinta-2); }
+body.crm-sch .gas-aviso a { color: var(--verde-tinta); }
+body.crm-sch .gas-aviso--chip {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: .18rem .5rem;
+  border: 0;
+  border-left: 0;
+  border-radius: 999px;
+  background: var(--bronce-suave);
+  color: var(--bronce-tinta);
+  font-size: .7rem;
+  font-weight: 700;
+}
+
+/* =========================================================================
+   11 · TABLAS
+   =========================================================================
+   Filas altas, reglas muy tenues, cifras tabulares a la derecha. Sin cebra. */
+
+body.crm-sch .crm-table th {
+  padding-top: .7rem;
+  padding-bottom: .7rem;
+  border-bottom: 1px solid var(--linea);
+  background: transparent;
+  color: var(--tinta-3);
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .01em;
+  text-transform: none;
+}
+body.crm-sch .crm-table td {
+  padding-top: .8rem;
+  padding-bottom: .8rem;
+  border-bottom: 1px solid var(--linea);
+  color: var(--tinta);
+  font-size: .85rem;
+}
+body.crm-sch .crm-table tbody tr:last-child td { border-bottom: 0; }
+body.crm-sch .crm-table tbody tr:hover td { background: var(--nube); }
+body.crm-sch .crm-table th.text-right,
+body.crm-sch .crm-table td.text-right {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+body.crm-sch .crm-table-wrap { max-width: 100%; scrollbar-color: var(--linea-2) transparent; }
+body.crm-sch .crm-table-wrap::-webkit-scrollbar-thumb { background: var(--linea-2); background-clip: content-box; border-radius: 999px; }
+
+/* Que una tabla ancha se desplace dentro de su caja y no empuje la página:
+   los hijos de rejilla toman su ancho intrínseco si no se les dice otra cosa. */
+body.crm-sch .crm-cockpit > *,
+body.crm-sch .crm-body > *,
+body.crm-sch .crm-content > * { min-width: 0; }
+
+/* =========================================================================
+   12 · FORMULARIOS
+   ========================================================================= */
+
+body.crm-sch input[type="text"],
+body.crm-sch input[type="email"],
+body.crm-sch input[type="password"],
+body.crm-sch input[type="number"],
+body.crm-sch input[type="date"],
+body.crm-sch input[type="search"],
+body.crm-sch input[type="tel"],
+body.crm-sch select,
+body.crm-sch textarea {
+  border: 1px solid var(--linea-2);
+  border-radius: var(--r-control);
+  background: var(--papel);
+  color: var(--tinta);
+  transition: border-color .16s var(--curva), box-shadow .16s var(--curva);
+}
+body.crm-sch input:focus,
+body.crm-sch select:focus,
+body.crm-sch textarea:focus {
+  outline: none;
+  border-color: var(--verde);
+  box-shadow: 0 0 0 3px rgba(2, 127, 49, .13);
+}
+body.crm-sch label,
+body.crm-sch .crm-field > span {
+  color: var(--tinta-2);
+  font-size: .78rem;
+  font-weight: 600;
+}
+body.crm-sch input::placeholder,
+body.crm-sch textarea::placeholder { color: var(--tinta-3); }
+body.crm-sch input[type="checkbox"],
+body.crm-sch input[type="radio"] { accent-color: var(--verde); }
+
+/* =========================================================================
+   13 · FILAS DE REGISTRO  (movimientos, avisos, actividad)
+   =========================================================================
+   El patrón de lista de un panel financiero: marca a la izquierda, dos líneas
+   de texto, cifra a la derecha. */
+
+.sch-fila {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  padding: .68rem .3rem;
+  border-bottom: 1px solid var(--linea);
+  text-decoration: none;
+  color: inherit;
+}
+.sch-fila:last-child { border-bottom: 0; }
+.sch-fila__ic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  background: var(--nube);
+  color: var(--tinta-2);
+  font-size: .72rem;
+  font-weight: 700;
+}
+.sch-fila__ic svg { width: 16px; height: 16px; }
+.sch-fila__m { flex: 1 1 auto; min-width: 0; }
+.sch-fila__n {
+  display: block;
+  color: var(--tinta);
+  font-size: .85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sch-fila__d { display: block; color: var(--tinta-3); font-size: .74rem; }
+.sch-fila__v {
+  flex: 0 0 auto;
+  color: var(--tinta);
+  font-size: .85rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.015em;
+}
+.sch-fila__v--baja { color: var(--baja); }
+.sch-fila__v--sube { color: var(--verde-tinta); }
+
+/* =========================================================================
+   14 · BARRA DE AVANCE
+   ========================================================================= */
+
+.sch-barra {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--nube-2);
+  overflow: hidden;
+}
+.sch-barra__f {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--verde), var(--verde-vivo));
+}
+.sch-barra__f--alarma { background: linear-gradient(90deg, #A81B26, var(--baja)); }
+.sch-barra__f--bronce { background: linear-gradient(90deg, var(--bronce), #9A8348); }
+
+body.crm-sch .dash-line__track,
+body.crm-sch .dash-brand__track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--nube-2);
+  box-shadow: none;
+}
+body.crm-sch .dash-line__fill,
+body.crm-sch .dash-brand__fill { border-radius: 999px; box-shadow: none; }
+
+/* =========================================================================
+   15 · EL PANEL: componentes heredados de app.css
+   ========================================================================= */
+
+body.crm-sch .dash-bar__title h1,
+body.crm-sch .dash-bar__title h2 {
+  color: var(--tinta);
+  font-size: 1.45rem;
+  font-weight: 650;
+  letter-spacing: -.028em;
+}
+body.crm-sch .dash-bar__title p { color: var(--tinta-2); font-size: .875rem; }
+body.crm-sch .dash-live {
+  border-radius: 999px;
+  background: var(--verde-suave);
+  color: var(--verde-tinta);
+  font-size: .72rem;
+  font-weight: 600;
+}
+
+/* El panel de acento dejó de ser un bloque verde con degradado: el verde en
+   este mundo señala acción y dato positivo, no rellena superficies. */
+body.crm-sch .dash-accent {
+  border: 1px solid var(--linea);
+  border-radius: var(--r-tarjeta);
+  background: var(--papel);
+  color: var(--tinta);
+  box-shadow: var(--sombra);
+}
+body.crm-sch .dash-accent::before,
+body.crm-sch .dash-accent::after { content: none; }
+body.crm-sch .dash-accent h3 { color: var(--tinta); font-size: .98rem; font-weight: 650; letter-spacing: -.015em; }
+body.crm-sch .dash-accent p { color: var(--tinta-2); font-size: .82rem; }
+body.crm-sch .dash-accent__value {
+  color: var(--tinta);
+  font-size: clamp(1.6rem, 2.4vw, 2rem);
+  font-weight: 680;
+  letter-spacing: -.04em;
+  font-variant-numeric: tabular-nums;
+}
+body.crm-sch .dash-accent__foot { color: var(--tinta-3); font-size: .76rem; }
+/* El pie traía color en el atributo style, de cuando la tarjeta era verde. */
+body.crm-sch .dash-accent__foot b { color: var(--tinta) !important; font-variant-numeric: tabular-nums; }
+
+/* Las etapas del embudo. */
+body.crm-sch .dash-pill {
+  border: 1px solid var(--linea);
+  border-radius: var(--r-interior);
+  background: var(--papel);
+  box-shadow: var(--sombra);
+  transition: border-color .16s var(--curva);
+}
+body.crm-sch .dash-pill:hover { transform: none; border-color: var(--linea-2); }
+body.crm-sch .dash-pill__dot { width: 8px; height: 8px; border-radius: 50%; }
+body.crm-sch .dash-pill__txt b {
+  color: var(--tinta);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.025em;
+}
+body.crm-sch .dash-pill__txt span { color: var(--tinta-3); font-size: .72rem; }
+body.crm-sch .dash-pill--cta {
+  border-color: var(--verde);
+  background: var(--verde);
+  color: #fff;
+}
+
+body.crm-sch .dash-line__icon,
+body.crm-sch .dash-brand__mono {
+  border-radius: 10px;
+  background: var(--nube);
+  color: var(--tinta-2);
+  font-weight: 700;
+}
+body.crm-sch .dash-line__val b,
+body.crm-sch .dash-money {
+  color: var(--tinta);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+}
+body.crm-sch .dash-line__val span,
+body.crm-sch .dash-brand__row span,
+body.crm-sch .dash-brand__amt,
+body.crm-sch .dash-sub { color: var(--tinta-3); font-size: .74rem; }
+
+body.crm-sch .dash-badge,
+body.crm-sch .dash-badge--soft,
+body.crm-sch .dash-badge--green {
+  border: 0;
+  border-radius: 999px;
+  background: var(--nube-2);
+  color: var(--tinta-2);
+  font-size: .73rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+body.crm-sch .dash-team-table th { color: var(--tinta-3); font-size: .72rem; font-weight: 600; letter-spacing: 0; text-transform: none; }
+body.crm-sch .dash-team-table td { border-color: var(--linea); }
+
+/* Ventanas emergentes: campana, periodo, usuario. */
+body.crm-sch .dash-pop {
+  border: 1px solid var(--linea-2);
+  border-radius: var(--r-tarjeta);
+  background: var(--papel);
+  box-shadow: var(--sombra-alta);
+}
+body.crm-sch .dash-pop__item,
+body.crm-sch .dash-noti { border-radius: var(--r-control); color: var(--tinta-2); }
+body.crm-sch .dash-pop__item:hover,
+body.crm-sch .dash-noti:hover { background: var(--nube); color: var(--tinta); }
+body.crm-sch .dash-pop__item.is-active { background: var(--verde-suave); color: var(--verde-tinta); }
+body.crm-sch .dash-pop__label { color: var(--tinta-3); font-size: .7rem; font-weight: 700; letter-spacing: .06em; }
+
+/* =========================================================================
+   16 · EL TABLERO DE MÓDULO  (.crm-cockpit, .helpdesk-v2)
+   ========================================================================= */
+
+body.crm-sch .crm-cockpit__hero,
+body.crm-sch .helpdesk-v2__hero {
+  position: relative;
+  padding: 1.2rem 1.25rem 1.25rem;
+  border: 1px solid var(--linea);
+  border-radius: var(--r-tarjeta);
+  background: var(--papel);
+  color: var(--tinta);
+  box-shadow: var(--sombra);
+  overflow: hidden;
+}
+body.crm-sch .crm-cockpit__hero::before,
+body.crm-sch .crm-cockpit__hero::after,
+body.crm-sch .helpdesk-v2__hero::after { content: none; }
+body.crm-sch .crm-cockpit__hero h2,
+body.crm-sch .helpdesk-v2__hero h2 {
+  color: var(--tinta);
+  font-size: clamp(1.25rem, 2vw, 1.6rem);
+  font-weight: 650;
+  letter-spacing: -.03em;
+  line-height: 1.14;
+}
+body.crm-sch .crm-cockpit__hero p,
+body.crm-sch .helpdesk-v2__hero p { color: var(--tinta-2); font-size: .88rem; line-height: 1.55; }
+body.crm-sch .helpdesk-v2__hero span {
+  color: var(--verde-tinta);
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+body.crm-sch .crm-cockpit__hero a:not(.crm-primary-btn):not(.crm-secondary-btn):not(.rep-seg a) { color: var(--verde-tinta); }
+
+/* Las lecturas del tablero, separadas por filetes tenues. */
+body.crm-sch .crm-cockpit__metrics article {
+  background: transparent;
+  border-right: 1px solid var(--linea);
+  border-bottom: 1px solid var(--linea);
+  border-radius: 0;
+  box-shadow: none;
+  padding: .95rem 1.05rem;
+}
+body.crm-sch .crm-cockpit__metrics article:nth-child(2n) { border-right: 0; }
+body.crm-sch .crm-cockpit__metrics article:nth-last-child(-n+2) { border-bottom: 0; }
+body.crm-sch .crm-cockpit__metrics span,
+body.crm-sch .helpdesk-v2__metrics span {
+  color: var(--tinta-2);
+  font-size: .76rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+body.crm-sch .crm-cockpit__metrics strong,
+body.crm-sch .helpdesk-v2__metrics strong {
+  color: var(--tinta);
+  font-size: 1.5rem;
+  font-weight: 680;
+  letter-spacing: -.035em;
+  font-variant-numeric: tabular-nums;
+}
+body.crm-sch .crm-cockpit__metrics small { color: var(--tinta-3); font-size: .74rem; }
+
+/* =========================================================================
+   17 · CARTERA POR ANTIGÜEDAD
+   ========================================================================= */
+
+body.crm-sch .inv-aging__cell {
+  position: relative;
+  padding: .85rem .9rem;
+  border: 1px solid var(--linea);
+  border-radius: var(--r-interior);
+  background: var(--papel);
+  box-shadow: var(--sombra);
+  overflow: hidden;
+}
+body.crm-sch .inv-aging__cell::before { content: none; }
+body.crm-sch .inv-aging__cell span { color: var(--tinta-3); font-size: .7rem; font-weight: 600; letter-spacing: 0; text-transform: none; }
+body.crm-sch .inv-aging__cell strong { color: var(--tinta); font-size: 1.05rem; font-weight: 680; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+body.crm-sch .inv-aging__cell small { color: var(--tinta-3); }
+body.crm-sch .inv-aging__cell--bad strong { color: var(--baja); }
+body.crm-sch .inv-aging__cell--warn strong { color: var(--bronce-tinta); }
+body.crm-sch a.inv-aging__cell:hover { transform: none; border-color: var(--linea-2); box-shadow: var(--sombra-alta); }
+body.crm-sch .inv-aging__cell.is-active {
+  border-color: var(--verde);
+  background: var(--verde-tenue);
+  box-shadow: 0 0 0 3px rgba(2, 127, 49, .1);
+}
+body.crm-sch .inv-age-chip {
+  border: 0;
+  border-radius: 999px;
+  background: var(--nube-2);
+  color: var(--tinta-2);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+body.crm-sch .inv-age-chip--ok   { background: var(--verde-suave);  color: var(--verde-tinta); }
+body.crm-sch .inv-age-chip--warn { background: var(--bronce-suave); color: var(--bronce-tinta); }
+body.crm-sch .inv-age-chip--bad  { background: var(--baja-suave);   color: var(--baja); }
+
+/* =========================================================================
+   18 · LA PLACA  (NCF, series, referencias)
+   ========================================================================= */
+
+body.crm-sch .gas-placa {
+  padding: .14rem .5rem;
+  border: 1px solid var(--linea-2);
+  border-radius: 7px;
+  background: var(--nube);
+  color: var(--tinta-2);
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  font-weight: 600;
+}
+
+/* =========================================================================
+   19 · MOVIMIENTO
+   =========================================================================
+   Nada se anima por su cuenta. Solo responde a lo que el usuario hace: hover,
+   foco, apertura. Y la entrada de la pantalla, una sola vez. */
+
+@keyframes sch-entrar {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+body.crm-sch .crm-main > * { animation: sch-entrar .34s var(--curva) both; }
+body.crm-sch .crm-main > *:nth-child(2) { animation-delay: .04s; }
+body.crm-sch .crm-main > *:nth-child(3) { animation-delay: .08s; }
+body.crm-sch .crm-main > *:nth-child(n+4) { animation-delay: .12s; }
+
+@media (prefers-reduced-motion: reduce) {
+  body.crm-sch .crm-main > * { animation: none; }
+  body.crm-sch * { transition-duration: .01ms !important; }
+}
+
+/* =========================================================================
+   20 · SUPERFICIES DEL NAVEGADOR
+   ========================================================================= */
+
+body.crm-sch ::selection { background: rgba(2, 127, 49, .16); color: var(--tinta); }
+body.crm-sch :focus-visible { outline: 2px solid var(--verde); outline-offset: 2px; border-radius: 4px; }
+body.crm-sch .text-slate-500,
+body.crm-sch .gas-apunte { color: var(--tinta-2); }
+
+/* =========================================================================
+   21 · ANCHO ANGOSTO
+   ========================================================================= */
+
+@media (max-width: 720px) {
+  .sch-lecturas { grid-template-columns: 1fr; }
+  .sch-acciones { grid-template-columns: 1fr; }
+  .sch-head { flex-direction: column; align-items: stretch; }
+  body.crm-sch .dash-team-wrap { overflow-x: auto; }
+  body.crm-sch .dash-team-table { min-width: 0; }
+}
+
+/* Cápsula de señal sin dirección. La flecha de .sch-delta dice «sube» o «baja»;
+   sobre un rótulo («Al día», «En plazo») o sobre un monto suelto no significa
+   nada, así que esas usan esta variante. */
+.sch-delta--ok    { background: var(--verde-suave); color: var(--verde-tinta); }
+.sch-delta--riesgo { background: var(--baja-suave);  color: var(--baja); }
+
+/* El contador de la campana se salía del botón por arriba. */
+body.crm-sch .crm-bell { position: relative; overflow: visible; }
+body.crm-sch .crm-bell b {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 17px;
+  height: 17px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border: 2px solid var(--papel);
+  border-radius: 999px;
+  font-size: .62rem;
+  line-height: 1;
+}
+
+/* =========================================================================
+   22 · LO QUE SE ESCRIBIÓ PARA SUPERFICIES OSCURAS
+   =========================================================================
+   El cabezal y el riel eran oscuros en el lenguaje anterior, así que lo que
+   vive dentro de ellos se rotuló en blanco. Al volverse claros, ese texto
+   quedó en blanco sobre blanco: la ficha de usuario marcaba 1:1. */
+
+body.crm-sch .crm-user-chip { background: transparent; }
+body.crm-sch .crm-user-chip:hover { background: var(--nube); }
+body.crm-sch .crm-user-chip b,
+body.crm-sch .crm-user-chip__meta b { color: var(--tinta); font-weight: 600; }
+body.crm-sch .crm-user-chip small,
+body.crm-sch .crm-user-chip__meta small { color: var(--tinta-2); }
+body.crm-sch .crm-user-chip__avatar { background: var(--verde); color: #fff; font-weight: 700; }
+body.crm-sch .crm-user-chip svg { color: var(--tinta-3); }
+
+/* La tarjeta de pie del riel: hora local y datos de la empresa. */
+body.crm-sch .crm-local-card {
+  border: 1px solid var(--linea);
+  border-radius: var(--r-interior);
+  background: var(--nube);
+  color: var(--tinta-2);
+}
+body.crm-sch .crm-local-card p { color: var(--tinta); font-weight: 600; }
+body.crm-sch .crm-local-card span,
+body.crm-sch .crm-local-card small { color: var(--tinta-2); }
+body.crm-sch .crm-local-card strong { color: var(--tinta); font-variant-numeric: tabular-nums; }
+body.crm-sch .crm-local-card hr { border-color: var(--linea-2); }
+body.crm-sch .crm-local-card em { color: var(--bronce-tinta); }
+
+body.crm-sch .crm-logout {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--tinta-2);
+  font-size: .84rem;
+  font-weight: 600;
+}
+body.crm-sch .crm-logout:hover { background: var(--baja-suave); color: var(--baja); }
+
+body.crm-sch .dash-pop__label { color: var(--tinta-2); }
+body.crm-sch .dash-pop b,
+body.crm-sch .dash-pop__head b { color: var(--tinta); }
+body.crm-sch .dash-pop span,
+body.crm-sch .dash-pop small,
+body.crm-sch .dash-pop__head span { color: var(--tinta-2); }
+body.crm-sch .dash-pop hr { border-color: var(--linea); }
+body.crm-sch .dash-pop__item--danger { color: var(--baja); }
+body.crm-sch .dash-pop__item--danger:hover { background: var(--baja-suave); color: var(--baja); }
+body.crm-sch .dash-noti b { color: var(--tinta); }
+body.crm-sch .dash-noti span { color: var(--tinta-2); }
+
+/* «Emitida», «En proceso» y demás estados neutros se quedaban en 4.39:1 sobre
+   su propio tinte. La cápsula neutra lleva su tinta un paso más oscura. */
+body.crm-sch .status-chip,
+body.crm-sch .ops-status,
+body.crm-sch .gas-estado--curso { color: #4F5D55; }
+
+/* =========================================================================
+   23 · LA PUERTA: acceso al CRM
+   =========================================================================
+   Es la primera pantalla del día y tiene que declarar de quién es. El panel
+   izquierdo va en verde hondo con la foto de obra al fondo; el derecho es la
+   misma tarjeta clara del CRM. */
+
+body.sch-acceso {
+  --font: var(--font-display);
+  --mono: var(--font-mono);
+  background: var(--lienzo);
+  font-family: var(--font-display);
+  color: var(--tinta);
+}
+
+body.sch-acceso .sxl-aside { background: var(--verde-hondo); }
+/* La foto se pensó como fondo a media opacidad, pero `.sxl-aside > *` le
+   imponía position:relative y la sacaba del fondo: se veía como un recuadro
+   flotante con borde duro. */
+body.sch-acceso .sxl-aside__img { position: absolute; z-index: 0; opacity: .2; }
+body.sch-acceso .sxl-aside::after {
+  background: linear-gradient(165deg, rgba(1, 77, 30, .82) 0%, rgba(6, 26, 15, .96) 100%);
+}
+body.sch-acceso .sxl-aside__h { color: #fff; letter-spacing: -.032em; font-weight: 620; }
+body.sch-acceso .sxl-aside__p,
+body.sch-acceso .sxl-point { color: #C6D8CC; }
+body.sch-acceso .sxl-brand strong { color: #fff; }
+body.sch-acceso .sxl-points { border-color: rgba(255, 255, 255, .16); }
+body.sch-acceso .sxl-point {
+  border-color: rgba(255, 255, 255, .12);
+  /* La monoespaciada es para códigos, no para frases. */
+  font-family: var(--font-display);
+  font-size: .86rem;
+}
+body.sch-acceso .sxl-point svg { color: #7ED39B; }
+
+body.sch-acceso .sxl-main { background: var(--lienzo); }
+body.sch-acceso .sxl-card {
+  padding: 2rem 1.9rem 1.9rem;
+  border: 1px solid var(--linea-2);
+  border-radius: var(--r-panel);
+  background: var(--papel);
+  box-shadow: var(--sombra-alta);
+  max-width: 420px;
+}
+body.sch-acceso .sx-kicker {
+  color: var(--verde-tinta);
+  font-family: var(--font-display);
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+body.sch-acceso .sxl-card h1 { margin-top: .55rem; color: var(--tinta); letter-spacing: -.035em; font-weight: 640; }
+body.sch-acceso .sxl-sub { color: var(--tinta-2); }
+body.sch-acceso .sxl-back,
+body.sch-acceso .sxl-secure { color: var(--tinta-2); font-family: var(--font-display); letter-spacing: .04em; }
+body.sch-acceso .sxl-back:hover { color: var(--verde-tinta); }
+body.sch-acceso .sxl-secure svg { color: var(--verde); }
+
+body.sch-acceso .sxl-field > span { color: var(--tinta-2); font-family: var(--font-display); letter-spacing: .04em; }
+body.sch-acceso .sxl-input input {
+  border-radius: var(--r-control);
+  border-color: var(--linea-2);
+  background: var(--papel);
+  color: var(--tinta);
+}
+body.sch-acceso .sxl-input input:focus {
+  border-color: var(--verde);
+  box-shadow: 0 0 0 3px rgba(2, 127, 49, .13);
+}
+body.sch-acceso .sxl-input > svg { color: var(--tinta-3); }
+body.sch-acceso .sxl-toggle:hover { color: var(--verde-tinta); }
+
+body.sch-acceso .sxl-submit {
+  border-radius: var(--r-control);
+  border-color: var(--verde);
+  background: var(--verde);
+  box-shadow: 0 2px 8px -2px rgba(2, 127, 49, .45);
+  font-weight: 600;
+}
+body.sch-acceso .sxl-submit:hover {
+  background: var(--verde-tinta);
+  border-color: var(--verde-tinta);
+  transform: none;
+}
+
+body.sch-acceso .sxl-alert {
+  border-radius: var(--r-interior);
+  border-color: var(--linea-2);
+  background: var(--papel);
+  color: var(--tinta);
+}
+body.sch-acceso .sxl-alert.is-ok   { background: var(--verde-suave);  border-color: #CFE7D8; }
+body.sch-acceso .sxl-alert.is-warn { background: var(--bronce-suave); border-color: #E8DEC5; }
+body.sch-acceso .sxl-alert.is-ok svg   { color: var(--verde); }
+body.sch-acceso .sxl-alert.is-warn svg { color: var(--bronce-tinta); }
+
+body.sch-acceso .sxl-demo {
+  border-radius: var(--r-interior);
+  border-color: var(--linea-2);
+  color: var(--tinta-2);
+}
+body.sch-acceso .sxl-demo svg  { color: var(--tinta-3); }
+body.sch-acceso .sxl-demo code { color: var(--tinta); }
+body.sch-acceso .sxl-link      { color: var(--verde-tinta) !important; }
+
+/* =========================================================================
+   24 · EL TABLERO DE SOPORTE
+   =========================================================================
+   Las vías del tablero se coloreaban con ámbar, dos azules distintos, verde y
+   gris: cinco familias para cinco estados, sin relación entre ellas. Aquí el
+   punto recorre la misma progresión que el embudo —del neutro al verde— porque
+   las columnas son etapas de un mismo trabajo, no categorías sueltas. */
+
+body.crm-sch .helpdesk-lane__dot { box-shadow: none; }
+body.crm-sch .helpdesk-lane__dot.is-abierto    { background: var(--bronce); }
+body.crm-sch .helpdesk-lane__dot.is-en-proceso { background: var(--tinta-3); }
+body.crm-sch .helpdesk-lane__dot.is-cotizado   { background: var(--verde-vivo); }
+body.crm-sch .helpdesk-lane__dot.is-resuelto   { background: var(--verde); }
+body.crm-sch .helpdesk-lane__dot.is-cerrado    { background: #C3CCC7; }
+body.crm-sch .helpdesk-lane { border-radius: var(--r-tarjeta); }
+body.crm-sch .helpdesk-lane header h3 { color: var(--tinta); font-size: .86rem; font-weight: 650; }
+body.crm-sch .helpdesk-lane header b {
+  padding: 0 .4rem;
+  border-radius: 999px;
+  background: var(--nube-2);
+  color: var(--tinta-2);
+  font-size: .72rem;
+  font-variant-numeric: tabular-nums;
+}
+body.crm-sch .helpdesk-lane__empty { color: var(--tinta-3); font-size: .8rem; }
+
+/* La tarjeta del caso. El filete de la izquierda dice la prioridad, que es lo
+   único que decide en qué orden se atiende. */
+body.crm-sch .helpdesk-board-card {
+  border: 1px solid var(--linea);
+  border-radius: var(--r-interior);
+  background: var(--papel);
+  box-shadow: var(--sombra);
+  transition: border-color .16s var(--curva), box-shadow .16s var(--curva);
+}
+body.crm-sch .helpdesk-board-card::before { background: var(--linea-2); }
+body.crm-sch .helpdesk-board-card.is-critica::before,
+body.crm-sch .helpdesk-board-card.is-alta::before { background: var(--baja); }
+body.crm-sch .helpdesk-board-card.is-media::before { background: var(--bronce); }
+body.crm-sch .helpdesk-board-card:hover { border-color: var(--linea-2); box-shadow: var(--sombra-alta); transform: none; }
+body.crm-sch .helpdesk-board-card__meta strong { color: var(--verde-tinta); font-family: var(--font-mono); font-size: .68rem; }
+body.crm-sch .helpdesk-board-card__meta em {
+  padding: .05rem .35rem;
+  border-radius: 999px;
+  background: var(--nube-2);
+  color: var(--tinta-2);
+  font-size: .64rem;
+  font-style: normal;
+  font-weight: 700;
+}
+body.crm-sch .helpdesk-board-card__title { color: var(--tinta); font-weight: 620; letter-spacing: -.012em; }
+body.crm-sch .helpdesk-board-card__client { color: var(--tinta-2); font-size: .78rem; }
+body.crm-sch .helpdesk-board-card__foot small { color: var(--tinta-3); font-size: .72rem; }
+
+/* La lista operativa comparte la misma cara. */
+body.crm-sch .helpdesk-ticket {
+  border: 1px solid var(--linea);
+  border-radius: var(--r-interior);
+  background: var(--papel);
+}
+body.crm-sch .helpdesk-ticket:hover { border-color: var(--linea-2); transform: none; }
+body.crm-sch .helpdesk-ticket.is-selected { border-color: var(--verde); background: var(--verde-tenue); }
+body.crm-sch .helpdesk-ticket__stripe { background: var(--linea-2); }
+body.crm-sch .helpdesk-ticket__stripe.critica,
+body.crm-sch .helpdesk-ticket__stripe.alta { background: var(--baja); }
+body.crm-sch .helpdesk-ticket__stripe.media { background: var(--bronce); }
+
+/* =========================================================================
+   25 · REPORTES
+   =========================================================================
+   Las tarjetas traían un filete superior de color por categoría: dorado, azul,
+   ámbar, verde. Cuatro familias que no medían nada. Aquí el filete desaparece
+   y el color vuelve al único sitio donde informa: el ciclo comercial, donde
+   marca en qué etapa está el dinero. */
+
+body.crm-sch .rep-kpi { padding: 1.05rem 1.15rem; }
+body.crm-sch .rep-kpi::after { content: none; }
+body.crm-sch .rep-kpi__label { color: var(--tinta-2); font-size: .8rem; font-weight: 600; }
+body.crm-sch .rep-kpi__value {
+  color: var(--tinta);
+  font-size: 1.7rem;
+  font-weight: 680;
+  letter-spacing: -.038em;
+  font-variant-numeric: tabular-nums;
+}
+body.crm-sch .rep-kpi__value small { color: var(--tinta-3); }
+body.crm-sch .rep-kpi__foot { flex-wrap: wrap; row-gap: .1rem; color: var(--tinta-3); }
+body.crm-sch .rep-kpi__ic,
+body.crm-sch .rep-kpi--gold .rep-kpi__ic,
+body.crm-sch .rep-kpi--blue .rep-kpi__ic,
+body.crm-sch .rep-kpi--amber .rep-kpi__ic {
+  border-radius: 10px;
+  background: var(--nube);
+  color: var(--tinta-2);
+}
+
+/* El ciclo comercial: aprobado → facturado → cobrado → por cobrar. Aquí el
+   filete sí mide algo —cuánto del dinero llegó a esa etapa— así que avanza del
+   neutro al verde, y el tramo por cobrar toma el bronce de atención. */
+body.crm-sch .rep-flow__step {
+  border-radius: var(--r-interior);
+  border-color: var(--linea);
+  background: var(--nube);
+}
+body.crm-sch .rep-flow__step::before { background: var(--linea-2); }
+body.crm-sch .rep-flow__step--quote::before  { background: var(--tinta-3); }
+body.crm-sch .rep-flow__step--billed::before { background: var(--verde-vivo); }
+body.crm-sch .rep-flow__step--paid::before   { background: var(--verde); }
+body.crm-sch .rep-flow__step--due::before    { background: var(--bronce); }
+body.crm-sch .rep-flow__step strong { color: var(--tinta); font-variant-numeric: tabular-nums; letter-spacing: -.03em; }
+body.crm-sch .rep-flow__step small { color: var(--tinta-3); }
+body.crm-sch .rep-flow__pct {
+  border-radius: 999px;
+  background: var(--verde-suave);
+  color: var(--verde-tinta);
+  font-weight: 700;
+}
+body.crm-sch .rep-livechip--live { background: var(--verde-suave); color: var(--verde-tinta); }
+body.crm-sch .rep-livechip--demo { background: var(--bronce-suave); color: var(--bronce-tinta); }
+body.crm-sch .rep-livechip .dot  { background: currentColor; }
+
+/* =========================================================================
+   26 · CONTROLES DE FORMULARIO
+   =========================================================================
+   Los campos del CRM no llevan atributo type —`<input name="company_name">`—
+   así que el selector `input[type="text"]` nunca los alcanzaba y seguían con
+   el relleno azulado y el anillo azul del lenguaje anterior. Aquí se nombran
+   por su clase. */
+
+body.crm-sch .crm-input,
+body.crm-sch .crm-select,
+body.crm-sch .crm-textarea,
+body.crm-sch .crm-filter {
+  border: 1px solid var(--linea-2);
+  border-radius: var(--r-control);
+  background: var(--papel);
+  color: var(--tinta);
+  font-size: .875rem;
+  padding: .62rem .8rem;
+  transition: border-color .16s var(--curva), box-shadow .16s var(--curva);
+}
+body.crm-sch .crm-input:hover,
+body.crm-sch .crm-select:hover,
+body.crm-sch .crm-textarea:hover { border-color: #CED6DA; }
+body.crm-sch .crm-input:focus,
+body.crm-sch .crm-select:focus,
+body.crm-sch .crm-textarea:focus,
+body.crm-sch .crm-filter:focus {
+  border-color: var(--verde);
+  background: var(--papel);
+  box-shadow: 0 0 0 3px rgba(2, 127, 49, .13);
+}
+body.crm-sch .crm-input:disabled,
+body.crm-sch .crm-select:disabled,
+body.crm-sch .crm-textarea:disabled {
+  background: var(--nube);
+  color: var(--tinta-3);
+  cursor: not-allowed;
+}
+body.crm-sch .crm-field span { color: var(--tinta-2); font-size: .78rem; font-weight: 600; }
+
+/* El campo de archivo venía en crudo del navegador: un botón gris del sistema
+   dentro de una caja que no se parecía a ningún otro control. */
+body.crm-sch input[type="file"].crm-input { padding: .38rem .42rem; }
+body.crm-sch input[type="file"]::file-selector-button {
+  margin-right: .7rem;
+  padding: .42rem .85rem;
+  border: 1px solid var(--linea-2);
+  border-radius: 8px;
+  background: var(--nube);
+  color: var(--tinta);
+  font-family: inherit;
+  font-size: .82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .16s var(--curva), border-color .16s var(--curva);
+}
+body.crm-sch input[type="file"]::file-selector-button:hover {
+  border-color: var(--verde);
+  background: var(--verde-suave);
+  color: var(--verde-tinta);
+}
+
+/* La flecha del desplegable, dibujada: la del sistema no combina con nada. */
+body.crm-sch .crm-select {
+  appearance: none;
+  padding-right: 2.1rem;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2366746D' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right .75rem center;
+}
+
+body.crm-sch .crm-search-field svg { color: var(--tinta-3); }
+
+/* Rótulo de sección dentro de un formulario largo. */
+body.crm-sch .crm-form-section,
+body.crm-sch .crm-fieldset__t {
+  color: var(--tinta-3);
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+/* =========================================================================
+   27 · ACCIONES DE FILA
+   =========================================================================
+   Tres botones con borde en cada fila pesaban tanto como el dato. Aquí son
+   fantasma: toman cuerpo al pasar por encima, y solo el destructivo se tiñe. */
+
+body.crm-sch .crm-icon-action {
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--tinta-3);
+  transition: background .14s var(--curva), color .14s var(--curva), border-color .14s var(--curva);
+}
+body.crm-sch .crm-table tbody tr:hover .crm-icon-action { color: var(--tinta-2); }
+body.crm-sch .crm-icon-action:hover {
+  border-color: var(--linea-2);
+  background: var(--papel);
+  color: var(--verde-tinta);
+}
+body.crm-sch .crm-icon-action--danger:hover { border-color: #F3D6D9; background: var(--baja-suave); color: var(--baja); }
+body.crm-sch .crm-icon-action svg { width: 15px; height: 15px; }
+
+/* =========================================================================
+   28 · PAGINACIÓN, VACÍOS Y MODALES
+   ========================================================================= */
+
+body.crm-sch .crm-pager { border-top: 1px solid var(--linea); }
+body.crm-sch .crm-pager a {
+  border-radius: 9px;
+  border-color: var(--linea-2);
+  background: var(--papel);
+  color: var(--tinta-2);
+}
+body.crm-sch .crm-pager a:hover { border-color: var(--verde); background: var(--verde-tenue); color: var(--verde-tinta); }
+body.crm-sch .crm-pager span { color: var(--tinta-3); font-size: .8rem; }
+
+body.crm-sch .crm-empty { color: var(--tinta-2); }
+body.crm-sch .crm-empty strong,
+body.crm-sch .crm-empty h3 { color: var(--tinta); font-weight: 650; }
+body.crm-sch .crm-empty p { color: var(--tinta-2); font-size: .85rem; }
+body.crm-sch .crm-empty svg,
+body.crm-sch .chart-empty svg { color: var(--tinta-3); }
+body.crm-sch .chart-empty { color: var(--tinta-2); }
+body.crm-sch .chart-empty strong { color: var(--tinta); }
+
+body.crm-sch .crm-modal {
+  border: 1px solid var(--linea-2);
+  border-radius: var(--r-panel);
+  background: var(--papel);
+  box-shadow: 0 24px 64px -20px rgba(15, 27, 20, .35);
+  color: var(--tinta);
+}
+body.crm-sch .crm-modal::backdrop { background: rgba(15, 27, 20, .42); }
+body.crm-sch .crm-modal h2,
+body.crm-sch .crm-modal h3 { color: var(--tinta); font-weight: 650; letter-spacing: -.02em; }
+body.crm-sch .crm-modal p { color: var(--tinta-2); }
+body.crm-sch dialog { color: var(--tinta); }
+body.crm-sch dialog::backdrop { background: rgba(15, 27, 20, .42); }
+
+/* =========================================================================
+   29 · AGENDA
+   ========================================================================= */
+
+body.crm-sch .cal__head span { color: var(--tinta-3); font-size: .68rem; letter-spacing: .08em; }
+body.crm-sch .cal__day {
+  border-radius: 11px;
+  border-color: var(--linea);
+  background: var(--papel);
+}
+body.crm-sch .cal__day.is-weekend { background: var(--nube); }
+body.crm-sch .cal__day.is-out { background: transparent; border-color: transparent; }
+body.crm-sch .cal__day.is-out .cal__num { color: var(--tinta-3); opacity: .6; }
+body.crm-sch .cal__num { color: var(--tinta-2); }
+body.crm-sch .cal__day.is-today { border-color: var(--verde); box-shadow: 0 0 0 1px var(--verde); }
+body.crm-sch .cal__day.is-today .cal__num { background: var(--verde); color: #fff; }
+body.crm-sch .cal__day.has-events:hover {
+  border-color: var(--verde);
+  box-shadow: var(--sombra);
+  transform: none;
+}
+body.crm-sch .cal__chip { border-radius: 6px; font-size: .68rem; font-weight: 600; }
+
+/* La tarjeta de próximo servicio: la columna de fecha tenía 48px y el nombre
+   del mes completo se salía encima del título. Se ensancha, y el mes se abrevia
+   en el PHP. */
+body.crm-sch .agenda-up {
+  grid-template-columns: 54px 1fr;
+  border-radius: var(--r-interior);
+  border-color: var(--linea);
+}
+body.crm-sch .agenda-up:hover { border-color: var(--verde); box-shadow: var(--sombra); }
+body.crm-sch .agenda-up__date { border-radius: 10px; background: var(--verde-suave); }
+body.crm-sch .agenda-up__date b { color: var(--verde-tinta); font-size: 1.1rem; }
+body.crm-sch .agenda-up__date span { color: var(--verde-tinta); font-size: .6rem; letter-spacing: .06em; }
+body.crm-sch .agenda-up__body b { color: var(--tinta); font-weight: 620; }
+body.crm-sch .agenda-up__body span { color: var(--tinta-2); }
+
+body.crm-sch .agenda-ev { border-radius: var(--r-interior); border-color: var(--linea); }
+body.crm-sch .agenda-ev:hover { background: var(--nube); border-color: var(--linea-2); }
+body.crm-sch .agenda-ev__body b { color: var(--tinta); font-weight: 620; }
+body.crm-sch .agenda-ev__body span { color: var(--tinta-2); }
+body.crm-sch .agenda-ev__tag { border-radius: 999px; background: var(--nube-2); color: var(--tinta-2); }
+
+/* =========================================================================
+   30 · LA BARRA DE UNA LÍNEA DE NEGOCIO
+   =========================================================================
+   El relleno llegaba tan claro que la barra se leía como un subrayado. La
+   pista se marca con su filete y el relleno toma cuerpo mínimo. */
+
+body.crm-sch .dash-line__track,
+body.crm-sch .dash-brand__track { height: 7px; background: var(--nube-2); box-shadow: inset 0 0 0 1px var(--linea); }
+body.crm-sch .dash-line__fill,
+body.crm-sch .dash-brand__fill { min-width: 6px; }
+
+/* El `padding` abreviado de la sección 26 pisaba el hueco que reserva
+   .crm-search-field para su lupa, y el texto quedaba encima del icono. */
+body.crm-sch .crm-search-field input.crm-input,
+body.crm-sch .crm-search-field input { padding-left: 2.35rem; }
+body.crm-sch .crm-search-field svg { width: 16px; height: 16px; }
+
+/* =========================================================================
+   31 · EL TABLERO SIN MÉTRICAS
+   =========================================================================
+   .crm-cockpit__top reparte su ancho en dos columnas fijas, pero el bloque de
+   métricas es condicional: en Cobranza solo aparece cuando ya elegiste un
+   cliente. Sin él la tarjeta se quedaba en la mitad izquierda y media pantalla
+   sobraba. Si no hay segunda columna, la primera ocupa el ancho. */
+
+body.crm-sch .crm-cockpit__top:not(:has(.crm-cockpit__metrics)) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Una tarjeta de tablero sin nada al lado tampoco necesita el texto a todo lo
+   ancho: una línea de 120 caracteres no se lee. */
+body.crm-sch .crm-cockpit__top:not(:has(.crm-cockpit__metrics)) .crm-cockpit__hero p { max-width: 74ch; }
+
+/* =========================================================================
+   32 · LOS GRÁFICOS DEL PANEL
+   =========================================================================
+   Cuatro lecturas que no caben en una cifra. La primera manda y ocupa dos
+   columnas: la brecha entre lo facturado y lo cobrado es la pregunta que
+   define a una empresa que vende a crédito. */
+
+.sch-graficos {
+  display: grid;
+  gap: .85rem;
+  margin-bottom: .95rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.sch-gr--ancha { grid-column: span 2; }
+
+@media (max-width: 1280px) {
+  .sch-graficos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sch-gr--ancha { grid-column: span 2; }
+}
+@media (max-width: 820px) {
+  .sch-graficos { grid-template-columns: minmax(0, 1fr); }
+  .sch-gr--ancha { grid-column: span 1; }
+}
+
+.sch-gr {
+  display: flex;
+  flex-direction: column;
+  padding: 1.05rem 1.15rem 1.1rem;
+  min-width: 0;
+}
+.sch-gr__cab {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .8rem;
+  margin-bottom: .2rem;
+  flex-wrap: wrap;
+}
+.sch-gr__t {
+  margin: 0;
+  color: var(--tinta);
+  font-size: .96rem;
+  font-weight: 650;
+  letter-spacing: -.018em;
+}
+.sch-gr__d {
+  margin: .18rem 0 0;
+  max-width: 56ch;
+  color: var(--tinta-2);
+  font-size: .8rem;
+  line-height: 1.45;
+}
+.sch-gr__pie {
+  margin: .7rem 0 0;
+  color: var(--tinta-3);
+  font-size: .74rem;
+}
+.sch-gr__lienzo { position: relative; height: 210px; margin-top: .5rem; }
+.sch-gr__lienzo--alta { height: 268px; }
+
+/* La leyenda es un control: apaga y enciende su serie. */
+.sch-gr__leyenda {
+  display: flex;
+  align-items: center;
+  gap: .9rem;
+  margin-top: .75rem;
+  flex-wrap: wrap;
+}
+.sch-llave {
+  display: inline-flex;
+  align-items: center;
+  gap: .38rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--tinta-2);
+  font-family: inherit;
+  font-size: .76rem;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: .42;
+  transition: opacity .16s var(--curva), color .16s var(--curva);
+}
+.sch-llave.is-on { opacity: 1; }
+button.sch-llave:hover { color: var(--tinta); }
+.sch-llave i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+/* Una serie de línea se anuncia con un trazo, no con un cuadro. */
+.sch-llave__linea { width: 14px; height: 3px; border-radius: 2px; }
+
+.sch-gr__vacio {
+  display: grid;
+  place-items: center;
+  gap: .3rem;
+  min-height: 180px;
+  padding: 1.5rem 1rem;
+  text-align: center;
+}
+.sch-gr__vacio svg { width: 26px; height: 26px; color: var(--tinta-3); }
+.sch-gr__vacio strong { color: var(--tinta); font-size: .88rem; font-weight: 650; }
+.sch-gr__vacio p { margin: 0; max-width: 34ch; color: var(--tinta-2); font-size: .8rem; line-height: 1.45; }
+
+/* --- El anillo de cartera ------------------------------------------------- */
+.sch-anillo {
+  position: relative;
+  height: 172px;
+  margin: .8rem 0 .2rem;
+}
+.sch-anillo__cv { position: absolute; inset: 0; }
+/* El centro del anillo lleva el total: sin él, un dónut es un adorno. */
+.sch-anillo__centro {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  pointer-events: none;
+}
+.sch-anillo__centro span {
+  display: block;
+  color: var(--tinta-3);
+  font-size: .68rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.sch-anillo__centro b {
+  display: block;
+  margin-top: .1rem;
+  color: var(--tinta);
+  font-size: 1.3rem;
+  font-weight: 680;
+  letter-spacing: -.035em;
+  font-variant-numeric: tabular-nums;
+}
+.sch-anillo__centro small { display: block; color: var(--tinta-3); font-size: .72rem; }
+
+.sch-anillo__lista { display: grid; gap: 1px; margin-top: .55rem; }
+.sch-anillo__f {
+  display: grid;
+  grid-template-columns: 10px 1fr auto auto;
+  align-items: center;
+  gap: .55rem;
+  padding: .4rem .35rem;
+  border-radius: 8px;
+  color: inherit;
+  text-decoration: none;
+  transition: background .14s var(--curva);
+}
+.sch-anillo__f:hover { background: var(--nube); }
+.sch-anillo__f i { width: 10px; height: 10px; border-radius: 3px; }
+.sch-anillo__n {
+  min-width: 0;
+  color: var(--tinta-2);
+  font-size: .8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sch-anillo__p { color: var(--tinta-3); font-size: .74rem; font-variant-numeric: tabular-nums; }
+.sch-anillo__f b {
+  color: var(--tinta);
+  font-size: .82rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.015em;
+}
+
+/* --- El embudo ------------------------------------------------------------ */
+.sch-embudo { display: grid; gap: .55rem; margin-top: .85rem; }
+.sch-embudo__f {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) 34px 42px;
+  align-items: center;
+  gap: .6rem;
+}
+.sch-embudo__n {
+  color: var(--tinta-2);
+  font-size: .79rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sch-embudo__b {
+  height: 22px;
+  border-radius: 6px;
+  background: var(--nube-2);
+  box-shadow: inset 0 0 0 1px var(--linea);
+  overflow: hidden;
+}
+.sch-embudo__b i {
+  display: block;
+  height: 100%;
+  border-radius: 6px;
+  animation: sch-crecer .58s var(--curva) both;
+}
+@keyframes sch-crecer { from { width: 0 !important; } }
+.sch-embudo__v {
+  color: var(--tinta);
+  font-size: .86rem;
+  font-weight: 680;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sch-embudo__c {
+  color: var(--tinta-3);
+  font-size: .74rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sch-embudo__b i { animation: none; }
+}
+
+/* El relleno de estas barras es un <span> sin display declarado: como elemento
+   en línea, su `height: 100%` se ignora y la barra se veía como un subrayado.
+   Llevaba así desde antes de este rediseño. */
+body.crm-sch .dash-line__fill,
+body.crm-sch .dash-brand__fill {
+  display: block;
+  height: 100%;
+  min-width: 6px;
+}
+
+/* Los avatares del equipo repartían verde, azul, cian, dorado y pizarra: cinco
+   familias para distinguir personas, que es justo lo que el color no debe
+   hacer aquí. Ahora son la misma pieza en distintas profundidades del verde
+   del logo, y la inicial es lo que identifica. */
+body.crm-sch .av--green    { background: linear-gradient(150deg, #0BA344, #016627); }
+body.crm-sch .av--blue     { background: linear-gradient(150deg, #4F9E6E, #014D1E); }
+/* El blanco encima solo llegaba a 3.7:1 sobre el promedio del degradado. */
+body.crm-sch .av--teal     { background: linear-gradient(150deg, #4F9E6E, #235539); }
+body.crm-sch .av--gold     { background: linear-gradient(150deg, #9A8348, #5A4D30); }
+/* Tres por ciento más oscuro: en 4.45:1 se quedaba por debajo de AA, y era la
+   única de la familia que fallaba. Solo salió a la luz con los nombres reales
+   de producción, porque los datos de prueba nunca cayeron en esta variante. */
+body.crm-sch .av--slate    { background: linear-gradient(150deg, #86958E, #4D5A52); }
+body.crm-sch .av--graphite { background: linear-gradient(150deg, #2A3A31, #0F1B14); }
+
+/* =========================================================================
+   33 · MODO OSCURO
+   =========================================================================
+   Se activa con data-tema="oscuro" en <html>, que el script de la cabecera
+   escribe ANTES de pintar para que no haya destello blanco al cargar.
+
+   La estrategia es de dos capas, porque hay dos juegos de variables:
+
+     · app.css define --surface, --ink, --line, --page… y lo usa en cientos de
+       reglas. Redefinirlas aquí arrastra a todo el CRM de golpe, incluidos los
+       componentes que sch.css nunca nombró.
+     · sch.css define --papel, --tinta, --linea… que es la capa de este
+       rediseño.
+
+   Los tonos están MEDIDOS, no elegidos a ojo: sobre la tarjeta #141D18 el
+   texto principal da 14.9:1, el secundario 9.8:1 y el terciario 6.8:1. El
+   verde del logo (#027F31) solo da 3.35:1 sobre ese fondo, así que como TEXTO
+   sube a #35C46B (7.6:1); como RELLENO de botón se queda en el verde de marca,
+   donde el blanco encima da 5.14:1. */
+
+:root[data-tema="oscuro"] {
+  /* Le dice al navegador que pinte en oscuro lo suyo: barras de
+     desplazamiento, selectores de fecha, autocompletado, controles nativos.
+     Sin esto quedan islas blancas que ningún CSS alcanza. */
+  color-scheme: dark;
+
+  /* ---- Capa app.css ----------------------------------------------------- */
+  --ink:        #E9F0EB;
+  --ink-soft:   #C7D4CB;
+  --muted:      #B9C7BE;
+  --faint:      #93A79A;
+  --line:       #24312A;
+  --line-soft:  #1C2721;
+  --page:       #0C1310;
+  --surface:    #141D18;
+  --surface-2:  #101913;
+
+  --graphite:   #0A100D;
+  --graphite-2: #0E1712;
+  --graphite-3: #131E18;
+
+  --blue:        #4FA8E8;
+  --blue-strong: #7CC0F0;
+  --blue-bright: #64B4EC;
+  --cyan:        #5AC8E8;
+  --green:       #35C46B;
+  --green-strong:#4ED486;
+  --amber:       #C0A25C;
+  --red:         #E8636D;
+
+  --brand:        #35C46B;
+  --brand-strong: #4ED486;
+  --brand-deep:   #0BA344;
+  --brand-bright: #0BA344;
+  --brand-soft:   #16311F;
+  --brand-tint:   #12261A;
+  --brand-ring:   0 0 0 4px rgba(53, 196, 107, .22);
+  --gold:         #C0A25C;
+  --gold-strong:  #D4B872;
+  --gold-bright:  #D4B872;
+  --gold-soft:    #2E2716;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, .5), 0 10px 26px -16px rgba(0, 0, 0, .7);
+  --shadow-pop:  0 18px 42px -20px rgba(0, 0, 0, .8), 0 4px 12px -8px rgba(0, 0, 0, .5);
+  --shadow-xs:   0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-sm:   0 1px 2px rgba(0, 0, 0, .45);
+  --shadow-md:   0 6px 16px -4px rgba(0, 0, 0, .55);
+  --shadow-lg:   0 22px 48px -16px rgba(0, 0, 0, .7);
+  --shadow-blue: 0 14px 30px -12px rgba(53, 196, 107, .3);
+  --shadow-green:0 14px 28px -12px rgba(53, 196, 107, .3);
+  --ring:        0 0 0 4px rgba(53, 196, 107, .2);
+}
+
+/* ---- Capa sch.css --------------------------------------------------------
+   Van en body porque ahí se declararon en claro y necesitan la misma
+   especificidad para reemplazarse limpiamente. */
+:root[data-tema="oscuro"] body.crm-sch,
+:root[data-tema="oscuro"] body.sch-acceso {
+  --verde:        #0BA344;   /* relleno de botón: el blanco encima da 5.1:1 */
+  --verde-tinta:  #35C46B;   /* como TEXTO sobre oscuro: 7.6:1 */
+  --verde-hondo:  #027F31;
+  --verde-vivo:   #4ED486;
+  --verde-suave:  #16311F;
+  --verde-tenue:  #12261A;
+  --bronce:       #C0A25C;
+  --bronce-tinta: #D4B872;
+  --bronce-suave: #2E2716;
+
+  --lienzo:   #080D0A;
+  --papel:    #141D18;
+  --nube:     #0F1712;
+  --nube-2:   #1B2620;
+  --linea:    #24312A;
+  --linea-2:  #2F3E36;
+  --tinta:    #E9F0EB;
+  --tinta-2:  #B9C7BE;
+  --tinta-3:  #93A79A;
+
+  --sube: #35C46B;
+  --baja: #E8636D;
+  --baja-suave: #34191C;
+
+  --sombra:      0 1px 2px rgba(0, 0, 0, .5), 0 10px 28px -18px rgba(0, 0, 0, .8);
+  --sombra-alta: 0 2px 6px rgba(0, 0, 0, .55), 0 20px 44px -22px rgba(0, 0, 0, .85);
+}
+
+/* =========================================================================
+   33.1 · LO QUE NO PASA POR VARIABLES
+   =========================================================================
+   Reglas de app.css escritas con blanco o con un claro literal. Sin esto
+   quedan como recortes de papel encima del fondo oscuro. */
+
+:root[data-tema="oscuro"] body.crm-sch .crm-topbar,
+:root[data-tema="oscuro"] body.crm-sch .crm-nav { background: var(--papel); }
+:root[data-tema="oscuro"] body.crm-sch .crm-topbar { border-bottom-color: var(--linea); }
+:root[data-tema="oscuro"] body.crm-sch .crm-nav { border-right-color: var(--linea); }
+
+/* Superficies de tarjeta que app.css fija en #fff. */
+:root[data-tema="oscuro"] body.crm-sch .crm-card,
+:root[data-tema="oscuro"] body.crm-sch .crm-data-surface,
+:root[data-tema="oscuro"] body.crm-sch .dash-card,
+:root[data-tema="oscuro"] body.crm-sch .rep-kpi,
+:root[data-tema="oscuro"] body.crm-sch .rep-flow,
+:root[data-tema="oscuro"] body.crm-sch .cobro-sum__cell,
+:root[data-tema="oscuro"] body.crm-sch .crm-empty,
+:root[data-tema="oscuro"] body.crm-sch .crm-cockpit__metrics,
+:root[data-tema="oscuro"] body.crm-sch .crm-cockpit__hero,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-v2__hero,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-v2__metrics,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-v2__surface,
+:root[data-tema="oscuro"] body.crm-sch .sch-tarjeta,
+:root[data-tema="oscuro"] body.crm-sch .dash-pill,
+:root[data-tema="oscuro"] body.crm-sch .dash-pop,
+:root[data-tema="oscuro"] body.crm-sch .crm-modal,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-board-card,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-ticket,
+:root[data-tema="oscuro"] body.crm-sch .inv-aging__cell,
+:root[data-tema="oscuro"] body.crm-sch .agenda-up,
+:root[data-tema="oscuro"] body.crm-sch .agenda-ev,
+:root[data-tema="oscuro"] body.crm-sch .cal__day,
+:root[data-tema="oscuro"] body.crm-sch .sch-accion,
+:root[data-tema="oscuro"] body.crm-sch .dash-accent {
+  background: var(--papel);
+}
+
+/* Controles con degradado de cara de placa: en oscuro es plano. */
+:root[data-tema="oscuro"] body.crm-sch .crm-secondary-btn,
+:root[data-tema="oscuro"] body.crm-sch .dash-chip,
+:root[data-tema="oscuro"] body.crm-sch .dash-iconbtn,
+:root[data-tema="oscuro"] body.crm-sch .dash-iconbtn--solid,
+:root[data-tema="oscuro"] body.crm-sch .crm-bell,
+:root[data-tema="oscuro"] body.crm-sch .crm-icon-btn,
+:root[data-tema="oscuro"] body.crm-sch .crm-nav-collapse,
+:root[data-tema="oscuro"] body.crm-sch .crm-pager a,
+:root[data-tema="oscuro"] body.crm-sch .gas-placa,
+:root[data-tema="oscuro"] body.crm-sch .inv-age-chip,
+:root[data-tema="oscuro"] body.crm-sch .crm-top-btn--ghost {
+  background: var(--nube-2);
+  border-color: var(--linea-2);
+  color: var(--tinta);
+}
+:root[data-tema="oscuro"] body.crm-sch .crm-secondary-btn:hover,
+:root[data-tema="oscuro"] body.crm-sch .dash-chip:hover,
+:root[data-tema="oscuro"] body.crm-sch .dash-iconbtn:hover,
+:root[data-tema="oscuro"] body.crm-sch .crm-bell:hover,
+:root[data-tema="oscuro"] body.crm-sch .crm-icon-btn:hover,
+:root[data-tema="oscuro"] body.crm-sch .crm-top-btn--ghost:hover { background: var(--linea); }
+
+/* Campos: hundidos, no blancos. */
+:root[data-tema="oscuro"] body.crm-sch .crm-input,
+:root[data-tema="oscuro"] body.crm-sch .crm-select,
+:root[data-tema="oscuro"] body.crm-sch .crm-textarea,
+:root[data-tema="oscuro"] body.crm-sch .crm-filter,
+:root[data-tema="oscuro"] body.crm-sch input:not([type="checkbox"]):not([type="radio"]),
+:root[data-tema="oscuro"] body.crm-sch select,
+:root[data-tema="oscuro"] body.crm-sch textarea {
+  /* background-color, no la abreviatura: `background` reinicia -image,
+     -repeat y -position, y el chevron del desplegable se repetía en mosaico. */
+  background-color: var(--nube);
+  border-color: var(--linea-2);
+  color: var(--tinta);
+}
+:root[data-tema="oscuro"] body.crm-sch .crm-search { background-color: var(--nube); }
+:root[data-tema="oscuro"] body.crm-sch .crm-search:focus-within { background: var(--nube-2); }
+:root[data-tema="oscuro"] body.crm-sch .crm-search kbd { background: var(--nube-2); border-color: var(--linea-2); }
+/* La flecha dibujada del desplegable estaba en tinta clara. */
+:root[data-tema="oscuro"] body.crm-sch .crm-select {
+  background-repeat: no-repeat;
+  background-position: right .75rem center;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2393A79A' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+:root[data-tema="oscuro"] body.crm-sch input[type="file"]::file-selector-button {
+  background: var(--nube-2);
+  border-color: var(--linea-2);
+  color: var(--tinta);
+}
+
+/* Teclados segmentados y pistas hundidas. */
+:root[data-tema="oscuro"] body.crm-sch .dash-seg,
+:root[data-tema="oscuro"] body.crm-sch .rep-seg { background: var(--nube); border-color: var(--linea); }
+:root[data-tema="oscuro"] body.crm-sch .dash-seg button.is-active,
+:root[data-tema="oscuro"] body.crm-sch .rep-seg a.is-active,
+:root[data-tema="oscuro"] body.crm-sch .crm-cockpit__hero .rep-seg a.is-active {
+  background: var(--nube-2);
+  color: var(--tinta);
+  box-shadow: none;
+}
+:root[data-tema="oscuro"] body.crm-sch .dash-line__track,
+:root[data-tema="oscuro"] body.crm-sch .dash-brand__track,
+:root[data-tema="oscuro"] body.crm-sch .sch-barra,
+:root[data-tema="oscuro"] body.crm-sch .sch-embudo__b {
+  background: var(--nube);
+  box-shadow: inset 0 0 0 1px var(--linea);
+}
+
+/* Tablas: la fila resaltada se aclara, no se oscurece. */
+:root[data-tema="oscuro"] body.crm-sch .crm-table tbody tr:hover td { background: var(--nube-2); }
+:root[data-tema="oscuro"] body.crm-sch .crm-table th,
+:root[data-tema="oscuro"] body.crm-sch .crm-table td,
+:root[data-tema="oscuro"] body.crm-sch .dash-team-table td { border-bottom-color: var(--linea); }
+
+/* Estados y avisos: el tinte claro se vuelve una sombra del mismo color. */
+:root[data-tema="oscuro"] body.crm-sch .status-chip,
+:root[data-tema="oscuro"] body.crm-sch .ops-status,
+:root[data-tema="oscuro"] body.crm-sch .dash-badge,
+:root[data-tema="oscuro"] body.crm-sch .dash-badge--soft,
+:root[data-tema="oscuro"] body.crm-sch .dash-badge--green,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-lane header b,
+:root[data-tema="oscuro"] body.crm-sch .agenda-ev__tag { background: var(--nube-2); color: var(--tinta-2); }
+:root[data-tema="oscuro"] body.crm-sch .gas-estado--ok      { background: var(--verde-suave);  color: #6FE0A0; }
+:root[data-tema="oscuro"] body.crm-sch .gas-estado--espera  { background: var(--bronce-suave); color: var(--bronce-tinta); }
+:root[data-tema="oscuro"] body.crm-sch .gas-estado--alarma  { background: var(--baja-suave);   color: #F28B92; }
+:root[data-tema="oscuro"] body.crm-sch .gas-estado--cerrado { background: var(--nube-2);       color: var(--tinta-3); }
+:root[data-tema="oscuro"] body.crm-sch .gas-estado--curso::before { box-shadow: 0 0 0 2px var(--nube-2), 0 0 0 3px currentColor; }
+:root[data-tema="oscuro"] body.crm-sch .sch-delta--sube,
+:root[data-tema="oscuro"] body.crm-sch .sch-delta--ok     { background: var(--verde-suave); color: #6FE0A0; }
+:root[data-tema="oscuro"] body.crm-sch .sch-delta--baja,
+:root[data-tema="oscuro"] body.crm-sch .sch-delta--riesgo { background: var(--baja-suave); color: #F28B92; }
+:root[data-tema="oscuro"] body.crm-sch .sch-delta--neutro { background: var(--nube-2); color: var(--tinta-2); }
+:root[data-tema="oscuro"] body.crm-sch .dash-live { background: var(--verde-suave); color: #6FE0A0; }
+:root[data-tema="oscuro"] body.crm-sch .rep-livechip--live { background: var(--verde-suave); color: #6FE0A0; }
+:root[data-tema="oscuro"] body.crm-sch .rep-livechip--demo { background: var(--bronce-suave); color: var(--bronce-tinta); }
+
+:root[data-tema="oscuro"] body.crm-sch .gas-aviso          { background: var(--bronce-suave); border-color: #43391F; color: var(--tinta); }
+:root[data-tema="oscuro"] body.crm-sch .gas-aviso--ok      { background: var(--verde-suave);  border-color: #23492F; }
+:root[data-tema="oscuro"] body.crm-sch .gas-aviso--alarma  { background: var(--baja-suave);   border-color: #4E2429; }
+:root[data-tema="oscuro"] body.crm-sch .gas-aviso--nota    { background: var(--nube-2);       border-color: var(--linea-2); }
+:root[data-tema="oscuro"] body.crm-sch .gas-aviso--chip    { background: var(--bronce-suave); color: var(--bronce-tinta); }
+
+:root[data-tema="oscuro"] body.crm-sch .inv-aging__cell.is-active { background: var(--verde-tenue); border-color: var(--verde-tinta); }
+:root[data-tema="oscuro"] body.crm-sch .inv-age-chip--ok   { background: var(--verde-suave);  color: #6FE0A0; }
+:root[data-tema="oscuro"] body.crm-sch .inv-age-chip--warn { background: var(--bronce-suave); color: var(--bronce-tinta); }
+:root[data-tema="oscuro"] body.crm-sch .inv-age-chip--bad  { background: var(--baja-suave);   color: #F28B92; }
+
+/* Riel de navegación. */
+:root[data-tema="oscuro"] body.crm-sch .crm-nav__links a:hover { background: var(--nube-2); }
+:root[data-tema="oscuro"] body.crm-sch .crm-nav__links a.is-active { background: var(--verde-suave); color: #6FE0A0; }
+:root[data-tema="oscuro"] body.crm-sch .crm-nav__links a.is-active svg { color: #6FE0A0; }
+:root[data-tema="oscuro"] body.crm-sch .crm-nav__links a .crm-nav__count,
+:root[data-tema="oscuro"] body.crm-sch .crm-nav__badge { background: var(--nube-2); color: var(--tinta-2); }
+:root[data-tema="oscuro"] body.crm-sch .crm-local-card { background: var(--nube); border-color: var(--linea); }
+:root[data-tema="oscuro"] body.crm-sch .crm-user-chip:hover { background: var(--nube-2); }
+:root[data-tema="oscuro"] body.crm-sch .dash-pop__item:hover,
+:root[data-tema="oscuro"] body.crm-sch .dash-noti:hover { background: var(--nube-2); }
+:root[data-tema="oscuro"] body.crm-sch .dash-pop__item.is-active { background: var(--verde-suave); color: #6FE0A0; }
+:root[data-tema="oscuro"] body.crm-sch .dash-pop hr,
+:root[data-tema="oscuro"] body.crm-sch .crm-local-card hr { border-color: var(--linea-2); }
+
+/* Superficies varias que quedaban claras. */
+:root[data-tema="oscuro"] body.crm-sch .sch-anillo__f:hover,
+:root[data-tema="oscuro"] body.crm-sch .agenda-ev:hover,
+:root[data-tema="oscuro"] body.crm-sch .crm-icon-action:hover { background: var(--nube-2); }
+:root[data-tema="oscuro"] body.crm-sch .cal__day.is-weekend { background: var(--nube); }
+:root[data-tema="oscuro"] body.crm-sch .cal__day.is-out { background: transparent; }
+:root[data-tema="oscuro"] body.crm-sch .agenda-up__date { background: var(--verde-suave); }
+:root[data-tema="oscuro"] body.crm-sch .agenda-up__date b,
+:root[data-tema="oscuro"] body.crm-sch .agenda-up__date span { color: #6FE0A0; }
+:root[data-tema="oscuro"] body.crm-sch .sch-accion__ic,
+:root[data-tema="oscuro"] body.crm-sch .dash-line__icon,
+:root[data-tema="oscuro"] body.crm-sch .dash-brand__mono,
+:root[data-tema="oscuro"] body.crm-sch .sch-fila__ic { background: var(--nube-2); color: var(--tinta-2); }
+:root[data-tema="oscuro"] body.crm-sch .sch-accion:hover { background: var(--verde-tenue); }
+:root[data-tema="oscuro"] body.crm-sch .rep-kpi__ic,
+:root[data-tema="oscuro"] body.crm-sch .rep-kpi--gold .rep-kpi__ic,
+:root[data-tema="oscuro"] body.crm-sch .rep-kpi--blue .rep-kpi__ic,
+:root[data-tema="oscuro"] body.crm-sch .rep-kpi--amber .rep-kpi__ic { background: var(--nube-2); color: var(--tinta-2); }
+:root[data-tema="oscuro"] body.crm-sch .rep-flow__step { background: var(--nube); border-color: var(--linea); }
+:root[data-tema="oscuro"] body.crm-sch .rep-flow__pct { background: var(--verde-suave); color: #6FE0A0; }
+
+/* El botón primario conserva el verde de marca: el blanco encima da 5.1:1. */
+/* El fantasma queda fuera: si no, el atajo secundario del cabezal se pinta
+   sólido igual que el primario y los dos compiten. */
+:root[data-tema="oscuro"] body.crm-sch .crm-primary-btn,
+:root[data-tema="oscuro"] body.crm-sch .crm-top-btn:not(.crm-top-btn--ghost),
+:root[data-tema="oscuro"] body.crm-sch .dash-pill--cta {
+  background: var(--verde);
+  border-color: var(--verde);
+  color: #fff;
+}
+
+/* Selección, foco y fondo del diálogo. */
+:root[data-tema="oscuro"] body.crm-sch ::selection { background: rgba(53, 196, 107, .28); color: #fff; }
+:root[data-tema="oscuro"] body.crm-sch .crm-modal::backdrop,
+:root[data-tema="oscuro"] body.crm-sch dialog::backdrop { background: rgba(0, 0, 0, .68); }
+:root[data-tema="oscuro"] body.crm-sch .crm-nav-backdrop { background: rgba(0, 0, 0, .6); }
+:root[data-tema="oscuro"] body.crm-sch .crm-table-wrap { scrollbar-color: var(--linea-2) transparent; }
+
+/* Utilidades de Tailwind que quedaron sueltas en el marcado. */
+:root[data-tema="oscuro"] body.crm-sch .bg-white,
+:root[data-tema="oscuro"] body.crm-sch .bg-slate-50,
+:root[data-tema="oscuro"] body.crm-sch .bg-gray-50 { background-color: var(--papel) !important; }
+:root[data-tema="oscuro"] body.crm-sch .text-slate-900,
+:root[data-tema="oscuro"] body.crm-sch .text-slate-800,
+:root[data-tema="oscuro"] body.crm-sch .text-slate-700 { color: var(--tinta) !important; }
+:root[data-tema="oscuro"] body.crm-sch .text-slate-500,
+:root[data-tema="oscuro"] body.crm-sch .text-slate-400,
+:root[data-tema="oscuro"] body.crm-sch .gas-apunte { color: var(--tinta-2) !important; }
+
+/* =========================================================================
+   33.2 · LA PUERTA EN OSCURO
+   ========================================================================= */
+
+:root[data-tema="oscuro"] body.sch-acceso { background: var(--lienzo); }
+:root[data-tema="oscuro"] body.sch-acceso .sxl-main { background: var(--lienzo); }
+:root[data-tema="oscuro"] body.sch-acceso .sxl-card { background: var(--papel); border-color: var(--linea-2); }
+:root[data-tema="oscuro"] body.sch-acceso .sxl-aside { background: #061109; }
+:root[data-tema="oscuro"] body.sch-acceso .sxl-aside::after {
+  background: linear-gradient(165deg, rgba(2, 40, 16, .86) 0%, rgba(3, 10, 6, .97) 100%);
+}
+:root[data-tema="oscuro"] body.sch-acceso .sxl-input input { background: var(--nube); border-color: var(--linea-2); color: var(--tinta); }
+:root[data-tema="oscuro"] body.sch-acceso .sxl-card h1 { color: var(--tinta); }
+:root[data-tema="oscuro"] body.sch-acceso .sxl-sub,
+:root[data-tema="oscuro"] body.sch-acceso .sxl-back,
+:root[data-tema="oscuro"] body.sch-acceso .sxl-secure { color: var(--tinta-2); }
+:root[data-tema="oscuro"] body.sch-acceso .sx-kicker { color: #6FE0A0; }
+:root[data-tema="oscuro"] body.sch-acceso .sxl-alert { background: var(--nube-2); border-color: var(--linea-2); color: var(--tinta); }
+:root[data-tema="oscuro"] body.sch-acceso .sxl-alert.is-ok   { background: var(--verde-suave);  border-color: #23492F; }
+:root[data-tema="oscuro"] body.sch-acceso .sxl-alert.is-warn { background: var(--bronce-suave); border-color: #43391F; }
+:root[data-tema="oscuro"] body.sch-acceso .sxl-demo { border-color: var(--linea-2); color: var(--tinta-2); }
+:root[data-tema="oscuro"] body.sch-acceso .sxl-submit { background: var(--verde); border-color: var(--verde); }
+
+/* =========================================================================
+   33.3 · EL INTERRUPTOR
+   ========================================================================= */
+
+.sch-tema {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--linea-2);
+  border-radius: 50%;
+  background: var(--papel);
+  color: var(--tinta-2);
+  cursor: pointer;
+  transition: background .16s var(--curva), color .16s var(--curva);
+}
+.sch-tema:hover { background: var(--nube); color: var(--tinta); }
+.sch-tema svg { width: 17px; height: 17px; }
+/* Cada tema enseña el icono del OTRO: el botón dice a dónde vas, no dónde estás. */
+.sch-tema__luna { display: block; }
+.sch-tema__sol  { display: none; }
+:root[data-tema="oscuro"] .sch-tema__luna { display: none; }
+:root[data-tema="oscuro"] .sch-tema__sol  { display: block; }
+:root[data-tema="oscuro"] body.crm-sch .sch-tema { background: var(--nube-2); border-color: var(--linea-2); }
+:root[data-tema="oscuro"] body.crm-sch .sch-tema:hover { background: var(--linea); }
+
+/* =========================================================================
+   34 · SUPERFICIES CON SIGNIFICADO
+   =========================================================================
+   Tres tintes semánticos que reemplazan los colores que estaban escritos en el
+   atributo style. Un color en línea gana a cualquier hoja, así que el tema
+   oscuro no podía alcanzarlos: eran islas blancas garantizadas. */
+
+body.crm-sch .sch-caja {
+  padding: .8rem .95rem;
+  border: 1px solid var(--linea-2);
+  border-radius: var(--r-interior);
+  color: var(--tinta);
+}
+body.crm-sch .sch-caja--ok      { background: var(--verde-suave);  border-color: #CFE7D8; color: var(--verde-tinta); }
+body.crm-sch .sch-caja--aviso   { background: var(--bronce-suave); border-color: #E8DEC5; color: var(--bronce-tinta); }
+body.crm-sch .sch-caja--alarma  { background: var(--baja-suave);   border-color: #F3D6D9; color: var(--baja); }
+body.crm-sch .sch-caja--ok b,
+body.crm-sch .sch-caja--aviso b,
+body.crm-sch .sch-caja--alarma b { color: inherit; }
+
+:root[data-tema="oscuro"] body.crm-sch .sch-caja--ok     { border-color: #23492F; color: #6FE0A0; }
+:root[data-tema="oscuro"] body.crm-sch .sch-caja--aviso  { border-color: #43391F; color: var(--bronce-tinta); }
+:root[data-tema="oscuro"] body.crm-sch .sch-caja--alarma { border-color: #4E2429; color: #F28B92; }
+
+/* =========================================================================
+   34.1 · LO QUE EL BARRIDO OSCURO ENCONTRÓ
+   ========================================================================= */
+
+/* El relleno verde con texto blanco encima solo llega a 3.3:1 en #0BA344. El
+   botón se queda en el verde del logo, donde el blanco da 5.14:1; el #0BA344
+   sigue sirviendo para trazos y tintes, que no llevan texto. */
+:root[data-tema="oscuro"] body.crm-sch,
+:root[data-tema="oscuro"] body.sch-acceso { --verde: #027F31; }
+
+/* El contador de la campana: blanco sobre #E8636D da 3.26:1. */
+:root[data-tema="oscuro"] body.crm-sch .crm-bell b { background: #C2202C; border-color: var(--papel); }
+
+/* Tarjetas de operación en vivo y de configuración, con blanco literal. */
+:root[data-tema="oscuro"] body.crm-sch .ops-card,
+:root[data-tema="oscuro"] body.crm-sch .ops-focus,
+:root[data-tema="oscuro"] body.crm-sch .cfg-card,
+:root[data-tema="oscuro"] body.crm-sch .quote-annex figure,
+:root[data-tema="oscuro"] body.crm-sch .ops-action-light,
+:root[data-tema="oscuro"] body.crm-sch .sch-section--white {
+  background: var(--papel);
+  border-color: var(--linea);
+  color: var(--tinta);
+}
+:root[data-tema="oscuro"] body.crm-sch .ops-table th { background: var(--nube); color: var(--tinta-2); }
+:root[data-tema="oscuro"] body.crm-sch .ops-table td { border-color: var(--linea); color: var(--tinta); }
+:root[data-tema="oscuro"] body.crm-sch .ops-card__head h3 { color: var(--tinta); }
+:root[data-tema="oscuro"] body.crm-sch .cobro-sum__cell.is-ok  { background: var(--verde-suave); }
+:root[data-tema="oscuro"] body.crm-sch .cobro-sum__cell.is-bad { background: var(--baja-suave); }
+:root[data-tema="oscuro"] body.crm-sch .inv-ncf-preview.is-ok   { background: var(--verde-suave);  border-color: #23492F; }
+:root[data-tema="oscuro"] body.crm-sch .inv-ncf-preview.is-warn { background: var(--bronce-suave); border-color: #43391F; }
+:root[data-tema="oscuro"] body.crm-sch .inv-ncf-preview.is-warn .inv-ncf-preview__ic { background: #43391F; }
+:root[data-tema="oscuro"] body.crm-sch .rep-flow__pct.is-warn { background: var(--bronce-suave); color: var(--bronce-tinta); }
+:root[data-tema="oscuro"] body.crm-sch .crm-danger-btn:hover,
+:root[data-tema="oscuro"] body.crm-sch .crm-secondary-btn--danger:hover,
+:root[data-tema="oscuro"] body.crm-sch .crm-icon-action--danger:hover { background: var(--baja-suave); }
+:root[data-tema="oscuro"] body.crm-sch .dash-accent .dash-seg button.is-active { background: var(--nube-2); }
+
+/* La placa del logotipo se queda clara a propósito: el logo de SCH es verde y
+   bronce sobre transparente, y sobre el fondo oscuro no se leería. Es la única
+   superficie clara autorizada en el tema oscuro. */
+:root[data-tema="oscuro"] body.crm-sch .crm-wordmark__plaque { background: #E9F0EB; }
+
+/* =========================================================================
+   34.2 · EL HELPDESK EN OSCURO
+   =========================================================================
+   Toda la familia del tablero de soporte —barra de vista, tablero, vías y el
+   modal del ticket— está escrita con #fff literal, así que ninguna variable la
+   alcanzaba. Era el bloque de islas más grande del barrido. */
+
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-viewbar,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-viewbar a.is-active,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-ticket-modal__shell,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-ticket-modal__block,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-ticket-modal__form,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-ticket-modal__aside,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-ticket-modal__head,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-ticket-modal__body,
+:root[data-tema="oscuro"] body.crm-sch .crm-danger-btn {
+  background: var(--papel);
+  border-color: var(--linea);
+  color: var(--tinta);
+}
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-viewbar { border-bottom-color: var(--linea); }
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-viewbar a.is-active { box-shadow: none; color: var(--tinta); }
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-board { background: var(--nube); }
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-lane { background: rgba(20, 29, 24, .86); border-color: var(--linea); }
+:root[data-tema="oscuro"] body.crm-sch .crm-danger-btn { color: var(--baja); border-color: #4E2429; }
+
+/* Titulares y texto dentro del modal del ticket. */
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-ticket-modal__shell h2,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-ticket-modal__shell h3,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-ticket-modal__shell strong,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-ticket-modal__shell b { color: var(--tinta); }
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-ticket-modal__shell p,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-ticket-modal__shell span,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-ticket-modal__shell dd,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-ticket-modal__shell dt { color: var(--tinta-2); }
+
+/* =========================================================================
+   34.3 · ROJOS ESCRITOS A MANO
+   =========================================================================
+   #b42318 sobre la tarjeta oscura da 2.6:1. Los importes vencidos y las
+   alertas toman el rojo del tema, que sí se aclara. */
+
+:root[data-tema="oscuro"] body.crm-sch .rep-flow__alert,
+:root[data-tema="oscuro"] body.crm-sch .rep-cash__amt,
+:root[data-tema="oscuro"] body.crm-sch .sch-titulo--alarma,
+:root[data-tema="oscuro"] body.crm-sch .inv-aging__cell--bad strong,
+:root[data-tema="oscuro"] body.crm-sch .sch-fila__v--baja { color: #F28B92; }
+:root[data-tema="oscuro"] body.crm-sch .rep-cash__track { background: var(--nube); }
+:root[data-tema="oscuro"] body.crm-sch .rep-flow__link { color: var(--tinta-3); }
+
+/* En claro el título de peligro también necesita su color, que antes venía en
+   el atributo style. */
+body.crm-sch .sch-titulo--alarma { color: var(--baja); }
+
+/* Utilidades de Tailwind que quedaron en el marcado. */
+:root[data-tema="oscuro"] body.crm-sch .text-slate-600,
+:root[data-tema="oscuro"] body.crm-sch .text-slate-300,
+:root[data-tema="oscuro"] body.crm-sch .text-gray-500,
+:root[data-tema="oscuro"] body.crm-sch .text-gray-600 { color: var(--tinta-2) !important; }
+:root[data-tema="oscuro"] body.crm-sch .text-red-700,
+:root[data-tema="oscuro"] body.crm-sch .text-red-600 { color: #F28B92 !important; }
+:root[data-tema="oscuro"] body.crm-sch .text-emerald-700 { color: #6FE0A0 !important; }
+:root[data-tema="oscuro"] body.crm-sch .text-amber-800,
+:root[data-tema="oscuro"] body.crm-sch .text-amber-900 { color: var(--bronce-tinta) !important; }
+
+/* Importes con signo: el que entra y el que está vencido. Antes llevaban el
+   color en el atributo style, donde el tema no podía alcanzarlos. */
+body.crm-sch .sch-monto--sube { color: var(--verde-tinta); }
+body.crm-sch .sch-monto--baja { color: var(--baja); }
+:root[data-tema="oscuro"] body.crm-sch .sch-monto--sube { color: #6FE0A0; }
+:root[data-tema="oscuro"] body.crm-sch .sch-monto--baja { color: #F28B92; }
+
+/* Acción verde de una fila: blanco sobre #35C46B da 2.3:1. Toma el verde de
+   relleno, donde el blanco llega a 5.1:1. */
+:root[data-tema="oscuro"] body.crm-sch .ops-action-green { background: var(--verde); box-shadow: none; }
+:root[data-tema="oscuro"] body.crm-sch .ops-action-light { background: var(--nube-2); border-color: var(--linea-2); color: var(--tinta); }
+
+/* Las dos superficies del portal de cliente que quedaban en blanco. */
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-portal-modal__shell,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-portal-modal__body,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-client-link {
+  background: var(--papel);
+  border-color: var(--linea);
+  color: var(--tinta);
+}
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-client-link strong { color: var(--tinta); }
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-client-link span,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-client-link small { color: var(--tinta-2); }
+
+/* La línea de tiempo del ticket también estaba en blanco literal. */
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-timeline,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-timeline__item {
+  background: var(--papel);
+  border-color: var(--linea);
+  color: var(--tinta);
+}
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-timeline strong { color: var(--tinta); }
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-timeline p,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-timeline small,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-timeline span { color: var(--tinta-2); }
+
+/* Las notas del ticket: cada <article> de la línea de tiempo trae su propia
+   superficie blanca, y el contenedor no la cubría. */
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-timeline article,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-timeline article > div {
+  background: var(--papel);
+  border-color: var(--linea);
+}
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-timeline header strong { color: var(--tinta); }
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-timeline header small,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-timeline article p { color: var(--tinta-2); }
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-lane__empty { color: var(--tinta-3); }
+
+/* =========================================================================
+   34.4 · DEGRADADOS CLAROS
+   =========================================================================
+   Un `background: linear-gradient(...)` vive en background-image y deja
+   background-color en transparente. Ni las variables ni una regla que solo
+   toque el color lo alcanzan: hay que reemplazar la imagen.
+
+   Esto era lo que quedaba mal en el tema oscuro. La cabecera de cada tabla de
+   datos y la barra de filtros de tickets seguían siendo un degradado blanco
+   con el texto claro encima, ilegible. Mi primera sonda no lo vio porque solo
+   leía background-color; ahora lee las paradas del degradado. */
+
+:root[data-tema="oscuro"] body.crm-sch .crm-data-surface__head,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-v2__filters,
+:root[data-tema="oscuro"] body.crm-sch .crm-card__head,
+:root[data-tema="oscuro"] body.crm-sch .dash-card__head,
+:root[data-tema="oscuro"] body.crm-sch .ops-card__head,
+:root[data-tema="oscuro"] body.crm-sch .crm-table thead,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-lane header {
+  background-image: none;
+  background-color: var(--papel);
+  border-color: var(--linea);
+}
+:root[data-tema="oscuro"] body.crm-sch .crm-data-surface__head h3,
+:root[data-tema="oscuro"] body.crm-sch .crm-data-surface__head b,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-v2__filters label > span { color: var(--tinta); }
+:root[data-tema="oscuro"] body.crm-sch .crm-data-surface__head p { color: var(--tinta-2); }
+
+/* Cualquier otra superficie del CRM que traiga un degradado claro: se aplana.
+   Los botones y las cápsulas de marca quedan fuera, que sí deben conservarlo. */
+:root[data-tema="oscuro"] body.crm-sch .crm-secondary-btn,
+:root[data-tema="oscuro"] body.crm-sch .gas-placa,
+:root[data-tema="oscuro"] body.crm-sch .inv-aging__cell,
+:root[data-tema="oscuro"] body.crm-sch .inv-age-chip,
+:root[data-tema="oscuro"] body.crm-sch .sch-accion,
+:root[data-tema="oscuro"] body.crm-sch .dash-pill,
+:root[data-tema="oscuro"] body.crm-sch .crm-local-card,
+:root[data-tema="oscuro"] body.crm-sch .crm-empty,
+:root[data-tema="oscuro"] body.crm-sch .crm-cockpit__hero,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-v2__hero,
+:root[data-tema="oscuro"] body.crm-sch .dash-iconbtn,
+:root[data-tema="oscuro"] body.crm-sch .dash-chip,
+:root[data-tema="oscuro"] body.crm-sch .crm-pager a { background-image: none; }
+
+/* El avatar de tono «teal» promediaba claro y el blanco encima daba 3.7:1. */
+:root[data-tema="oscuro"] body.crm-sch .av--teal { background: linear-gradient(150deg, #4F9E6E, #235539); }
+
+/* =========================================================================
+   34.5 · LOS TOKENS DE site-v2 EN LA PANTALLA DE ACCESO
+   =========================================================================
+   site-v2.css declara su paleta en `.sx`, que es el propio <body>. Una
+   propiedad personalizada se resuelve desde el ancestro más cercano que la
+   declare, así que esa declaración le gana a la mía de :root para TODO lo que
+   hay dentro del body — por muy alta que sea mi especificidad.
+
+   Se veía en móvil: con el panel lateral oculto aparece .sxl-cardbrand, cuya
+   marca usa var(--ink) y quedaba en 1.02:1 sobre la tarjeta oscura. */
+
+:root[data-tema="oscuro"] body.sch-acceso {
+  --white:        #141D18;
+  --ink:          #E9F0EB;
+  --ink-soft:     #C7D4CB;
+  --muted:        #B9C7BE;
+  --muted-d:      #B9C7BE;
+  --line:         #24312A;
+  --line-strong:  #2F3E36;
+  --line-d:       rgba(147, 167, 154, .22);
+  --paper:        #0F1712;
+  --graphite:     #0A100D;
+  --graphite-2:   #0E1712;
+  --blue:         #35C46B;
+  --blue-bright:  #4ED486;
+  --blue-ink:     #4ED486;
+  --cyan:         #6FE0A0;
+  --accent:       #35C46B;
+}
+
+/* =========================================================================
+   35 · EL FOCO DE TECLADO
+   =========================================================================
+   El anillo de los campos era un halo al 13 % de opacidad. Mezclado sobre
+   blanco da menos de 1.5:1 contra el papel: sirve de adorno, no de indicador.
+   WCAG pide 3:1 para un indicador no textual, así que el anillo pasa a ser
+   sólido —el verde puro da 5.14:1— con el halo detrás, que ahora solo suaviza.
+
+   Quien navega con Tab tiene que ver dónde está sin buscarlo. */
+
+body.crm-sch .crm-input:focus,
+body.crm-sch .crm-select:focus,
+body.crm-sch .crm-textarea:focus,
+body.crm-sch .crm-filter:focus,
+body.crm-sch input:focus,
+body.crm-sch select:focus,
+body.crm-sch textarea:focus,
+body.sch-acceso .sxl-input input:focus {
+  border-color: var(--verde);
+  box-shadow: 0 0 0 2px var(--verde), 0 0 0 5px rgba(2, 127, 49, .16);
+}
+body.crm-sch .crm-search:focus-within {
+  box-shadow: 0 0 0 2px var(--verde), 0 0 0 5px rgba(2, 127, 49, .16);
+}
+:root[data-tema="oscuro"] body.crm-sch .crm-input:focus,
+:root[data-tema="oscuro"] body.crm-sch .crm-select:focus,
+:root[data-tema="oscuro"] body.crm-sch .crm-textarea:focus,
+:root[data-tema="oscuro"] body.crm-sch .crm-filter:focus,
+:root[data-tema="oscuro"] body.crm-sch input:focus,
+:root[data-tema="oscuro"] body.crm-sch select:focus,
+:root[data-tema="oscuro"] body.crm-sch textarea:focus,
+:root[data-tema="oscuro"] body.crm-sch .crm-search:focus-within,
+:root[data-tema="oscuro"] body.sch-acceso .sxl-input input:focus {
+  border-color: #35C46B;
+  box-shadow: 0 0 0 2px #35C46B, 0 0 0 5px rgba(53, 196, 107, .2);
+}
+
+/* Sobre el fondo oscuro del panel lateral del acceso, el estampado no se ve. */
+body.sch-acceso .sxl-aside :focus-visible { outline-color: #6FE0A0; }
+:root[data-tema="oscuro"] body.crm-sch :focus-visible { outline-color: #35C46B; }
+
+/* El anillo de la búsqueda lo dibuja la cápsula, no el campo: app.css le ponía
+   al input su propio halo al 22 %, que quedaba en 1.36:1 y además se sumaba al
+   del contenedor. Un solo anillo, y sólido. */
+body.crm-sch .crm-search input:focus { box-shadow: none; outline: none; }
+
+/* =========================================================================
+   36 · OBJETIVOS TÁCTILES
+   =========================================================================
+   WCAG 2.2 (2.5.8) pide 24x24 px CSS para cualquier cosa que se pulse. Los
+   enlaces de salida de las tarjetas —«Ver más», «Reporte», «Agenda»— medían
+   20px de alto: en un teléfono se fallan.
+
+   Se crece la CAJA, no la letra: con `min-height` y centrado vertical el texto
+   queda donde estaba y el área de pulsación llega al mínimo. */
+
+body.crm-sch .sch-mas,
+body.crm-sch .dash-card__meta,
+body.crm-sch .sch-llave,
+body.crm-sch .rep-flow__link,
+body.sch-acceso .sxl-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
+
+/* Las casillas de la matriz de permisos y de configuración: 13 y 18 px son
+   demasiado poco para un dedo. En puntero grueso crecen; con ratón se quedan
+   como están, que ahí la precisión no es el problema. */
+@media (pointer: coarse), (max-width: 720px) {
+  body.crm-sch input[type="checkbox"],
+  body.crm-sch input[type="radio"] {
+    width: 24px;
+    height: 24px;
+  }
+  body.crm-sch .rbac-cb { width: 24px; height: 24px; }
+}
+
+/* Los tres que quedaban:
+   · el enlace del encabezado de una tarjeta de operación («Agenda»),
+   · el nombre de cliente enlazado dentro de una celda de tabla,
+   · una casilla que el ancho de 24px no alcanzaba porque app.css le fija el
+     suyo con más peso. */
+body.crm-sch .ops-card__head a { display: inline-flex; align-items: center; min-height: 24px; }
+body.crm-sch .crm-table td a { display: inline-flex; align-items: center; min-height: 24px; }
+
+@media (pointer: coarse), (max-width: 720px) {
+  body.crm-sch input[type="checkbox"],
+  body.crm-sch input[type="radio"],
+  body.crm-sch .crm-field input[type="checkbox"] {
+    min-width: 24px;
+    min-height: 24px;
+    flex: 0 0 auto;
+  }
+}
+
+/* Cualquier enlace dentro de una celda, sea cual sea la tabla. La referencia
+   del ticket vivía en .ops-table, que la regla anterior no alcanzaba. */
+body.crm-sch td a { display: inline-flex; align-items: center; min-height: 24px; }
+
+/* =========================================================================
+   37 · RESPUESTA AL PUNTERO
+   =========================================================================
+   Un elemento pulsable que no cambia al pasar por encima parece muerto. Estos
+   cinco no respondían, y solo se nota con el ratón encima: ninguna captura
+   estática lo enseña.
+
+   El enlace de la marca además arrastraba `color: #fff` del cabezal oscuro
+   anterior. Hoy no pinta nada —su texto vive en un <b> con color propio— pero
+   es una trampa: cualquier texto que se le añada saldría invisible. */
+
+body.crm-sch .crm-wordmark {
+  color: var(--tinta);
+  border-radius: 9px;
+  transition: opacity .16s var(--curva);
+}
+body.crm-sch .crm-wordmark:hover { opacity: .78; }
+
+/* El módulo activo también responde: confirma que el clic hará algo, aunque
+   sea recargar la pantalla en la que ya estás. */
+body.crm-sch .crm-nav__links a.is-active:hover { background: #DDEFE4; }
+:root[data-tema="oscuro"] body.crm-sch .crm-nav__links a.is-active:hover { background: #1D3E29; }
+
+body.crm-sch .dash-pill--cta:hover { background: var(--verde-tinta); border-color: var(--verde-tinta); }
+:root[data-tema="oscuro"] body.crm-sch .dash-pill--cta:hover { background: #016627; border-color: #016627; }
+
+body.crm-sch .dash-seg button.is-active:hover,
+body.crm-sch .rep-seg a.is-active:hover { filter: brightness(.97); }
+:root[data-tema="oscuro"] body.crm-sch .dash-seg button.is-active:hover,
+:root[data-tema="oscuro"] body.crm-sch .rep-seg a.is-active:hover { filter: brightness(1.15); }
+
+:root[data-tema="oscuro"] body.crm-sch .crm-nav-collapse:hover { background: var(--linea); color: var(--tinta); }
+
+/* El selector de periodo: .dash-chip--accent fija su fondo y anulaba el hover
+   de .dash-chip, así que el único control con estado del cabezal del panel
+   parecía muerto. */
+body.crm-sch .dash-chip--accent:hover { background: var(--nube-2); border-color: var(--linea-2); }
+:root[data-tema="oscuro"] body.crm-sch .dash-chip--accent:hover { background: var(--linea); }
+
+/* Los que faltaban: un enlace externo en la configuración y, en la pantalla de
+   acceso, la marca, el enlace de vuelta y el propio botón de entrar en oscuro
+   —donde mi regla de tema le fijaba el fondo y anulaba su hover. */
+body.crm-sch a.underline { transition: opacity .16s var(--curva); }
+body.crm-sch a.underline:hover { opacity: .75; }
+
+body.sch-acceso .sxl-brand { transition: opacity .16s ease; }
+body.sch-acceso .sxl-brand:hover { opacity: .8; }
+body.sch-acceso .sxl-back { transition: color .16s ease, opacity .16s ease; }
+body.sch-acceso .sxl-back:hover { color: var(--verde-tinta); opacity: 1; }
+:root[data-tema="oscuro"] body.sch-acceso .sxl-back:hover { color: #6FE0A0; }
+:root[data-tema="oscuro"] body.sch-acceso .sxl-submit:hover { background: #016627; border-color: #016627; }
+
+/* «Eliminar rol» medía 41x17. Un botón destructivo pequeño es la peor
+   combinación: cuesta acertarlo y equivocarse borra algo. Solo aparece cuando
+   hay roles propios, por eso no salía con la base de pruebas cargada. */
+body.crm-sch .rbac-del {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding-inline: .4rem;
+  border-radius: 7px;
+}
+body.crm-sch .rbac-del:hover { background: var(--baja-suave); color: var(--baja); }
+:root[data-tema="oscuro"] body.crm-sch .rbac-del:hover { background: var(--baja-suave); color: #F28B92; }
+
+/* =========================================================================
+   38 · PAGINACIÓN
+   =========================================================================
+   No se había visto nunca: con pocos registros no se dibuja. Con 90 tickets
+   aparece, y traía dos fallos — 20px de alto, por debajo del mínimo táctil, y
+   el enlace deshabilitado en 2.05:1, tan tenue que no se lee ni como
+   deshabilitado.
+
+   Un control inactivo está exento de AA, pero «exento» no es «invisible»: si
+   no se lee, nadie sabe que existe la página anterior. Se le da tono legible y
+   se le quita el puntero, que es lo que de verdad comunica que no hace nada. */
+
+body.crm-sch .crm-pager a,
+body.crm-sch .helpdesk-pagination a,
+body.crm-sch .helpdesk-v2__pager a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding-inline: .7rem;
+  border-radius: 9px;
+}
+body.crm-sch .helpdesk-pagination .is-disabled,
+body.crm-sch .helpdesk-v2__pager a.is-disabled,
+body.crm-sch .crm-pager a.is-disabled {
+  color: var(--tinta-3);
+  opacity: 1;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-pagination .is-disabled,
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-v2__pager a.is-disabled,
+:root[data-tema="oscuro"] body.crm-sch .crm-pager a.is-disabled { color: var(--tinta-3); }
+
+/* =========================================================================
+   39 · CONTENIDO EXTREMO EN TABLAS
+   =========================================================================
+   Con datos reales del sector público dominicano aparecen dos casos que la
+   base de pruebas no tenía:
+
+   · Una cadena sin espacios —una referencia interna, un correo largo— que
+     ningún salto de línea puede partir. Se lleva el ancho de su columna y
+     ahoga a las demás, que quedan fuera del área visible.
+   · Como consecuencia, la referencia del documento («COT-2026-0001») se
+     quedaba sin sitio y se partía en tres líneas. Un número de comprobante
+     partido no se puede leer ni dictar por teléfono. */
+
+body.crm-sch .crm-table td,
+body.crm-sch .ops-table td,
+body.crm-sch .dash-team-table td { overflow-wrap: anywhere; }
+
+/* La referencia del documento nunca se parte: es un identificador. */
+body.crm-sch .crm-table td:first-child strong,
+body.crm-sch .crm-table td:first-child b,
+body.crm-sch .ops-table td:first-child strong,
+body.crm-sch .gas-placa,
+body.crm-sch .helpdesk-board-card__meta strong { white-space: nowrap; }
+
+/* Las cifras de la tira de antigüedad y de las lecturas tampoco. */
+body.crm-sch .inv-aging__cell strong,
+body.crm-sch .sch-lectura__v,
+body.crm-sch .crm-cockpit__metrics strong,
+body.crm-sch .helpdesk-v2__metrics strong,
+body.crm-sch .rep-kpi__value,
+body.crm-sch .sch-anillo__centro b { white-space: nowrap; }
+
+/* =========================================================================
+   40 · TABLAS DE RESUMEN DENTRO DE UNA TARJETA
+   =========================================================================
+   app.css fija `min-width: 680px` a toda .crm-table. Está bien para las
+   tablas de datos a ancho completo, que deben desplazarse en vez de
+   apretarse. Pero las tarjetas de la ficha de cliente miden 638px y solo
+   llevan tres o cuatro columnas: ahí ese mínimo empuja el importe fuera de
+   la vista y hay que arrastrar la tabla para leer cuánto cuesta la
+   cotización. */
+body.crm-sch .dash-card .crm-table,
+body.crm-sch .crm-card .crm-table { min-width: 0; }
+body.crm-sch .dash-card .crm-table td,
+body.crm-sch .crm-card .crm-table td { padding-inline: .5rem; }
+body.crm-sch .dash-card .crm-table th,
+body.crm-sch .crm-card .crm-table th { padding-inline: .5rem; }
+
+/* El avatar de la ficha de cliente usa --brand-strong, que en oscuro se aclara
+   para servir de TEXTO. Como relleno con blanco encima da 1.89:1, así que aquí
+   toma el verde sólido, donde el blanco llega a 5.14:1. */
+:root[data-tema="oscuro"] body.crm-sch .c360-head__avatar,
+:root[data-tema="oscuro"] body.crm-sch .crm-user-chip__avatar { background: var(--verde); box-shadow: none; }
+
+/* El bloque de «sin notas» lleva un blanco al 70% de opacidad. Sobre la
+   superficie oscura del modal es una losa clara, y por debajo del 85% mi sonda
+   de islas ni lo miraba. */
+:root[data-tema="oscuro"] body.crm-sch .helpdesk-lane__empty,
+:root[data-tema="oscuro"] body.crm-sch .crm-empty,
+:root[data-tema="oscuro"] body.crm-sch .chart-empty {
+  background: rgba(27, 38, 32, .7);
+  color: var(--tinta-3);
+}
+
+/* Las filas de la actividad reciente del cliente son enlaces y no respondían
+   al puntero: parecían texto, no algo que se puede abrir. */
+body.crm-sch .c360-timeline__row {
+  border-radius: 9px;
+  transition: background .14s var(--curva);
+}
+body.crm-sch .c360-timeline__row:hover { background: var(--nube); }
+:root[data-tema="oscuro"] body.crm-sch .c360-timeline__row:hover { background: var(--nube-2); }
+
+/* =========================================================================
+   41 · EL DOCUMENTO ES PAPEL, TAMBIÉN DE NOCHE
+   ------------------------------------------------------------------------
+   La vista de una factura o una cotización no es una pantalla más: es la
+   previsualización de la hoja que se imprime y se le entrega al cliente. Su
+   fondo estaba fijado en #fff, pero la tinta salía de --ink y --muted, que en
+   el tema oscuro se vuelven claras. Resultado: papel blanco con letras casi
+   blancas — el número de factura, el nombre del hospital y las partidas se
+   volvían ilegibles justo en la pantalla que hay que revisar antes de emitir.
+
+   La solución no es repintar cada regla, sino devolverle a la hoja su paleta:
+   dentro del documento vuelven a regir los valores claros. Así cualquier
+   estilo nuevo que use --ink o --muted nace correcto, sin acordarse de esto.
+   ========================================================================= */
+:root[data-tema="oscuro"] body.crm-sch .quote-doc {
+  color-scheme: light;
+
+  --ink:        #0e1a28;
+  --ink-soft:   #27384b;
+  --muted:      #56697b;
+  --faint:      #667584;
+  --line:       #e3eaf1;
+  --line-soft:  #eef3f8;
+  --page:       #f3f7fb;
+  --surface:    #ffffff;
+  --surface-2:  #f8fbfe;
+
+  --brand:        #0a7d36;
+  --brand-strong: #066128;
+  --brand-deep:   #064a20;
+  --brand-bright: #12a04a;
+  --brand-soft:   #e8f4ec;
+  --brand-tint:   #f1f8f3;
+  --gold:         #9c7d34;
+  --gold-strong:  #7c6228;
+  --gold-soft:    #f5edd6;
+  --green:        #15a34a;
+  --green-strong: #0f7d39;
+  --red:          #dc2626;
+  --amber:        #d97706;
+
+  /* La misma familia, en su versión de papel. */
+  --papel:   #FFFFFF;
+  --nube:    #F6F8F7;
+  --nube-2:  #F0F3F1;
+  --linea:   #EDF0F2;
+  --linea-2: #E1E6E9;
+  --tinta:   #0F1B14;
+  --tinta-2: #5B6B62;
+  --tinta-3: #66746D;
+
+  color: var(--ink);
+  /* Sobre la página oscura, la hoja necesita separarse por sombra y no por
+     filete: un borde claro sobre fondo oscuro se lee como un halo. */
+  border-color: rgba(0, 0, 0, .35);
+  box-shadow: 0 24px 60px -22px rgba(0, 0, 0, .85);
+}
+
+/* La barra fiscal SÍ es interfaz, no papel: su degradado arrancaba en #fff
+   fijo y dejaba una mancha clara sobre el tema oscuro, con el saldo encima
+   ilegible. Se le da el degradado de la casa. */
+:root[data-tema="oscuro"] body.crm-sch .inv-actionbar {
+  background: linear-gradient(180deg, var(--papel), var(--nube-2));
+  border-color: var(--linea);
+}
+:root[data-tema="oscuro"] body.crm-sch .inv-actionbar__bal { color: var(--tinta-2); }
+:root[data-tema="oscuro"] body.crm-sch .inv-actionbar__bal strong { color: var(--tinta); }
+
+/* =========================================================================
+   42 · TRES CONTRASTES QUE NO LLEGABAN
+   ========================================================================= */
+
+/* Anular una factura es irreversible: el botón tiene que leerse sin esfuerzo.
+   Iba con `background: var(--red)`, y --red está calibrado para TEXTO rojo
+   sobre fondo oscuro (#E8636D); relleno con letras blancas encima daba 3.26:1.
+   Un relleno sólido necesita su propio tono, más hondo, en los dos temas. */
+body.crm-sch .crm-primary-btn--peligro {
+  --rojo-solido: #B01B26;
+  background: var(--rojo-solido);
+  border-color: var(--rojo-solido);
+  color: #FFFFFF;                    /* 6.4:1 */
+}
+body.crm-sch .crm-primary-btn--peligro:hover { --rojo-solido: #96161F; }
+
+/* El margen de la cotización llevaba el verde escrito a mano (#0a7d36), de la
+   paleta clara: sobre el panel oscuro del modal se quedaba en 3.58:1. Con el
+   token sigue al tema, que es lo que debió hacer desde el principio. */
+body.crm-sch .doc-margin strong { color: var(--brand-strong); }
+body.crm-sch .doc-margin strong.is-bad { color: var(--red); }
+
+/* El chip de estado apagado ponía --tinta-3 sobre --nube-2: 4.39:1, por debajo
+   de AA por poco, y en los dos temas. Un escalón más de tinta lo resuelve sin
+   que el chip deje de leerse como «apagado». */
+body.crm-sch .gas-estado--cerrado,
+:root[data-tema="oscuro"] body.crm-sch .gas-estado--cerrado { color: var(--tinta-2); }
+
+/* =========================================================================
+   43 · LAS PESTAÑAS, ENTERAS EN EL TELÉFONO
+   ------------------------------------------------------------------------
+   La cápsula de pestañas se desplaza en horizontal cuando no cabe, así que
+   nada quedaba inalcanzable — pero tampoco se veía. En «Reportes» solo
+   asomaban 180 px de 348: más de la mitad de las opciones escondidas detrás
+   de un gesto que nada anunciaba. Con tres a seis rótulos cortos no hace
+   falta desplazar: caben en dos filas y se ven todas de un vistazo.
+
+   La cápsula deja de ser píldora al envolver —una píldora de dos líneas se
+   ve rota— y pasa a rectángulo blando, que es la misma familia.
+   ========================================================================= */
+@media (max-width: 640px) {
+  body.crm-sch .dash-seg,
+  body.crm-sch .rep-seg {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    gap: 3px;
+    border-radius: 18px;
+  }
+  body.crm-sch .dash-seg button,
+  body.crm-sch .rep-seg a {
+    flex: 1 1 auto;
+    justify-content: center;
+    text-align: center;
+    white-space: nowrap;
+  }
+}
+
+/* El aviso «debe cambiar contraseña» iba con un ámbar fijo (#b45309) dentro de
+   un <small> anidado: acababa en 9 px y 3.43:1 sobre el panel oscuro. Es un
+   aviso de seguridad —quién entra todavía con la clave provisional—, así que
+   tiene que leerse. Solo se vio con los usuarios reales de producción. */
+body.crm-sch .usr-pendiente {
+  color: var(--bronce-tinta);
+  font-size: .72rem;          /* ya no encoge respecto al texto que lo rodea */
+  font-weight: 700;
+  white-space: nowrap;
+}
+:root[data-tema="oscuro"] body.crm-sch .usr-pendiente { color: #D4B872; }

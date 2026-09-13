@@ -23,9 +23,13 @@ module.exports = {
           graphite: '#0b1521',
         },
       },
+      // Mismas familias que los tokens de app.css: Aptos y Segoe UI vienen
+      // instaladas en los equipos del equipo, así que no hay descarga remota
+      // que bloquee el primer pintado. La jerarquía la dan peso y tracking.
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        display: ['"Space Grotesk"', 'sans-serif'],
+        sans: ['Aptos', '"Segoe UI Variable Text"', '"Segoe UI"', 'system-ui', 'Arial', 'sans-serif'],
+        display: ['Aptos', '"Segoe UI Variable Display"', '"Segoe UI"', 'system-ui', 'Arial', 'sans-serif'],
+        mono: ['"Cascadia Mono"', 'Consolas', '"Segoe UI Mono"', 'ui-monospace', 'monospace'],
       },
     },
   },
@@ -34,7 +38,7 @@ module.exports = {
   safelist: [
     'ring-1',
     'underline',
-    { pattern: /^(bg|text|ring|border)-(amber|emerald|blue|red|slate|green|sky|rose|orange)-(50|100|200|300|400|500|600|700|800)$/ },
+    { pattern: /^(bg|text|ring|border)-(amber|emerald|blue|red|slate|green|sky|rose|orange)-(50|100|200|300|400|500|600|700|800|900)$/ },
     { pattern: /^(bg|text|border|ring)-sch-(ink|muted|line|page|blue|cyan|green|graphite)$/ },
   ],
   corePlugins: {

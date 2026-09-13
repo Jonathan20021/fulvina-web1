@@ -28,6 +28,8 @@ $total = array_sum(array_map('count', $results));
 $crmTitle = 'Búsqueda global';
 require_once __DIR__ . '/../includes/crm_header.php';
 ?>
+<?= sch_encabezado('Búsqueda', 'Resultados en clientes, equipos, cotizaciones y tickets') ?>
+
 
 <section class="crm-card" style="margin-bottom:1rem">
     <div class="crm-card__head">

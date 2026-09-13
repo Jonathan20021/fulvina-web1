@@ -80,15 +80,16 @@ if ($hasDb) {
 $crmTitle = 'Roles y permisos';
 require_once __DIR__ . '/../includes/crm_header.php';
 ?>
+<?= sch_encabezado('Permisos', 'Qué puede hacer cada rol en cada módulo') ?>
+
 
 <?php if (!$hasDb): ?>
-    <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a>; en producción los cambios de permisos se guardan en la base de datos.</div>
+    <div class="gas-aviso">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a>; en producción los cambios de permisos se guardan en la base de datos.</div>
 <?php endif; ?>
 
 <section class="crm-cockpit">
     <div class="crm-cockpit__top">
         <div class="crm-cockpit__hero">
-            <span class="crm-kicker"><i data-lucide="shield-check"></i>Control de acceso</span>
             <h2>Roles y permisos por módulo.</h2>
             <p>Define qué puede ver y hacer cada rol en cada módulo. El rol <strong>Administrador</strong> siempre tiene acceso total. Los cambios aplican de inmediato a todos los usuarios de ese rol.</p>
         </div>

@@ -95,10 +95,12 @@ CREATE TABLE IF NOT EXISTS quotes (
 
 CREATE TABLE IF NOT EXISTS quote_items (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  product_id INT UNSIGNED NULL,
   quote_id INT UNSIGNED NOT NULL,
   description TEXT NOT NULL,
   quantity DECIMAL(10,2) NOT NULL DEFAULT 1,
   unit_price DECIMAL(12,2) NOT NULL DEFAULT 0,
+  unit_cost DECIMAL(12,2) NULL DEFAULT NULL,
   discount DECIMAL(12,2) NOT NULL DEFAULT 0,
   discount_pct DECIMAL(6,3) NOT NULL DEFAULT 0,
   total DECIMAL(12,2) NOT NULL DEFAULT 0,
@@ -230,6 +232,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   isr_retained DECIMAL(12,2) NOT NULL DEFAULT 0,
   total DECIMAL(12,2) NOT NULL DEFAULT 0,
   amount_paid DECIMAL(12,2) NOT NULL DEFAULT 0,
+  credited_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
   currency VARCHAR(3) NOT NULL DEFAULT 'DOP',
   exchange_rate DECIMAL(12,4) NOT NULL DEFAULT 1,
   notes TEXT NULL,
@@ -242,6 +245,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   paid_at DATETIME NULL,
   voided_at DATETIME NULL,
   void_reason VARCHAR(255) NULL,
+  void_code VARCHAR(2) NULL,
   created_at DATETIME NULL,
   updated_at DATETIME NULL,
   FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
@@ -255,10 +259,12 @@ CREATE TABLE IF NOT EXISTS invoices (
 
 CREATE TABLE IF NOT EXISTS invoice_items (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  product_id INT UNSIGNED NULL,
   invoice_id INT UNSIGNED NOT NULL,
   description TEXT NOT NULL,
   quantity DECIMAL(10,2) NOT NULL DEFAULT 1,
   unit_price DECIMAL(12,2) NOT NULL DEFAULT 0,
+  unit_cost DECIMAL(12,2) NULL DEFAULT NULL,
   discount DECIMAL(12,2) NOT NULL DEFAULT 0,
   is_exempt TINYINT(1) NOT NULL DEFAULT 0,
   total DECIMAL(12,2) NOT NULL DEFAULT 0,
@@ -267,6 +273,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
 
 CREATE TABLE IF NOT EXISTS invoice_payments (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  receipt_number VARCHAR(40) NULL,
   invoice_id INT UNSIGNED NOT NULL,
   amount DECIMAL(12,2) NOT NULL DEFAULT 0,
   method VARCHAR(40) NULL,
@@ -277,4 +284,28 @@ CREATE TABLE IF NOT EXISTS invoice_payments (
   created_at DATETIME NULL,
   FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
   FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Catálogo de productos y servicios: precio de lista y COSTO (base del margen)
+CREATE TABLE IF NOT EXISTS products (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  sku VARCHAR(60) NULL,
+  name VARCHAR(190) NOT NULL,
+  description TEXT NULL,
+  kind VARCHAR(20) NOT NULL DEFAULT 'producto',
+  category VARCHAR(80) NULL,
+  brand VARCHAR(120) NULL,
+  unit VARCHAR(40) NULL,
+  cost DECIMAL(12,2) NULL DEFAULT NULL,
+  price DECIMAL(12,2) NOT NULL DEFAULT 0,
+  currency VARCHAR(3) NOT NULL DEFAULT 'DOP',
+  is_exempt TINYINT(1) NOT NULL DEFAULT 0,
+  active TINYINT(1) NOT NULL DEFAULT 1,
+  notes TEXT NULL,
+  created_at DATETIME NULL,
+  updated_at DATETIME NULL,
+  UNIQUE KEY uq_products_sku (sku),
+  INDEX idx_products_name (name),
+  INDEX idx_products_active (active),
+  INDEX idx_products_category (category)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

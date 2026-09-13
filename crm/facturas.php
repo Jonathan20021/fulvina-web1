@@ -4,7 +4,7 @@ require_can('facturas.view');
 verify_csrf();
 
 $hasDb = db(false) && table_exists('clients');
-if (db(false)) { ensure_invoice_schema(); cartera_seed_defaults(); }
+if (db(false)) { ensure_invoice_schema(); ensure_products_schema(); cartera_seed_defaults(); }
 $hasInvoices = $hasDb && table_exists('invoices');
 
 /* Cartera y antigüedad de cuentas por cobrar: permiso nominal (contabilidad),
@@ -55,14 +55,21 @@ function invoice_parse_items(): array
     $qty = (array) ($_POST['item_quantity'] ?? []);
     $price = (array) ($_POST['item_price'] ?? []);
     $exempt = (array) ($_POST['item_exempt'] ?? []);
+    $cost = (array) ($_POST['item_cost'] ?? []);
+    $pid = (array) ($_POST['item_product_id'] ?? []);
     $items = [];
     foreach ($desc as $i => $d) {
         $d = trim((string) $d);
         $q = max(0, amount_parse($qty[$i] ?? 0));
         $p = max(0, amount_parse($price[$i] ?? 0));
         if ($d === '' || $q <= 0) { continue; }
+        // Costo vacío = «no se sabe», y se guarda como NULL. Convertirlo en 0
+        // haría que la partida apareciera después con margen del 100%.
+        $rawCost = trim((string) ($cost[$i] ?? ''));
         $items[] = [
             'description' => $d, 'quantity' => $q, 'unit_price' => $p,
+            'unit_cost' => $rawCost === '' ? null : round(max(0, amount_parse($rawCost)), 2),
+            'product_id' => ((int) ($pid[$i] ?? 0)) ?: null,
             'discount' => 0.0, 'is_exempt' => (!empty($exempt[$i]) && (string) $exempt[$i] === '1') ? 1 : 0,
             'total' => round($q * $p, 2),
         ];
@@ -97,8 +104,7 @@ function invoice_is_overdue(array $inv): bool
     if ((string) ($inv['status'] ?? '') !== 'Emitida') { return false; }
     $due = (string) ($inv['due_date'] ?? '');
     if ($due === '' || $due === '0000-00-00') { return false; }
-    $net = (float) ($inv['total'] ?? 0) - (float) ($inv['itbis_retained'] ?? 0) - (float) ($inv['isr_retained'] ?? 0);
-    return strtotime($due) < strtotime(date('Y-m-d')) && (float) ($inv['amount_paid'] ?? 0) + 0.009 < $net;
+    return strtotime($due) < strtotime(date('Y-m-d')) && invoice_balance($inv) > 0.009;
 }
 
 /* =========================== POST handlers =========================== */
@@ -134,7 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
             $next = (int) $nextRaw;
         }
         if ($next < $from) { $next = $from; }
-        $exp = trim((string) ($_POST['expiration'] ?? '')) ?: null;
+        $exp = valid_date($_POST['expiration'] ?? null);
         $active = isset($_POST['active']) ? 1 : 0;
         $note = trim((string) ($_POST['note'] ?? ''));
         if (!isset(ncf_types()[$type])) {
@@ -180,13 +186,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
             $pdo->prepare('DELETE FROM invoices WHERE id=?')->execute([$did]);
             $pdo->commit();
             log_activity('invoice', $did, 'factura_eliminada', trim((string) ($inv['invoice_number'] ?? '') . ($inv['ncf'] ? ' · ' . $inv['ncf'] : '')));
+            // Si lo borrado era una nota de crédito, la factura que modificaba
+            // tiene que recuperar ese saldo o quedaría descuadrada para siempre.
+            if (invoice_is_credit_note($inv) && (int) ($inv['modifies_invoice_id'] ?? 0) > 0) {
+                invoice_recalc_credited((int) $inv['modifies_invoice_id']);
+            }
             $msg = $st === 'Anulada' ? 'Factura anulada eliminada.' : 'Borrador de factura eliminado.';
             if ($releasedNcf !== '') { $msg .= ' El NCF ' . $releasedNcf . ' quedó libre para reutilizarse.'; }
             flash('success', $msg);
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) { $pdo->rollBack(); }
             error_log('facturas delete: ' . $e->getMessage());
-            flash('warning', 'No se pudo eliminar la factura. Inténtalo de nuevo.');
+            flash('error', 'No se pudo eliminar la factura. Inténtalo de nuevo.');
         }
         redirect('crm/facturas.php');
     }
@@ -211,14 +222,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
             $method = trim((string) ($_POST['method'] ?? ''));
             $reference = trim((string) ($_POST['reference'] ?? ''));
             $note = trim((string) ($_POST['note'] ?? ''));
-            $paidAt = trim((string) ($_POST['paid_at'] ?? '')) ?: date('Y-m-d');
+            $paidAt = valid_date($_POST['paid_at'] ?? null) ?? date('Y-m-d');
             if ($amount > 0) {
                 $pdo = db();
                 $pdo->beginTransaction();
-                $pdo->prepare('INSERT INTO invoice_payments (invoice_id, amount, method, reference, paid_at, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())')
-                    ->execute([$iid, $amount, $method, $reference, $paidAt, $note, current_user()['id'] ?? null]);
+                // El recibo se numera al registrar el cobro: es el comprobante
+                // que se le entrega al cliente y debe existir desde el minuto uno.
+                $hasReceiptCol = column_exists('invoice_payments', 'receipt_number');
+                if ($hasReceiptCol) {
+                    $pdo->prepare('INSERT INTO invoice_payments (receipt_number, invoice_id, amount, method, reference, paid_at, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())')
+                        ->execute([reserve_receipt_number($pdo), $iid, $amount, $method, $reference, $paidAt, $note, current_user()['id'] ?? null]);
+                } else {
+                    $pdo->prepare('INSERT INTO invoice_payments (invoice_id, amount, method, reference, paid_at, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())')
+                        ->execute([$iid, $amount, $method, $reference, $paidAt, $note, current_user()['id'] ?? null]);
+                }
                 $newPaid = round((float) $inv['amount_paid'] + $amount, 2);
-                $net = round((float) $inv['total'] - (float) $inv['itbis_retained'] - (float) $inv['isr_retained'], 2);
+                $net = invoice_net($inv);
                 if ($newPaid + 0.009 >= $net) {
                     $pdo->prepare('UPDATE invoices SET amount_paid=?, status=?, paid_at=COALESCE(paid_at, NOW()), updated_at=NOW() WHERE id=?')->execute([$newPaid, 'Pagada', $iid]);
                 } else {
@@ -234,21 +253,134 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
         redirect('crm/facturas.php?action=view&id=' . $iid);
     }
 
+    /* ---- Emitir nota de crédito contra un comprobante ------------------ */
+    if ($form === 'credit_note') {
+        if (!current_can('facturas.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/facturas.php'); }
+        $iid = (int) ($_POST['id'] ?? 0);
+        $src = $iid > 0 ? fetch_one('SELECT * FROM invoices WHERE id=?', [$iid]) : null;
+        if (!$src) {
+            flash('warning', 'El comprobante de origen no existe.');
+            redirect('crm/facturas.php');
+        }
+        [$creditOk, $creditWhy] = invoice_can_be_credited($src);
+        if (!$creditOk) {
+            flash('warning', $creditWhy);
+            redirect('crm/facturas.php?action=view&id=' . $iid);
+        }
+
+        $mode = (string) ($_POST['mode'] ?? 'total') === 'parcial' ? 'parcial' : 'total';
+        $reason = trim((string) ($_POST['reason'] ?? ''));
+        if ($reason === '') {
+            flash('warning', 'Indica el motivo de la nota de crédito: queda impreso en el comprobante.');
+            redirect('crm/facturas.php?action=view&id=' . $iid);
+        }
+
+        // Partidas de la nota: copia fiel del origen, o una sola línea parcial.
+        $cnItems = [];
+        if ($mode === 'total') {
+            foreach (fetch_all('SELECT description, quantity, unit_price, discount, is_exempt, total FROM invoice_items WHERE invoice_id=? ORDER BY id', [$iid]) as $it) {
+                $cnItems[] = [
+                    'description' => (string) $it['description'],
+                    'quantity' => (float) $it['quantity'],
+                    'unit_price' => (float) $it['unit_price'],
+                    'discount' => (float) $it['discount'],
+                    'is_exempt' => (int) $it['is_exempt'],
+                    'total' => (float) $it['total'],
+                ];
+            }
+            if (!$cnItems) {
+                flash('warning', 'El comprobante de origen no tiene partidas que copiar. Usa el modo parcial e indica el monto.');
+                redirect('crm/facturas.php?action=view&id=' . $iid);
+            }
+        } else {
+            $cnAmount = amount_parse($_POST['amount'] ?? 0);
+            if ($cnAmount <= 0) {
+                flash('warning', 'Indica el monto a acreditar, sin ITBIS.');
+                redirect('crm/facturas.php?action=view&id=' . $iid);
+            }
+            $cnItems[] = [
+                'description' => $reason,
+                'quantity' => 1.0,
+                'unit_price' => $cnAmount,
+                'discount' => 0.0,
+                'is_exempt' => ((string) ($_POST['is_exempt'] ?? '') === '1') ? 1 : 0,
+                'total' => $cnAmount,
+            ];
+        }
+
+        // La nota hereda la tasa de ITBIS y la moneda del origen: acreditar en
+        // otra moneda o a otra tasa dejaría de cuadrar contra la factura.
+        $cnTotals = invoice_compute_totals($cnItems, (float) $src['tax_rate'], 0, 0, 0);
+        $creditable = invoice_net($src);
+        if ($cnTotals['total'] > $creditable + 0.009) {
+            flash('warning', sprintf(
+                'La nota suma %s y al comprobante solo le quedan %s por acreditar. Ajusta el monto.',
+                money_cur($cnTotals['total'], (string) $src['currency']),
+                money_cur($creditable, (string) $src['currency'])
+            ));
+            redirect('crm/facturas.php?action=view&id=' . $iid);
+        }
+
+        $cnPrefix = (string) $src['ncf_prefix'] === 'E' ? 'E' : 'B';
+        $cnType = $cnPrefix === 'E' ? '34' : '04';
+        $cnIsEcf = $cnPrefix === 'E' ? 1 : 0;
+
+        $pdo = db();
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare('INSERT INTO invoices (client_id, quote_id, invoice_number, ncf_type, ncf_prefix, is_proforma, is_ecf, ecf_status, title, status, payment_condition, payment_method, issue_date, due_date, modifies_ncf, modifies_invoice_id, taxed_base, exempt_base, discount_amount, subtotal, tax_rate, tax_amount, isc_amount, itbis_retained, isr_retained, total, currency, exchange_rate, notes, terms, client_name, client_rnc, client_address, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())')
+                ->execute([
+                    $src['client_id'], $src['quote_id'], reserve_invoice_number($pdo), $cnType, $cnPrefix,
+                    $cnIsEcf, $cnIsEcf ? 'Manual' : null,
+                    'Nota de crédito s/ ' . (string) $src['ncf'], 'Borrador', 'Contado', null,
+                    date('Y-m-d'), date('Y-m-d'),
+                    (string) $src['ncf'], $iid,
+                    $cnTotals['taxed_base'], $cnTotals['exempt_base'], $cnTotals['discount_amount'], $cnTotals['subtotal'],
+                    $src['tax_rate'], $cnTotals['tax_amount'], $cnTotals['isc_amount'], $cnTotals['total'],
+                    $src['currency'], $src['exchange_rate'],
+                    $reason, invoice_default_terms(),
+                    $src['client_name'], $src['client_rnc'], $src['client_address'],
+                    current_user()['id'] ?? null,
+                ]);
+            $cnId = (int) $pdo->lastInsertId();
+            items_insert($pdo, 'invoice_items', 'invoice_id', $cnId, $cnItems, ['description', 'quantity', 'unit_price', 'discount', 'is_exempt', 'total']);
+            $pdo->commit();
+            log_activity('invoice', $cnId, 'nota_credito_creada', 'Modifica ' . (string) $src['ncf'] . ' · ' . $reason);
+            flash('success', 'Nota de crédito creada en borrador y enlazada a ' . (string) $src['ncf'] . '. Revísala y emítela para que descuente el saldo.');
+            redirect('crm/facturas.php?action=view&id=' . $cnId);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) { $pdo->rollBack(); }
+            error_log('facturas credit_note: ' . $e->getMessage());
+            flash('error', 'No se pudo crear la nota de crédito. Inténtalo de nuevo.');
+            redirect('crm/facturas.php?action=view&id=' . $iid);
+        }
+    }
+
     /* ---- Void (anular) ------------------------------------------------ */
     if ($form === 'void') {
         if (!current_can('facturas.delete') && !current_can('facturas.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/facturas.php'); }
         $iid = (int) ($_POST['id'] ?? 0);
         $reason = trim((string) ($_POST['void_reason'] ?? ''));
+        // Código de anulación de la DGII: es lo que exige el formato 608, así que
+        // se captura aquí, cuando quien anula sabe por qué, y no un mes después.
+        $voidCode = trim((string) ($_POST['void_code'] ?? ''));
         $release = (string) ($_POST['release_ncf'] ?? '') === '1';
         $inv = $iid > 0 ? fetch_one('SELECT * FROM invoices WHERE id=?', [$iid]) : null;
         if ($inv && (string) $inv['status'] !== 'Anulada') {
             if ($reason === '') {
                 flash('warning', 'Indica el motivo de la anulación.');
+            } elseif (!isset(dgii_void_reasons()[$voidCode])) {
+                flash('warning', 'Selecciona el código de anulación de la DGII: sin él, el comprobante no se puede reportar en el formato 608.');
             } else {
                 $pdo = db();
                 $pdo->beginTransaction();
                 try {
-                    $pdo->prepare('UPDATE invoices SET status=?, voided_at=NOW(), void_reason=?, updated_at=NOW() WHERE id=?')->execute(['Anulada', $reason, $iid]);
+                    $hasVoidCode = column_exists('invoices', 'void_code');
+                    if ($hasVoidCode) {
+                        $pdo->prepare('UPDATE invoices SET status=?, voided_at=NOW(), void_reason=?, void_code=?, updated_at=NOW() WHERE id=?')->execute(['Anulada', $reason, $voidCode, $iid]);
+                    } else {
+                        $pdo->prepare('UPDATE invoices SET status=?, voided_at=NOW(), void_reason=?, updated_at=NOW() WHERE id=?')->execute(['Anulada', $reason, $iid]);
+                    }
                     // Liberar el NCF: solo si se pidió y este comprobante tomó el
                     // ÚLTIMO número de su rango (seq_next-1). Así se devuelve al pool
                     // sin dejar huecos y la próxima factura reusa el mismo NCF.
@@ -257,16 +389,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
                         $released = invoice_release_ncf($iid);
                     }
                     $pdo->commit();
-                    log_activity('invoice', $iid, 'factura_anulada', $reason . ($released ? ' · NCF liberado' : ''));
+                    log_activity('invoice', $iid, 'factura_anulada', 'DGII ' . $voidCode . ' · ' . $reason . ($released ? ' · NCF liberado' : ''));
+                    // Si lo anulado era una nota de crédito, la factura que
+                    // modificaba recupera el saldo que esa nota le había quitado.
+                    if (invoice_is_credit_note($inv) && (int) ($inv['modifies_invoice_id'] ?? 0) > 0) {
+                        invoice_recalc_credited((int) $inv['modifies_invoice_id']);
+                    }
                     if ($released) {
                         flash('success', 'Factura anulada y NCF ' . (string) $inv['ncf'] . ' liberado: la próxima factura de esa serie volverá a tomar ese número.');
                     } else {
-                        flash('success', 'Factura anulada.' . ($release ? ' El NCF no se pudo liberar (no era el último número emitido de su rango); se conserva como anulado.' : ' Considera emitir una Nota de Crédito que la modifique.'));
+                        // El consejo de emitir una nota de crédito solo aplica a
+                        // una factura: sugerirlo al anular una nota de crédito
+                        // sería absurdo (y el propio sistema lo rechazaría).
+                        $voidHint = $release
+                            ? ' El NCF no se pudo liberar (no era el último número emitido de su rango); se conserva como anulado.'
+                            : (invoice_is_credit_note($inv) ? ' El saldo que descontaba volvió a la factura que modificaba.' : ' Considera emitir una Nota de Crédito que la modifique.');
+                        flash('success', 'Comprobante anulado.' . $voidHint);
                     }
                 } catch (Throwable $e) {
                     if ($pdo->inTransaction()) { $pdo->rollBack(); }
                     error_log('facturas void: ' . $e->getMessage());
-                    flash('warning', 'No se pudo anular la factura. Inténtalo de nuevo.');
+                    flash('error', 'No se pudo anular la factura. Inténtalo de nuevo.');
                 }
             }
         }
@@ -282,16 +425,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
             $pdo = db();
             $pdo->beginTransaction();
             $pdo->prepare('INSERT INTO invoices (client_id, quote_id, invoice_number, ncf_type, ncf_prefix, title, status, payment_condition, payment_method, taxed_base, exempt_base, discount_amount, subtotal, tax_rate, tax_amount, isc_amount, itbis_retained, isr_retained, total, currency, exchange_rate, notes, terms, client_name, client_rnc, client_address, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())')
-                ->execute([$src['client_id'], $src['quote_id'], next_invoice_number(), $src['ncf_type'], $src['ncf_prefix'], $src['title'], 'Borrador', $src['payment_condition'], $src['payment_method'], $src['taxed_base'], $src['exempt_base'], $src['discount_amount'], $src['subtotal'], $src['tax_rate'], $src['tax_amount'], $src['isc_amount'], $src['itbis_retained'], $src['isr_retained'], $src['total'], $src['currency'], $src['exchange_rate'], $src['notes'], $src['terms'], $src['client_name'], $src['client_rnc'], $src['client_address'], current_user()['id'] ?? null]);
+                ->execute([$src['client_id'], $src['quote_id'], reserve_invoice_number($pdo), $src['ncf_type'], $src['ncf_prefix'], $src['title'], 'Borrador', $src['payment_condition'], $src['payment_method'], $src['taxed_base'], $src['exempt_base'], $src['discount_amount'], $src['subtotal'], $src['tax_rate'], $src['tax_amount'], $src['isc_amount'], $src['itbis_retained'], $src['isr_retained'], $src['total'], $src['currency'], $src['exchange_rate'], $src['notes'], $src['terms'], $src['client_name'], $src['client_rnc'], $src['client_address'], current_user()['id'] ?? null]);
             $newId = (int) $pdo->lastInsertId();
             if (column_exists('invoices', 'discount_pct')) {
                 $pdo->prepare('UPDATE invoices SET discount_pct=? WHERE id=?')->execute([$src['discount_pct'] ?? 0, $newId]);
             }
-            $rows = fetch_all('SELECT description, quantity, unit_price, discount, is_exempt, total FROM invoice_items WHERE invoice_id=? ORDER BY id ASC', [$sid]);
-            $stmt = $pdo->prepare('INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, discount, is_exempt, total) VALUES (?, ?, ?, ?, ?, ?, ?)');
-            foreach ($rows as $r) {
-                $stmt->execute([$newId, $r['description'], $r['quantity'], $r['unit_price'], $r['discount'], $r['is_exempt'], $r['total']]);
-            }
+            $dupCols = item_columns('invoice_items', ['description', 'quantity', 'unit_price', 'discount', 'is_exempt', 'total']);
+            $rows = fetch_all('SELECT ' . implode(', ', $dupCols) . ' FROM invoice_items WHERE invoice_id=? ORDER BY id ASC', [$sid]);
+            items_insert($pdo, 'invoice_items', 'invoice_id', $newId, $rows, ['description', 'quantity', 'unit_price', 'discount', 'is_exempt', 'total']);
             $srcProforma = invoice_is_proforma($src) ? 1 : 0;
             $srcEcf = (!$srcProforma && ($src['ncf_prefix'] ?? 'B') === 'E') ? 1 : 0;
             $pdo->prepare('UPDATE invoices SET is_proforma=?, is_ecf=?, ecf_status=? WHERE id=?')->execute([$srcProforma, $srcEcf, $srcEcf ? 'Manual' : null, $newId]);
@@ -325,8 +466,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
         if ($isProforma) { $type = '02'; }
         $condition = in_array((string) ($_POST['payment_condition'] ?? ''), $payConditions, true) ? (string) $_POST['payment_condition'] : 'Contado';
         $method = trim((string) ($_POST['payment_method'] ?? ''));
-        $issueDate = trim((string) ($_POST['issue_date'] ?? '')) ?: null;
-        $dueDate = trim((string) ($_POST['due_date'] ?? '')) ?: null;
+        /* La fecha de emisión viaja al 607 como AAAAMMDD: una fecha inválida se
+           guardaba como 0000-00-00 y habría salido «00000000» en el archivo,
+           que la DGII rechaza entero. */
+        $issueDate = valid_date($_POST['issue_date'] ?? null);
+        $dueDate = valid_date($_POST['due_date'] ?? null);
         $modifiesNcf = (!$isProforma && in_array($type, ['03', '04', '33', '34'], true)) ? trim((string) ($_POST['modifies_ncf'] ?? '')) : '';
         $taxRate = max(0, amount_parse($_POST['tax_rate'] ?? $defaultTax, $defaultTax));
         $isc = amount_parse($_POST['isc_amount'] ?? 0);
@@ -372,7 +516,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
                 for ($attempt = 0; ; $attempt++) {
                     try {
                         $pdo->prepare('INSERT INTO invoices (client_id, invoice_number, ncf_type, ncf_prefix, title, status, payment_condition, payment_method, issue_date, due_date, modifies_ncf, taxed_base, exempt_base, discount_amount, subtotal, tax_rate, tax_amount, isc_amount, itbis_retained, isr_retained, total, currency, exchange_rate, notes, terms, client_name, client_rnc, client_address, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())')
-                            ->execute([$clientId, next_invoice_number(), $type, $prefix, $title, 'Borrador', $condition, $method, $issueDate, $dueDate, $modifiesNcf, $t['taxed_base'], $t['exempt_base'], $t['discount_amount'], $t['subtotal'], $taxRate, $t['tax_amount'], $t['isc_amount'], $t['itbis_retained'], $t['isr_retained'], $t['total'], $currency, $rate, $notes, $terms, $clientName, $clientRnc, $clientAddress, current_user()['id'] ?? null]);
+                            ->execute([$clientId, reserve_invoice_number($pdo), $type, $prefix, $title, 'Borrador', $condition, $method, $issueDate, $dueDate, $modifiesNcf, $t['taxed_base'], $t['exempt_base'], $t['discount_amount'], $t['subtotal'], $taxRate, $t['tax_amount'], $t['isc_amount'], $t['itbis_retained'], $t['isr_retained'], $t['total'], $currency, $rate, $notes, $terms, $clientName, $clientRnc, $clientAddress, current_user()['id'] ?? null]);
                         break;
                     } catch (PDOException $e) {
                         if ($e->getCode() === '23000' && $attempt < 4) { continue; }
@@ -392,10 +536,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
                 $pdo->prepare('UPDATE invoices SET discount_pct=? WHERE id=?')->execute([$discountPct, $invoiceId]);
             }
 
-            $stmt = $pdo->prepare('INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, discount, is_exempt, total) VALUES (?, ?, ?, ?, ?, ?, ?)');
-            foreach ($items as $it) {
-                $stmt->execute([$invoiceId, $it['description'], $it['quantity'], $it['unit_price'], $it['discount'], $it['is_exempt'], $it['total']]);
-            }
+            items_insert($pdo, 'invoice_items', 'invoice_id', $invoiceId, $items, ['description', 'quantity', 'unit_price', 'discount', 'is_exempt', 'total']);
             // Mark the proforma / e-CF flags (e-CF sigue siendo captura manual hasta
             // que exista la transmisión a la DGII). Una proforma nunca es e-CF.
             $isEcf = (!$isProforma && $prefix === 'E') ? 1 : 0;
@@ -414,7 +555,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) { $pdo->rollBack(); }
             error_log('facturas save: ' . $e->getMessage());
-            flash('warning', 'No se pudo guardar la factura.');
+            flash('error', 'No se pudo guardar la factura.');
             redirect('crm/facturas.php');
         }
     }
@@ -438,7 +579,6 @@ if ($action === 'ncf') {
     <section class="crm-cockpit">
         <div class="crm-cockpit__top">
             <div class="crm-cockpit__hero crm-cockpit__hero--sales">
-                <span class="crm-kicker"><i data-lucide="hash"></i>DGII · Comprobantes fiscales</span>
                 <h2>Secuencias de NCF autorizadas por la DGII.</h2>
                 <p>Registra los rangos que la DGII te autorizó por tipo de comprobante. Al emitir una factura, el sistema toma el siguiente número del rango activo y vigente, e impide pasarte del límite o de la fecha de vencimiento.</p>
                 <div class="crm-cockpit__actions">
@@ -469,9 +609,9 @@ if ($action === 'ncf') {
                                 <td><strong><?= e($s['prefix'] . $s['ncf_type']) ?></strong><br><span style="color:var(--muted);font-size:.8rem"><?= e(ncf_type_label((string) $s['ncf_type'])) ?></span></td>
                                 <td><?= e(ncf_format((string) $s['prefix'], (string) $s['ncf_type'], (int) $s['seq_from'])) ?> → <?= e(ncf_format((string) $s['prefix'], (string) $s['ncf_type'], (int) $s['seq_to'])) ?></td>
                                 <td><strong><?= e(ncf_format((string) $s['prefix'], (string) $s['ncf_type'], (int) $s['seq_next'])) ?></strong></td>
-                                <td><?= $rem === 0 ? '<span class="status-chip bg-red-50 text-red-700 ring-1 ring-red-200">Agotado</span>' : e(number_format($rem)) ?></td>
+                                <td><?= $rem === 0 ? '<span class="status-chip gas-estado--alarma">Agotado</span>' : e(number_format($rem)) ?></td>
                                 <td><?= !empty($s['expiration']) ? '<span' . ($expSoon ? ' style="color:var(--red);font-weight:700"' : '') . '>' . e(date_es((string) $s['expiration'])) . '</span>' : '<span style="color:var(--muted)">Sin fecha</span>' ?></td>
-                                <td><span class="status-chip <?= (int) $s['active'] === 1 ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200' ?>"><?= (int) $s['active'] === 1 ? 'Activa' : 'Inactiva' ?></span></td>
+                                <td><span class="status-chip <?= (int) $s['active'] === 1 ? 'gas-estado--ok' : 'gas-estado--cerrado' ?>"><?= (int) $s['active'] === 1 ? 'Activa' : 'Inactiva' ?></span></td>
                                 <td class="text-right">
                                     <div class="crm-row-actions">
                                         <button type="button" class="crm-icon-action" title="Editar" onclick='schEditSeq(<?= json_encode($s, JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'><i data-lucide="pencil"></i></button>
@@ -536,6 +676,9 @@ if ($action === 'view') {
     $inv = $hasInvoices ? fetch_one('SELECT invoices.*, clients.name AS c_name, clients.email AS c_email, clients.phone AS c_phone FROM invoices LEFT JOIN clients ON clients.id = invoices.client_id WHERE invoices.id=?', [$id]) : null;
     $items = $hasInvoices && $inv ? fetch_all('SELECT * FROM invoice_items WHERE invoice_id=? ORDER BY id ASC', [$id]) : [];
     $payments = $hasInvoices && $inv ? fetch_all('SELECT * FROM invoice_payments WHERE invoice_id=? ORDER BY paid_at ASC, id ASC', [$id]) : [];
+    // Notas de crédito emitidas contra este comprobante, y si admite una nueva.
+    $creditNotes = $hasInvoices && $inv ? invoice_credit_notes((int) ($inv['id'] ?? 0)) : [];
+    [$canCredit, $canCreditWhy] = $inv ? invoice_can_be_credited($inv) : [false, ''];
     if ($hasInvoices && !$inv) {
         flash('warning', 'La factura solicitada no existe.');
         redirect('crm/facturas.php');
@@ -555,8 +698,8 @@ if ($action === 'view') {
     $status = (string) ($inv['status'] ?? 'Borrador');
     $editable = invoice_is_editable($status);
     $isProforma = invoice_is_proforma($inv);
-    $net = round((float) $inv['total'] - (float) $inv['itbis_retained'] - (float) $inv['isr_retained'], 2);
-    $balance = round($net - (float) ($inv['amount_paid'] ?? 0), 2);
+    $net = invoice_net($inv);
+    $balance = invoice_balance($inv);
     $hasActiveSeq = ($hasInvoices && !$isProforma) ? invoice_has_sequence((string) ($inv['ncf_prefix'] ?? 'B'), (string) ($inv['ncf_type'] ?? '02')) : true;
     $overdue = invoice_is_overdue($inv);
     // Reconciliación partidas ↔ encabezado: detecta facturas sin sus líneas.
@@ -590,11 +733,11 @@ if ($action === 'view') {
         </div>
 
         <?php if ($isProforma): ?>
-            <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800"><i data-lucide="file-clock" style="width:15px;height:15px;vertical-align:-2px"></i> <b>Factura proforma</b> — documento sin validez fiscal. No consume NCF ni se reporta a la DGII; sirve como oferta formal con formato de factura.<?php if ($editable && current_can('facturas.edit')): ?> Si el cliente la aprueba, <a class="underline" href="<?= url('crm/facturas.php?edit=' . (int) $inv['id']) ?>">edítala</a> y cambia la «Serie NCF» a B o E para poder emitirla como comprobante fiscal.<?php endif; ?></div>
+            <div class="gas-aviso"><i data-lucide="file-clock" style="width:15px;height:15px;vertical-align:-2px"></i> <b>Factura proforma</b> — documento sin validez fiscal. No consume NCF ni se reporta a la DGII; sirve como oferta formal con formato de factura.<?php if ($editable && current_can('facturas.edit')): ?> Si el cliente la aprueba, <a class="underline" href="<?= url('crm/facturas.php?edit=' . (int) $inv['id']) ?>">edítala</a> y cambia la «Serie NCF» a B o E para poder emitirla como comprobante fiscal.<?php endif; ?></div>
         <?php endif; ?>
 
         <?php if ($editable && !$isProforma && !$hasActiveSeq && current_can('facturas.edit')): ?>
-            <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">No hay secuencia NCF disponible para <b><?= e(($inv['ncf_prefix'] ?? 'B') . ($inv['ncf_type'] ?? '02')) ?></b> (<?= e(ncf_type_label((string) ($inv['ncf_type'] ?? '02'))) ?>). El rango debe existir con esa misma serie y tipo, estar marcado como activo, no estar agotado y no estar vencido. <a class="underline" href="<?= url('crm/facturas.php?action=ncf') ?>">Revisar secuencias NCF</a>.</div>
+            <div class="gas-aviso">No hay secuencia NCF disponible para <b><?= e(($inv['ncf_prefix'] ?? 'B') . ($inv['ncf_type'] ?? '02')) ?></b> (<?= e(ncf_type_label((string) ($inv['ncf_type'] ?? '02'))) ?>). El rango debe existir con esa misma serie y tipo, estar marcado como activo, no estar agotado y no estar vencido. <a class="underline" href="<?= url('crm/facturas.php?action=ncf') ?>">Revisar secuencias NCF</a>.</div>
         <?php endif; ?>
 
         <!-- Fiscal action bar -->
@@ -602,8 +745,8 @@ if ($action === 'view') {
         <div class="inv-actionbar print:hidden">
             <div class="inv-actionbar__state">
                 <span class="status-chip <?= e(status_class($status)) ?>"><?= e($status) ?></span>
-                <?php if ($isProforma): ?><span class="status-chip bg-amber-50 text-amber-800 ring-1 ring-amber-200" title="Documento sin validez fiscal">Proforma</span><?php endif; ?>
-                <?php if ($overdue): ?><span class="status-chip bg-red-50 text-red-700 ring-1 ring-red-200">Vencida</span><?php endif; ?>
+                <?php if ($isProforma): ?><span class="gas-aviso gas-aviso--chip" title="Documento sin validez fiscal">Proforma</span><?php endif; ?>
+                <?php if ($overdue): ?><span class="status-chip gas-estado--alarma">Vencida</span><?php endif; ?>
                 <?php if ($canCartera && $status !== 'Borrador' && $status !== 'Anulada'): $age = invoice_aging($inv); ?>
                     <span class="inv-age-chip inv-age-chip--<?= e($age['tone']) ?>" title="Periodo de vencimiento">Vencimiento: <?= e($age['label']) ?></span>
                 <?php endif; ?>
@@ -629,6 +772,9 @@ if ($action === 'view') {
                         <button type="button" class="crm-secondary-btn" onclick="crmPdfPreviewOpen('<?= url('crm/recordatorio_pdf.php?client=' . (int) $inv['client_id']) ?>','<?= url('crm/recordatorio_pdf.php?client=' . (int) $inv['client_id'] . '&download=1') ?>','<?= e(addslashes((string) ($inv['client_name'] ?? $inv['c_name'] ?? 'Cliente'))) ?>','Estado de cuenta')"><i data-lucide="file-clock" class="h-4 w-4"></i>Estado de cuenta</button>
                     <?php endif; ?>
                 <?php endif; ?>
+                <?php if ($canCredit && current_can('facturas.edit')): ?>
+                    <button type="button" class="crm-secondary-btn" onclick="document.getElementById('inv-credit').showModal()"><i data-lucide="file-minus-2" class="h-4 w-4"></i>Nota de crédito</button>
+                <?php endif; ?>
                 <?php if ($status !== 'Anulada' && !$editable): ?>
                     <button type="button" class="crm-secondary-btn crm-secondary-btn--danger" onclick="document.getElementById('inv-void').showModal()"><i data-lucide="ban" class="h-4 w-4"></i>Anular</button>
                 <?php endif; ?>
@@ -652,8 +798,8 @@ if ($action === 'view') {
                     <span><?= e(invoice_doc_heading($inv)) ?></span>
                     <h1><?= e($inv['invoice_number'] ?? '') ?></h1>
                     <span class="status-chip <?= e(status_class($status)) ?>"><?= e($status) ?></span>
-                    <?php if ($isProforma): ?><span class="status-chip bg-amber-50 text-amber-800 ring-1 ring-amber-200">Sin valor fiscal</span><?php endif; ?>
-                    <?php if (!empty($inv['is_ecf'])): ?><span class="status-chip bg-blue-50 text-blue-700 ring-1 ring-blue-200" title="Comprobante fiscal electrónico">e-CF · <?= e($inv['ecf_status'] ?: 'Manual') ?></span><?php endif; ?>
+                    <?php if ($isProforma): ?><span class="gas-aviso gas-aviso--chip">Sin valor fiscal</span><?php endif; ?>
+                    <?php if (!empty($inv['is_ecf'])): ?><span class="status-chip gas-estado--curso" title="Comprobante fiscal electrónico">e-CF · <?= e($inv['ecf_status'] ?: 'Manual') ?></span><?php endif; ?>
                     <div class="inv-ncf-box">
                         <span>NCF</span>
                         <strong><?= $isProforma ? 'No aplica' : (e((string) ($inv['ncf'] ?? '')) ?: 'Pendiente de emisión') ?></strong>
@@ -699,7 +845,7 @@ if ($action === 'view') {
                             </tr>
                         <?php endforeach; ?>
                         <?php if (!$items): ?><tr><td colspan="4" class="text-center" style="color:var(--muted);padding:1.2rem">Esta factura no tiene partidas registradas.</td></tr><?php endif; ?>
-                        <?php if ($itemsMismatch): ?><tr><td colspan="4" style="padding:1rem;background:#fffaf0;color:#92660a;font-weight:600"><i data-lucide="alert-triangle" style="width:15px;height:15px;vertical-align:-2px"></i> Las partidas mostradas no cuadran con el total del encabezado (<?= money_cur($inv['subtotal'] ?? 0, $cur) ?>). Esta factura se guardó sin su detalle de líneas. <?php if ($editable && current_can('facturas.edit')): ?><a class="underline" href="<?= url('crm/facturas.php?edit=' . (int) $inv['id']) ?>">Edítala</a> para completar las partidas antes de emitir.<?php else: ?>Duplícala como borrador para reconstruir las partidas.<?php endif; ?></td></tr><?php endif; ?>
+                        <?php if ($itemsMismatch): ?><tr><td colspan="4" class="sch-caja sch-caja--aviso" style="font-weight:600"><i data-lucide="alert-triangle" style="width:15px;height:15px;vertical-align:-2px"></i> Las partidas mostradas no cuadran con el total del encabezado (<?= money_cur($inv['subtotal'] ?? 0, $cur) ?>). Esta factura se guardó sin su detalle de líneas. <?php if ($editable && current_can('facturas.edit')): ?><a class="underline" href="<?= url('crm/facturas.php?edit=' . (int) $inv['id']) ?>">Edítala</a> para completar las partidas antes de emitir.<?php else: ?>Duplícala como borrador para reconstruir las partidas.<?php endif; ?></td></tr><?php endif; ?>
                     </tbody>
                 </table>
             </div>
@@ -714,22 +860,61 @@ if ($action === 'view') {
                 <div><span>Total</span><strong><?= money_cur($inv['total'], $cur) ?></strong></div>
                 <?php if ((float) $inv['itbis_retained'] > 0): ?><div class="quote-doc__equiv"><span>Retención ITBIS</span><strong>− <?= money_cur($inv['itbis_retained'], $cur) ?></strong></div><?php endif; ?>
                 <?php if ((float) $inv['isr_retained'] > 0): ?><div class="quote-doc__equiv"><span>Retención ISR</span><strong>− <?= money_cur($inv['isr_retained'], $cur) ?></strong></div><?php endif; ?>
-                <?php if ((float) $inv['itbis_retained'] > 0 || (float) $inv['isr_retained'] > 0): ?><div><span>Neto a pagar</span><strong><?= money_cur($net, $cur) ?></strong></div><?php endif; ?>
+                <?php if ((float) ($inv['credited_amount'] ?? 0) > 0): ?><div class="quote-doc__equiv"><span>Acreditado por notas de crédito</span><strong>− <?= money_cur($inv['credited_amount'], $cur) ?></strong></div><?php endif; ?>
+                <?php if ((float) $inv['itbis_retained'] > 0 || (float) $inv['isr_retained'] > 0 || (float) ($inv['credited_amount'] ?? 0) > 0): ?><div><span>Neto a pagar</span><strong><?= money_cur($net, $cur) ?></strong></div><?php endif; ?>
             </div>
 
             <div class="inv-words"><span>Son:</span> <?= e(money_in_words((float) $inv['total'], $cur)) ?></div>
 
             <?php if (!empty($inv['notes'])): ?><div class="quote-doc__notes"><?= nl2br(e($inv['notes'])) ?></div><?php endif; ?>
-            <?php if ($status === 'Anulada' && !empty($inv['void_reason'])): ?><div class="quote-doc__notes" style="border-color:#fbcfcf;background:#fef2f2;color:#b91c1c"><strong>Factura anulada.</strong> Motivo: <?= e($inv['void_reason']) ?></div><?php endif; ?>
+            <?php if ($status === 'Anulada' && !empty($inv['void_reason'])): ?><div class="quote-doc__notes sch-caja sch-caja--alarma"><strong>Factura anulada.</strong> Motivo: <?= e($inv['void_reason']) ?><?php $vc = trim((string) ($inv['void_code'] ?? '')); if ($vc !== ''): ?><br><span style="font-size:.8rem">Código DGII para el 608: <b><?= e($vc . ' · ' . dgii_void_reason_label($vc)) ?></b></span><?php endif; ?></div><?php endif; ?>
             <div class="quote-doc__terms"><h3>Términos y condiciones</h3><p><?= nl2br(e($terms)) ?></p></div>
         </article>
 
+        <?php if ($creditNotes): ?>
+        <article class="crm-card" style="margin-top:1rem">
+            <div class="crm-card__head">
+                <div>
+                    <h2><i data-lucide="file-minus-2" class="cfg-ic"></i> Notas de crédito de este comprobante</h2>
+                    <p>Solo las <b>emitidas</b> descuentan saldo. Un borrador todavía no acredita nada.</p>
+                </div>
+            </div>
+            <div class="crm-table-wrap">
+                <table class="crm-table"><thead><tr><th>Documento</th><th>Estado</th><th>Fecha</th><th>Motivo</th><th class="text-right">Monto</th></tr></thead><tbody>
+                    <?php foreach ($creditNotes as $cn): ?>
+                        <tr>
+                            <td><a href="<?= url('crm/facturas.php?action=view&id=' . (int) $cn['id']) ?>"><strong><?= e($cn['ncf'] ?: $cn['invoice_number']) ?></strong></a></td>
+                            <td><span class="status-chip <?= status_class((string) $cn['status']) ?>"><?= e((string) $cn['status']) ?></span></td>
+                            <td><?= e(date_es($cn['issue_date'])) ?></td>
+                            <td class="text-slate-600" style="max-width:260px"><?= e(mb_strimwidth((string) ($cn['notes'] ?? ''), 0, 70, '…')) ?></td>
+                            <td class="text-right"><strong><?= money_cur($cn['total'], (string) ($cn['currency'] ?? $cur)) ?></strong></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody></table>
+            </div>
+        </article>
+        <?php endif; ?>
+
         <?php if ($payments): ?>
         <article class="crm-card" style="margin-top:1rem">
-            <div class="crm-card__head"><div><h2><i data-lucide="hand-coins" class="cfg-ic"></i> Pagos registrados</h2></div></div>
+            <div class="crm-card__head"><div><h2><i data-lucide="hand-coins" class="cfg-ic"></i> Pagos registrados</h2><p>Cada cobro tiene su recibo de ingreso para entregarle al cliente.</p></div></div>
             <div class="crm-table-wrap">
-                <table class="crm-table"><thead><tr><th>Fecha</th><th>Método</th><th>Referencia</th><th class="text-right">Monto</th></tr></thead><tbody>
-                    <?php foreach ($payments as $p): ?><tr><td><?= e(date_es($p['paid_at'])) ?></td><td><?= e($p['method'] ?: '—') ?></td><td><?= e($p['reference'] ?: '—') ?></td><td class="text-right"><strong><?= money_cur($p['amount'], $cur) ?></strong></td></tr><?php endforeach; ?>
+                <table class="crm-table"><thead><tr><th>Recibo</th><th>Fecha</th><th>Método</th><th>Referencia</th><th class="text-right">Monto</th><th class="text-right">Acción</th></tr></thead><tbody>
+                    <?php foreach ($payments as $p): $rec = trim((string) ($p['receipt_number'] ?? '')); ?>
+                        <tr>
+                            <td><?= $rec !== '' ? '<strong>' . e($rec) . '</strong>' : '<span style="color:var(--muted)" title="Cobro registrado antes de que existiera la numeración de recibos">sin número</span>' ?></td>
+                            <td><?= e(date_es($p['paid_at'])) ?></td>
+                            <td><?= e($p['method'] ?: '—') ?></td>
+                            <td><?= e($p['reference'] ?: '—') ?></td>
+                            <td class="text-right"><strong><?= money_cur($p['amount'], $cur) ?></strong></td>
+                            <td class="text-right">
+                                <div class="crm-row-actions">
+                                    <button type="button" class="crm-icon-action" title="Vista previa del recibo" onclick="crmPdfPreviewOpen('<?= url('crm/recibo_pdf.php?id=' . (int) $p['id']) ?>','<?= url('crm/recibo_pdf.php?id=' . (int) $p['id'] . '&download=1') ?>','<?= e(addslashes($rec !== '' ? $rec : 'Recibo')) ?>','Recibo de ingreso')"><i data-lucide="receipt-text"></i></button>
+                                    <a class="crm-icon-action" href="<?= url('crm/recibo_pdf.php?id=' . (int) $p['id'] . '&download=1') ?>" title="Descargar recibo"><i data-lucide="download"></i></a>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
                 </tbody></table>
             </div>
         </article>
@@ -755,12 +940,71 @@ if ($action === 'view') {
             <footer class="crm-modal__foot"><button type="button" class="crm-secondary-btn" onclick="document.getElementById('inv-pay').close()">Cancelar</button><button type="submit" class="crm-primary-btn"><i data-lucide="check" class="h-4 w-4"></i>Registrar</button></footer>
         </form>
     </dialog>
+    <?php if ($canCredit && current_can('facturas.edit')): ?>
+    <dialog id="inv-credit" class="crm-modal" onclick="if(event.target===this)this.close()">
+        <form method="post" class="crm-modal__form" x-data="{ modo: 'total' }">
+            <?= csrf_field() ?><input type="hidden" name="form" value="credit_note"><input type="hidden" name="id" value="<?= (int) ($inv['id'] ?? 0) ?>">
+            <header class="crm-modal__head">
+                <span class="crm-modal__icon"><i data-lucide="file-minus-2"></i></span>
+                <div class="crm-modal__titles"><h2>Nota de crédito</h2><p>Sobre <?= e((string) ($inv['ncf'] ?? '')) ?> · quedan <?= money_cur($net, $cur) ?> por acreditar</p></div>
+                <button type="button" class="crm-modal__close" onclick="document.getElementById('inv-credit').close()"><i data-lucide="x"></i></button>
+            </header>
+            <div class="crm-modal__body">
+                <div class="crm-perm-box" style="margin-bottom:.8rem">
+                    <label class="crm-toggle" style="display:flex;align-items:flex-start;gap:.55rem;margin-bottom:.5rem">
+                        <input type="radio" name="mode" value="total" x-model="modo" checked>
+                        <span><b>Total</b><br><small style="color:var(--muted)">Copia todas las partidas del comprobante. Para una anulación comercial completa.</small></span>
+                    </label>
+                    <label class="crm-toggle" style="display:flex;align-items:flex-start;gap:.55rem">
+                        <input type="radio" name="mode" value="parcial" x-model="modo">
+                        <span><b>Parcial</b><br><small style="color:var(--muted)">Una sola línea por el monto que indiques. Para devoluciones o descuentos posteriores.</small></span>
+                    </label>
+                </div>
+
+                <div x-show="modo === 'parcial'" x-cloak>
+                    <label class="crm-field"><span class="required">Monto a acreditar, sin ITBIS</span>
+                        <input type="text" name="amount" inputmode="decimal" class="crm-input" placeholder="0.00">
+                        <small style="color:var(--muted);font-size:.75rem">El ITBIS se calcula solo, al <?= e(rtrim(rtrim(number_format((float) $inv['tax_rate'], 2), '0'), '.')) ?>% del comprobante. Moneda: <?= e($cur) ?>.</small>
+                    </label>
+                    <label class="crm-toggle" style="display:flex;align-items:center;gap:.5rem;margin:.4rem 0 .8rem">
+                        <input type="checkbox" name="is_exempt" value="1">
+                        <span>El monto acreditado es <b>exento</b> de ITBIS</span>
+                    </label>
+                </div>
+
+                <label class="crm-field"><span class="required">Motivo</span>
+                    <textarea name="reason" rows="3" required class="crm-textarea" placeholder="Ej. Devolución de 2 monitores por falla de fábrica"></textarea>
+                    <small style="color:var(--muted);font-size:.75rem">Se imprime en la nota y, en el modo parcial, es también la descripción de la línea.</small>
+                </label>
+
+                <div class="gas-aviso gas-aviso--nota" style="line-height:1.55">
+                    <i data-lucide="info" style="width:13px;height:13px;vertical-align:-2px"></i>
+                    Se crea como <b>borrador</b> enlazado a <?= e((string) ($inv['ncf'] ?? '')) ?>. Al emitirla tomará el NCF <?= e((string) ($inv['ncf_prefix'] ?? 'B') === 'E' ? 'E34' : 'B04') ?> de tu secuencia y descontará el saldo de este comprobante.
+                </div>
+            </div>
+            <footer class="crm-modal__foot">
+                <button type="button" class="crm-secondary-btn" onclick="document.getElementById('inv-credit').close()">Cancelar</button>
+                <button type="submit" class="crm-primary-btn"><i data-lucide="check" class="h-4 w-4"></i>Crear nota de crédito</button>
+            </footer>
+        </form>
+    </dialog>
+    <?php endif; ?>
+
     <dialog id="inv-void" class="crm-modal" onclick="if(event.target===this)this.close()">
         <form method="post" class="crm-modal__form">
             <?= csrf_field() ?><input type="hidden" name="form" value="void"><input type="hidden" name="id" value="<?= (int) ($inv['id'] ?? 0) ?>">
             <header class="crm-modal__head"><span class="crm-modal__icon"><i data-lucide="ban"></i></span><div class="crm-modal__titles"><h2>Anular factura</h2><p>Queda registrada como anulada para el rastro fiscal.</p></div><button type="button" class="crm-modal__close" onclick="document.getElementById('inv-void').close()"><i data-lucide="x"></i></button></header>
             <div class="crm-modal__body">
-                <label class="crm-field"><span class="required">Motivo de la anulación</span><textarea name="void_reason" rows="3" required class="crm-textarea" placeholder="Ej. Error en el RNC del cliente / venta cancelada"></textarea></label>
+                <label class="crm-field"><span class="required">Código de anulación (DGII)</span>
+                    <select name="void_code" required class="crm-select">
+                        <option value="">Selecciona el código…</option>
+                        <?php foreach (dgii_void_reasons() as $vcCode => $vcLabel): ?>
+                            <option value="<?= e($vcCode) ?>"><?= e($vcCode . ' · ' . $vcLabel) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small style="color:var(--muted);font-size:.75rem">Es el código que exige el formato 608. Se captura ahora para no tener que reconstruirlo al cierre del mes.</small>
+                </label>
+                <label class="crm-field"><span class="required">Motivo de la anulación</span><textarea name="void_reason" rows="3" required class="crm-textarea" placeholder="Ej. Error en el RNC del cliente / venta cancelada"></textarea><small style="color:var(--muted);font-size:.75rem">Detalle interno, para el rastro del CRM.</small></label>
                 <?php if ($ncfIsLast): ?>
                     <div class="crm-perm-box" style="margin-top:.7rem">
                         <label class="crm-toggle" style="display:flex;align-items:flex-start;gap:.55rem">
@@ -770,7 +1014,7 @@ if ($action === 'view') {
                     </div>
                 <?php endif; ?>
             </div>
-            <footer class="crm-modal__foot"><button type="button" class="crm-secondary-btn" onclick="document.getElementById('inv-void').close()">Cancelar</button><button type="submit" class="crm-primary-btn" style="background:var(--red);border-color:var(--red)"><i data-lucide="ban" class="h-4 w-4"></i>Anular factura</button></footer>
+            <footer class="crm-modal__foot"><button type="button" class="crm-secondary-btn" onclick="document.getElementById('inv-void').close()">Cancelar</button><button type="submit" class="crm-primary-btn crm-primary-btn--peligro"><i data-lucide="ban" class="h-4 w-4"></i>Anular factura</button></footer>
         </form>
     </dialog>
     <?php endif; ?>
@@ -784,7 +1028,8 @@ $editPayload = null;
 if ($hasInvoices && $editId > 0) {
     $ei = fetch_one('SELECT * FROM invoices WHERE id=?', [$editId]);
     if ($ei && invoice_is_editable($ei['status'])) {
-        $eItems = fetch_all('SELECT description, quantity, unit_price, discount, is_exempt FROM invoice_items WHERE invoice_id=? ORDER BY id ASC', [$editId]);
+        $eCols = item_columns('invoice_items', ['description', 'quantity', 'unit_price', 'discount', 'is_exempt']);
+        $eItems = fetch_all('SELECT ' . implode(', ', $eCols) . ' FROM invoice_items WHERE invoice_id=? ORDER BY id ASC', [$editId]);
         $editPayload = [
             'id' => (int) $ei['id'], 'client_id' => (string) $ei['client_id'], 'title' => (string) $ei['title'],
             'ncf_type' => (string) $ei['ncf_type'],
@@ -800,7 +1045,7 @@ if ($hasInvoices && $editId > 0) {
             // importe de la partida en bruto: lo guardado por línea es el prorrateo.
             'discount_value' => (float) ($ei['discount_pct'] ?? 0) > 0 ? (float) $ei['discount_pct'] : round((float) $ei['discount_amount'], 2),
             'discount_mode' => (float) ($ei['discount_pct'] ?? 0) > 0 ? 'pct' : 'amount',
-            'items' => array_map(fn ($it) => ['d' => $it['description'], 'q' => (float) $it['quantity'], 'p' => (float) $it['unit_price'] , 'exempt' => (int) $it['is_exempt'] === 1], $eItems),
+            'items' => array_map(fn ($it) => ['d' => $it['description'], 'q' => (float) $it['quantity'], 'p' => (float) $it['unit_price'], 'c' => isset($it['unit_cost']) && $it['unit_cost'] !== null ? (float) $it['unit_cost'] : null, 'pid' => (int) ($it['product_id'] ?? 0) ?: null, 'exempt' => (int) $it['is_exempt'] === 1], $eItems),
         ];
     } elseif ($ei) {
         flash('warning', 'Esta factura ya fue emitida y no puede editarse.');
@@ -813,7 +1058,8 @@ $prefillPayload = null;
 if ($hasInvoices && !$editPayload && ($fromQuote = (int) ($_GET['from_quote'] ?? 0)) > 0 && table_exists('quotes')) {
     $q = fetch_one('SELECT quotes.*, clients.name AS client_name FROM quotes LEFT JOIN clients ON clients.id = quotes.client_id WHERE quotes.id=?', [$fromQuote]);
     if ($q) {
-        $qItems = fetch_all('SELECT description, quantity, unit_price FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$fromQuote]);
+        $qCols = item_columns('quote_items', ['description', 'quantity', 'unit_price']);
+        $qItems = fetch_all('SELECT ' . implode(', ', $qCols) . ' FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$fromQuote]);
         // El descuento de la cotización pasa a la factura como uno solo: en % si la
         // cotización lo guardó así, y si no, como el monto del encabezado.
         $qDiscPct = (float) ($q['discount_pct'] ?? 0);
@@ -823,7 +1069,7 @@ if ($hasInvoices && !$editPayload && ($fromQuote = (int) ($_GET['from_quote'] ??
             'exchange_rate' => (float) ($q['exchange_rate'] ?? 1), 'notes' => 'Generada desde la cotización ' . (string) $q['quote_number'] . '.',
             'discount_value' => $qDiscPct > 0 ? $qDiscPct : round((float) ($q['discount_amount'] ?? 0), 2),
             'discount_mode' => $qDiscPct > 0 ? 'pct' : 'amount',
-            'items' => array_map(fn ($it) => ['d' => $it['description'], 'q' => (float) $it['quantity'], 'p' => (float) $it['unit_price'], 'exempt' => false], $qItems),
+            'items' => array_map(fn ($it) => ['d' => $it['description'], 'q' => (float) $it['quantity'], 'p' => (float) $it['unit_price'], 'c' => isset($it['unit_cost']) && $it['unit_cost'] !== null ? (float) $it['unit_cost'] : null, 'pid' => (int) ($it['product_id'] ?? 0) ?: null, 'exempt' => false], $qItems),
         ];
     }
 }
@@ -862,8 +1108,9 @@ if ($hasInvoices) {
     $rateSql = invoice_rate_sql();
     $invBilled = (float) (fetch_one("SELECT COALESCE(SUM(total * {$rateSql}),0) v FROM invoices WHERE status IN ('Emitida','Pagada')")['v'] ?? 0);
     $invCollected = (float) (fetch_one("SELECT COALESCE(SUM(amount_paid * {$rateSql}),0) v FROM invoices WHERE status IN ('Emitida','Pagada')")['v'] ?? 0);
-    $invReceivable = (float) (fetch_one("SELECT COALESCE(SUM((total - itbis_retained - isr_retained - amount_paid) * {$rateSql}),0) v FROM invoices WHERE status='Emitida'")['v'] ?? 0);
-    $invOverdue = db_count('invoices', "status='Emitida' AND due_date IS NOT NULL AND due_date < CURDATE() AND (total - itbis_retained - isr_retained - amount_paid) > 0.009");
+    // Misma definición de cartera que el resumen por antigüedad y los reportes.
+    $invReceivable = (float) (fetch_one('SELECT COALESCE(SUM(' . invoice_balance_sql() . " * {$rateSql}),0) v FROM invoices WHERE " . invoice_receivable_sql())['v'] ?? 0);
+    $invOverdue = db_count('invoices', invoice_receivable_sql() . ' AND ' . invoice_due_sql() . ' < CURDATE()');
 } else {
     $invoices = [
         ['id' => 1, 'invoice_number' => 'FAC-' . date('Y') . '-0002', 'ncf' => 'B0100000002', 'ncf_type' => '01', 'c_name' => 'Cedimat', 'client_name' => 'Cedimat', 'title' => 'Camas UCI', 'status' => 'Emitida', 'due_date' => date('Y-m-d', strtotime('+12 days')), 'total' => 18449.30, 'amount_paid' => 0, 'itbis_retained' => 0, 'isr_retained' => 0, 'currency' => 'DOP'],
@@ -919,6 +1166,7 @@ foreach ($clients as $cl) {
 }
 
 $modalOpts = json_encode([
+    'products' => products_for_picker(),
     'autoOpen' => (isset($_GET['new']) || $action === 'new' || $prefillPayload) && !$editPayload,
     'autoEdit' => $editPayload,
     'prefill' => $prefillPayload,
@@ -933,19 +1181,22 @@ $modalOpts = json_encode([
 $crmTitle = 'Facturación';
 require_once __DIR__ . '/../includes/crm_header.php';
 ?>
+<?= sch_encabezado('Facturación', 'Comprobantes fiscales, NCF y cobro') ?>
+<?= cartera_aviso_config() ?>
+
 
 <?php if (!$hasInvoices): ?>
-    <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para emitir facturas con comprobante fiscal.</div>
+    <div class="gas-aviso">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para emitir facturas con comprobante fiscal.</div>
 <?php endif; ?>
 
 <section class="crm-cockpit" x-data="crmInvoiceModal(<?= e($modalOpts) ?>)">
     <div class="crm-cockpit__top">
         <div class="crm-cockpit__hero crm-cockpit__hero--sales">
-            <span class="crm-kicker"><i data-lucide="receipt"></i>Facturación · DGII</span>
             <h2>Comprobantes fiscales con NCF, ITBIS, retenciones y cobros.</h2>
             <p>Emite facturas de crédito fiscal, de consumo, notas de crédito/débito y los demás tipos de la DGII. El NCF se asigna automáticamente desde tus secuencias autorizadas y el PDF conserva el formato de la cotización.</p>
             <div class="crm-cockpit__actions">
                 <?php if (current_can('facturas.edit')): ?><button type="button" class="crm-primary-btn" @click="openNew()"><i data-lucide="plus" class="h-4 w-4"></i>Nueva factura</button><?php endif; ?>
+                <?php if (current_can('facturas.edit')): ?><a href="<?= url('crm/cobro.php') ?>" class="crm-secondary-btn"><i data-lucide="hand-coins" class="h-4 w-4"></i>Registrar cobro</a><?php endif; ?>
                 <?php if (current_can('facturas.edit')): ?><a href="<?= url('crm/facturas.php?action=ncf') ?>" class="crm-secondary-btn"><i data-lucide="hash" class="h-4 w-4"></i>Secuencias NCF</a><?php endif; ?>
                 <a href="<?= url('crm/cotizaciones.php') ?>" class="crm-secondary-btn"><i data-lucide="file-text" class="h-4 w-4"></i>Cotizaciones</a>
             </div>
@@ -973,7 +1224,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
         </div>
         <div class="inv-aging__grid">
             <?php foreach ($agingSummary as $bk => $row): ?>
-                <a class="inv-aging__cell inv-aging__cell--<?= e($agingTone[$bk] ?? 'muted') ?> <?= $agingFilter === $bk ? 'is-active' : '' ?>" href="<?= url('crm/facturas.php?aging=' . urlencode($bk)) ?>">
+                <a class="inv-aging__cell inv-aging__cell--<?= e(((float) $row['amount'] > 0.009) ? ($agingTone[$bk] ?? 'muted') : 'muted') ?> <?= $agingFilter === $bk ? 'is-active' : '' ?>" href="<?= url('crm/facturas.php?aging=' . urlencode($bk)) ?>">
                     <span><?= e($row['label']) ?></span>
                     <strong><?= money($row['amount']) ?></strong>
                     <small><?= e((string) $row['count']) ?> factura<?= $row['count'] === 1 ? '' : 's' ?></small>
@@ -1017,10 +1268,11 @@ require_once __DIR__ . '/../includes/crm_header.php';
                         </td>
                         <td class="text-right"><?= e((string) $rc['count']) ?></td>
                         <td><span class="inv-age-chip inv-age-chip--<?= e($rcTone) ?>"><?= $rc['max_days'] > 0 ? e((string) $rc['max_days']) . ' d de atraso' : 'Sin atrasos' ?></span></td>
-                        <td class="text-right"><?= $rc['overdue_dop'] > 0 ? '<strong style="color:#b42318">' . money($rc['overdue_dop']) . '</strong>' : '<span style="color:var(--muted)">—</span>' ?></td>
+                        <td class="text-right"><?= $rc['overdue_dop'] > 0 ? '<strong class="sch-monto--baja">' . money($rc['overdue_dop']) . '</strong>' : '<span style="color:var(--muted)">—</span>' ?></td>
                         <td class="text-right"><strong><?= money($rc['total_dop']) ?></strong></td>
                         <td class="text-right">
                             <div class="crm-row-actions">
+                                <?php if (current_can('facturas.edit')): ?><a class="crm-icon-action" href="<?= url('crm/cobro.php?client=' . (int) $rc['client_id']) ?>" title="Registrar un cobro y repartirlo entre sus comprobantes"><i data-lucide="hand-coins"></i></a><?php endif; ?>
                                 <button type="button" class="crm-icon-action" title="Vista previa del recordatorio" onclick="crmPdfPreviewOpen('<?= url($rcBase) ?>','<?= url($rcBase . '&download=1') ?>','<?= e($rcName) ?>','Recordatorio de pago')"><i data-lucide="eye"></i></button>
                                 <a class="crm-icon-action" href="<?= url($rcBase . '&download=1') ?>" title="Descargar PDF"><i data-lucide="download"></i></a>
                                 <button type="button" class="crm-icon-action" title="Tono cordial (aviso preventivo)" onclick="crmPdfPreviewOpen('<?= url($rcBase . '&tono=cordial') ?>','<?= url($rcBase . '&tono=cordial&download=1') ?>','<?= e($rcName) ?>','Recordatorio cordial')"><i data-lucide="smile"></i></button>
@@ -1061,7 +1313,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                         <td><strong><?= e($inv['invoice_number'] ?? '') ?></strong><?php if (!empty($inv['ncf'])): ?><br><span class="inv-ncf-chip"><?= e($inv['ncf']) ?></span><?php else: ?><br><span style="color:var(--muted);font-size:.78rem"><?= $rowProforma ? 'Sin NCF · proforma' : 'Sin NCF' ?></span><?php endif; ?></td>
                         <td><?= e($inv['client_name'] ?? $inv['c_name'] ?? 'Cliente') ?><?php if (!empty($inv['title'])): ?><br><span style="color:var(--muted);font-size:.8rem"><?= e($inv['title']) ?></span><?php endif; ?></td>
                         <td><span class="inv-type-chip"><?= $rowProforma ? 'Factura Proforma' : e(($inv['ncf_type'] ?? '') . ' · ' . ncf_type_label((string) ($inv['ncf_type'] ?? ''))) ?></span></td>
-                        <td><span class="status-chip <?= e(status_class($inv['status'] ?? 'Borrador')) ?>"><?= e($inv['status'] ?? 'Borrador') ?></span><?php if ($rowProforma): ?> <span class="status-chip bg-amber-50 text-amber-800 ring-1 ring-amber-200" title="Documento sin validez fiscal">Proforma</span><?php endif; ?><?php if ($ov): ?> <span class="status-chip bg-red-50 text-red-700 ring-1 ring-red-200" title="Vencida el <?= e(date_es($inv['due_date'])) ?>">Vencida</span><?php endif; ?></td>
+                        <td><span class="status-chip <?= e(status_class($inv['status'] ?? 'Borrador')) ?>"><?= e($inv['status'] ?? 'Borrador') ?></span><?php if ($rowProforma): ?> <span class="gas-aviso gas-aviso--chip" title="Documento sin validez fiscal">Proforma</span><?php endif; ?><?php if ($ov): ?> <span class="status-chip gas-estado--alarma" title="Vencida el <?= e(date_es($inv['due_date'])) ?>">Vencida</span><?php endif; ?></td>
                         <?php if ($canCartera): ?>
                         <td>
                             <span class="inv-age-chip inv-age-chip--<?= e($age['tone']) ?>"><?= e($age['label']) ?></span>
@@ -1187,19 +1439,37 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 </div>
 
                 <div>
-                    <p class="dash-section-label" style="margin:.2rem 0 .5rem">Partidas</p>
+                    <div class="doc-items__bar">
+                        <p class="dash-section-label" style="margin:0">Partidas</p>
+                        <template x-if="products.length">
+                            <label class="doc-pick">
+                                <i data-lucide="package"></i>
+                                <select class="crm-select" x-model="pickProduct" @change="addFromProduct()" aria-label="Insertar del catálogo">
+                                    <option value="">Insertar del catálogo…</option>
+                                    <template x-for="p in products" :key="p.id"><option :value="p.id" x-text="p.label"></option></template>
+                                </select>
+                            </label>
+                        </template>
+                    </div>
                     <div class="ib">
-                        <div class="ib__head"><span>Descripción</span><span>Cant.</span><span>Precio</span><span>Exento</span><span>Importe</span><span></span></div>
+                        <div class="ib__head"><span>Descripción</span><span>Cant.</span><span>Costo</span><span>Precio</span><span>Exento</span><span>Importe</span><span></span></div>
                         <template x-for="(item,index) in items" :key="index">
                             <div class="ib__row">
                                 <input class="crm-input ib__desc" name="item_description[]" x-model="item.d" placeholder="Equipo o servicio">
+                                <input type="hidden" name="item_product_id[]" :value="item.pid || ''">
                                 <input class="crm-input text-right" type="text" inputmode="decimal" name="item_quantity[]" x-model="item.q" @blur="item.q = fixQty(item.q)" aria-label="Cantidad">
+                                <input class="crm-input text-right" type="text" inputmode="decimal" name="item_cost[]" x-model="item.c" @blur="item.c = costIn(item.c)" placeholder="—" aria-label="Costo unitario" title="Costo unitario. Déjalo vacío si no lo sabes: se guarda como desconocido, no como cero.">
                                 <input class="crm-input text-right" type="text" inputmode="decimal" name="item_price[]" x-model="item.p" @blur="item.p = fixNum(item.p)" aria-label="Precio">
                                 <label class="ib__exempt" title="Exento de ITBIS"><input type="checkbox" x-model="item.exempt"><input type="hidden" name="item_exempt[]" :value="item.exempt ? 1 : 0"></label>
                                 <span class="qb__total" x-text="fmt(lineGross(item))">RD$ 0.00</span>
                                 <button type="button" class="crm-icon-action crm-icon-action--danger" @click="removeLine(index)" title="Quitar partida"><i data-lucide="trash-2"></i></button>
                             </div>
                         </template>
+                    </div>
+                    <div class="doc-margin" x-show="marginTotal() !== null" x-cloak>
+                        <span>Margen bruto de partidas</span>
+                        <strong :class="marginTotal() < 0 ? 'is-bad' : ''" x-text="fmt(marginTotal()) + (marginPct() !== null ? ' · ' + marginPct() + '%' : '')"></strong>
+                        <small x-show="marginPartial()">solo de las líneas con costo</small>
                     </div>
                     <p class="qb__hint"><i data-lucide="info"></i><span>Puedes escribir los importes con separadores de miles y decimales (<b>1,601.70</b>): el campo los ordena al salir. El descuento es uno solo para toda la factura y se pone abajo, junto a los totales.</span></p>
                     <button type="button" @click="addLine()" class="crm-secondary-btn" style="margin-top:.6rem"><i data-lucide="plus" class="h-4 w-4"></i>Agregar línea</button>

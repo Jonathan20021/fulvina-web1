@@ -12,7 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$_POST && (int) ($_SERVER['CONTENT
 verify_csrf();
 
 $hasDb = db(false) && table_exists('quotes');
-if ($hasDb) { ensure_quote_schema(); }
+if ($hasDb) { ensure_quote_schema(); ensure_products_schema(); }
 $hasQuoteCurrency = $hasDb && column_exists('quotes', 'currency');
 $hasCategory = $hasDb && column_exists('quotes', 'category');
 $hasApproved = $hasDb && column_exists('quotes', 'approved_at');
@@ -51,6 +51,8 @@ function quote_parse_items(): array
     $descriptions = (array) ($_POST['item_description'] ?? []);
     $quantities = (array) ($_POST['item_quantity'] ?? []);
     $prices = (array) ($_POST['item_price'] ?? []);
+    $costs = (array) ($_POST['item_cost'] ?? []);
+    $pids = (array) ($_POST['item_product_id'] ?? []);
     $items = [];
     foreach ($descriptions as $i => $description) {
         $description = trim((string) $description);
@@ -59,8 +61,13 @@ function quote_parse_items(): array
         if ($description === '' || $qty <= 0) {
             continue;
         }
+        // Costo vacio = «no se sabe» y se guarda NULL: un 0 se leeria despues
+        // como margen del 100%.
+        $rawCost = trim((string) ($costs[$i] ?? ''));
         $items[] = [
             'description' => $description, 'quantity' => $qty, 'unit_price' => $price,
+            'unit_cost' => $rawCost === '' ? null : round(max(0, amount_parse($rawCost)), 2),
+            'product_id' => ((int) ($pids[$i] ?? 0)) ?: null,
             'discount' => 0.0, 'discount_pct' => 0.0,
             'total' => round($qty * $price, 2),
         ];
@@ -162,7 +169,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
             $pdo->beginTransaction();
             $data = [
                 'client_id' => $src['client_id'],
-                'quote_number' => next_quote_number(),
+                'quote_number' => reserve_quote_number($pdo),
                 'title' => $src['title'] . ' (copia)',
                 'status' => 'Borrador',
                 'valid_until' => date('Y-m-d', strtotime('+30 days')),
@@ -189,11 +196,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
             if ($hasDiscount) { $itemCols[] = 'discount'; }
             if ($hasDiscountPct) { $itemCols[] = 'discount_pct'; }
             $itemCols[] = 'total';
+            $itemCols = item_columns('quote_items', $itemCols);
             $items = fetch_all('SELECT ' . implode(', ', $itemCols) . ' FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$sid]);
             $itemPh = implode(', ', array_fill(0, count($itemCols) + 1, '?'));
             $itemStmt = $pdo->prepare('INSERT INTO quote_items (quote_id, ' . implode(', ', $itemCols) . ") VALUES ({$itemPh})");
             foreach ($items as $it) {
-                $itemStmt->execute(array_merge([$newId], array_map(fn ($c) => $it[$c], $itemCols)));
+                $itemStmt->execute(array_merge([$newId], array_map(fn ($c) => $it[$c] ?? null, $itemCols)));
             }
             // El anexo viaja con la copia: se duplica el archivo, no sólo la fila,
             // para que borrar una de las dos cotizaciones no deje a la otra sin foto.
@@ -223,7 +231,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         $qid = (int) ($_POST['quote_id'] ?? 0);
         $back = 'crm/cotizaciones.php?action=view&id=' . $qid;
         if ($qid <= 0 || !$hasPhotos || !fetch_one('SELECT id FROM quotes WHERE id=?', [$qid])) {
-            flash('warning', 'No se pudo identificar la cotización.');
+            flash('error', 'No se pudo identificar la cotización.');
             redirect('crm/cotizaciones.php');
         }
 
@@ -293,7 +301,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         if ($category !== '' && !isset($categories[$category])) { $category = ''; }
         $status = trim((string) ($_POST['status'] ?? 'Borrador'));
         if (!in_array($status, $quoteStatuses, true)) { $status = 'Borrador'; }
-        $validUntil = $_POST['valid_until'] ?: date('Y-m-d', strtotime('+30 days'));
+        $validUntil = valid_date($_POST['valid_until'] ?? null) ?? date('Y-m-d', strtotime('+30 days'));
         $taxRate = max(0, amount_parse($_POST['tax_rate'] ?? 18, 18));
         $currency = strtoupper(trim((string) ($_POST['currency'] ?? 'DOP'))) === 'USD' ? 'USD' : 'DOP';
         $exchangeRate = amount_parse($_POST['exchange_rate'] ?? 1, 1);
@@ -355,7 +363,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
                 // the transaction usable after a duplicate-key error).
                 for ($attempt = 0; ; $attempt++) {
                     try {
-                        $insert = $data + ['quote_number' => next_quote_number(), 'created_by' => current_user()['id'] ?? null];
+                        $insert = $data + ['quote_number' => reserve_quote_number($pdo), 'created_by' => current_user()['id'] ?? null];
                         $cols = implode(', ', array_keys($insert));
                         $ph = implode(', ', array_fill(0, count($insert), '?'));
                         $pdo->prepare("INSERT INTO quotes ({$cols}, created_at, updated_at) VALUES ({$ph}, NOW(), NOW())")->execute(array_values($insert));
@@ -374,9 +382,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
             if ($hasDiscount) { $itemCols[] = 'discount'; }
             if ($hasDiscountPct) { $itemCols[] = 'discount_pct'; }
             $itemCols[] = 'total';
+            $itemCols = item_columns('quote_items', $itemCols);
             $stmt = $pdo->prepare('INSERT INTO quote_items (quote_id, ' . implode(', ', $itemCols) . ') VALUES (' . implode(', ', array_fill(0, count($itemCols) + 1, '?')) . ')');
             foreach ($items as $item) {
-                $stmt->execute(array_merge([$quoteId], array_map(fn ($c) => $item[$c], $itemCols)));
+                $stmt->execute(array_merge([$quoteId], array_map(fn ($c) => $item[$c] ?? null, $itemCols)));
             }
             if ($hasApproved && $status === 'Aprobado') {
                 $pdo->prepare('UPDATE quotes SET approved_at=COALESCE(approved_at, NOW()) WHERE id=?')->execute([$quoteId]);
@@ -630,7 +639,8 @@ $editPayload = null;
 if ($hasDb && $editId > 0) {
     $eq = fetch_one('SELECT * FROM quotes WHERE id=?', [$editId]);
     if ($eq) {
-        $eItems = fetch_all('SELECT description, quantity, unit_price' . ($hasDiscount ? ', discount' : '') . ' FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$editId]);
+        $eCols = item_columns('quote_items', array_merge(['description', 'quantity', 'unit_price'], $hasDiscount ? ['discount'] : []));
+        $eItems = fetch_all('SELECT ' . implode(', ', $eCols) . ' FROM quote_items WHERE quote_id=? ORDER BY id ASC', [$editId]);
         // El descuento se reabre tal como se capturó: en % si se guardó así, y si
         // no, como el monto del encabezado (o lo que sumen las partidas en las
         // cotizaciones anteriores a la columna).
@@ -657,6 +667,8 @@ if ($hasDb && $editId > 0) {
                 'd' => $it['description'],
                 'q' => (float) $it['quantity'],
                 'p' => (float) $it['unit_price'],
+                'c' => isset($it['unit_cost']) && $it['unit_cost'] !== null ? (float) $it['unit_cost'] : null,
+                'pid' => (int) ($it['product_id'] ?? 0) ?: null,
             ], $eItems),
         ];
     }
@@ -711,6 +723,7 @@ $quoteQueryForPage = fn (int $p) => http_build_query(array_filter([
 ], fn ($v) => $v !== '' && $v !== null));
 
 $modalOpts = json_encode([
+    'products' => products_for_picker(),
     'autoOpen' => (isset($_GET['new']) || $action === 'new') && !$editPayload,
     'autoEdit' => $editPayload,
     'defaults' => ['rate' => $defaultQuoteRate, 'tax' => $defaultQuoteTax, 'terms' => $defaultQuoteTerms, 'validUntil' => date('Y-m-d', strtotime('+30 days'))],
@@ -719,15 +732,16 @@ $modalOpts = json_encode([
 $crmTitle = 'Cotizaciones';
 require_once __DIR__ . '/../includes/crm_header.php';
 ?>
+<?= sch_encabezado('Cotizaciones', 'Propuestas comerciales y su anexo fotográfico') ?>
+
 
 <?php if (!$hasDb): ?>
-    <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para guardar cotizaciones.</div>
+    <div class="gas-aviso">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para guardar cotizaciones.</div>
 <?php endif; ?>
 
 <section class="crm-cockpit" x-data="crmQuoteModal(<?= e($modalOpts) ?>)">
     <div class="crm-cockpit__top">
         <div class="crm-cockpit__hero crm-cockpit__hero--sales">
-            <span class="crm-kicker"><i data-lucide="file-text"></i>Pipeline comercial</span>
             <h2>Cotizaciones con monto, vigencia y acción comercial visibles.</h2>
             <p>Crea, edita o duplica propuestas, asigna su línea de negocio y cambia su estado sin abandonar el listado. El constructor de partidas vive en un modal.</p>
             <div class="crm-cockpit__actions">
@@ -794,7 +808,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                             <?php else: ?>
                                 <span class="status-chip <?= e(status_class($quote['status'])) ?>"><?= e($quote['status']) ?></span>
                             <?php endif; ?>
-                            <?php if ($isExpired): ?><span class="status-chip bg-red-50 text-red-700 ring-1 ring-red-200" title="Venció el <?= e(date_es($quote['valid_until'])) ?>">Vencida</span><?php endif; ?>
+                            <?php if ($isExpired): ?><span class="status-chip gas-estado--alarma" title="Venció el <?= e(date_es($quote['valid_until'])) ?>">Vencida</span><?php endif; ?>
                         </td>
                         <td class="text-right"><strong><?= money_cur($quote['total'], (string) ($quote['currency'] ?? 'DOP')) ?></strong>
                             <?php if (strtoupper((string) ($quote['currency'] ?? 'DOP')) === 'USD'): ?><small class="crm-cell-note"><?= money(quote_total_dop($quote)) ?></small><?php endif; ?>
@@ -869,19 +883,38 @@ require_once __DIR__ . '/../includes/crm_header.php';
 
                 <div>
                     <p class="dash-section-label" style="margin:.2rem 0 .5rem">Partidas</p>
+                    <template x-if="products.length">
+                        <div class="doc-items__bar">
+                            <span class="text-xs text-slate-500">Usa el catálogo para que el precio salga siempre igual y el costo viaje con la partida.</span>
+                            <label class="doc-pick">
+                                <i data-lucide="package"></i>
+                                <select class="crm-select" x-model="pickProduct" @change="addFromProduct()" aria-label="Insertar del catálogo">
+                                    <option value="">Insertar del catálogo…</option>
+                                    <template x-for="p in products" :key="p.id"><option :value="p.id" x-text="p.label"></option></template>
+                                </select>
+                            </label>
+                        </div>
+                    </template>
                     <div class="qb">
                         <div class="qb__head">
-                            <span>Descripción</span><span>Cant.</span><span>Precio</span><span>Total</span><span></span>
+                            <span>Descripción</span><span>Cant.</span><span>Costo</span><span>Precio</span><span>Total</span><span></span>
                         </div>
                         <template x-for="(item,index) in items" :key="index">
                             <div class="qb__row">
                                 <input class="crm-input qb__desc" name="item_description[]" x-model="item.d" placeholder="Equipo o servicio">
+                                <input type="hidden" name="item_product_id[]" :value="item.pid || ''">
                                 <input class="crm-input text-right" type="text" inputmode="decimal" name="item_quantity[]" x-model="item.q" @blur="item.q = fixQty(item.q)" aria-label="Cantidad">
+                                <input class="crm-input text-right" type="text" inputmode="decimal" name="item_cost[]" x-model="item.c" @blur="item.c = costIn(item.c)" placeholder="—" aria-label="Costo unitario" title="Costo unitario. Déjalo vacío si no lo sabes: se guarda como desconocido, no como cero.">
                                 <input class="crm-input text-right" type="text" inputmode="decimal" name="item_price[]" x-model="item.p" @blur="item.p = fixNum(item.p)" aria-label="Precio">
                                 <span class="qb__total" x-text="fmt(lineGross(item))">RD$ 0.00</span>
                                 <button type="button" class="crm-icon-action crm-icon-action--danger" @click="removeLine(index)" title="Quitar partida"><i data-lucide="trash-2"></i></button>
                             </div>
                         </template>
+                    </div>
+                    <div class="doc-margin" x-show="marginTotal() !== null" x-cloak>
+                        <span>Margen bruto de partidas</span>
+                        <strong :class="marginTotal() < 0 ? 'is-bad' : ''" x-text="fmt(marginTotal()) + (marginPct() !== null ? ' · ' + marginPct() + '%' : '')"></strong>
+                        <small x-show="marginPartial()">solo de las líneas con costo</small>
                     </div>
                     <p class="qb__hint"><i data-lucide="info"></i><span>Puedes escribir los importes con separadores de miles y decimales (<b>1,601.70</b>): el campo los ordena al salir. El descuento es uno solo para toda la cotización y se pone abajo, junto a los totales.</span></p>
                     <button type="button" @click="addLine()" class="crm-secondary-btn" style="margin-top:.6rem"><i data-lucide="plus" class="h-4 w-4"></i>Agregar línea</button>

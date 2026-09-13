@@ -615,6 +615,70 @@ function crmDocMoneyMixin() {
       const v = d ? this.num(d.discount_value) : 0;
       this.disc = v > 0 ? this.fixDisc(v) : '';
     },
+
+    /* ---------------- Catálogo de productos y costo por partida ----------------
+       El costo viaja con la línea y se congela en el documento al guardar. Aquí
+       solo sirve para que quien cotiza vea el margen mientras arma el documento. */
+    products: [],
+    pickProduct: '',
+    /* '' y null significan «costo desconocido». Se respetan tal cual: un 0 se
+       leería más tarde como margen del 100%, que es peor que no saber. */
+    costIn(v) {
+      return (v === null || v === undefined || v === '') ? '' : this.fixNum(v);
+    },
+    productById(id) {
+      const s = String(id || '');
+      return this.products.find((p) => String(p.id) === s) || null;
+    },
+    lineFromProduct(p) {
+      return {
+        d: p.desc || p.name || '',
+        q: '1',
+        p: this.fixNum(p.price),
+        c: this.costIn(p.cost),
+        pid: String(p.id),
+        exempt: !!p.exempt,
+      };
+    },
+    /* Inserta la ficha elegida. Si la única línea está vacía la rellena, en vez
+       de dejar una fila en blanco colgando arriba. */
+    addFromProduct() {
+      const p = this.productById(this.pickProduct);
+      this.pickProduct = '';
+      if (!p) { return; }
+      const line = this.lineFromProduct(p);
+      const first = this.items[0];
+      if (this.items.length === 1 && !String(first.d || '').trim() && !this.num(first.p)) {
+        this.items[0] = line;
+      } else {
+        this.items.push(line);
+      }
+      this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+    },
+    lineHasCost(it) { return !(it.c === '' || it.c === null || it.c === undefined); },
+    /* Margen bruto de la línea: importe menos costo × cantidad. */
+    lineMargin(it) {
+      return this.lineHasCost(it) ? this.r2(this.lineGross(it) - this.num(it.c) * this.num(it.q)) : null;
+    },
+    /* Margen de las líneas cuyo costo se conoce. null si no se conoce ninguno. */
+    marginTotal() {
+      let sum = 0;
+      let any = false;
+      this.items.forEach((it) => {
+        const m = this.lineMargin(it);
+        if (m !== null) { sum += m; any = true; }
+      });
+      return any ? this.r2(sum) : null;
+    },
+    /* ¿Hay alguna línea con importe y sin costo? Entonces el margen es parcial. */
+    marginPartial() {
+      return this.items.some((it) => !this.lineHasCost(it) && (this.num(it.p) > 0 || String(it.d || '').trim() !== ''));
+    },
+    marginPct() {
+      const m = this.marginTotal();
+      const base = this.items.reduce((s, it) => s + (this.lineHasCost(it) ? this.r2(this.lineGross(it)) : 0), 0);
+      return (m === null || base <= 0.009) ? null : Math.round(m / base * 1000) / 10;
+    },
   };
 }
 
@@ -622,8 +686,9 @@ function crmDocMoneyMixin() {
 window.crmQuoteModal = function crmQuoteModal(opts) {
   opts = opts || {};
   var defaults = opts.defaults || {};
-  var blankLine = function () { return { d: '', q: '1', p: '' }; };
+  var blankLine = function () { return { d: '', q: '1', p: '', c: '', pid: '' }; };
   return Object.assign(crmDocMoneyMixin(), {
+    products: opts.products || [],
     form: {},
     items: [blankLine()],
     tax: '18',
@@ -652,7 +717,7 @@ window.crmQuoteModal = function crmQuoteModal(opts) {
       };
       this.currency = d.currency === 'USD' ? 'USD' : 'DOP';
       this.items = (d.items && d.items.length)
-        ? d.items.map((it) => ({ d: it.d || '', q: this.fixQty(it.q), p: this.fixNum(it.p) }))
+        ? d.items.map((it) => ({ d: it.d || '', q: this.fixQty(it.q), p: this.fixNum(it.p), c: this.costIn(it.c), pid: it.pid ? String(it.pid) : '' }))
         : [blankLine()];
       this.tax = this.fixQty(d.tax_rate !== undefined && d.tax_rate !== '' && Number(d.tax_rate) >= 0 ? d.tax_rate : 18);
       this.rate = this.fixNum(Number(d.exchange_rate) > 0 ? d.exchange_rate : (Number(defaults.rate) > 0 ? defaults.rate : 60));
@@ -677,8 +742,9 @@ window.crmInvoiceModal = function crmInvoiceModal(opts) {
   var pairs = opts.pairs || {};
   var sequences = opts.sequences || {};   // 'B01' => {next, remaining, expiration}
   var clientRncMap = opts.clientRnc || {};
-  var blankLine = function () { return { d: '', q: '1', p: '', exempt: false }; };
+  var blankLine = function () { return { d: '', q: '1', p: '', c: '', pid: '', exempt: false }; };
   return Object.assign(crmDocMoneyMixin(), {
+    products: opts.products || [],
     form: {},
     items: [blankLine()],
     tax: '18',
@@ -735,7 +801,7 @@ window.crmInvoiceModal = function crmInvoiceModal(opts) {
     openNew() { this.reset(); this.open(); },
     loadLines(d) {
       this.items = (d.items && d.items.length)
-        ? d.items.map((it) => ({ d: it.d || '', q: this.fixQty(it.q), p: this.fixNum(it.p), exempt: !!it.exempt }))
+        ? d.items.map((it) => ({ d: it.d || '', q: this.fixQty(it.q), p: this.fixNum(it.p), c: this.costIn(it.c), pid: it.pid ? String(it.pid) : '', exempt: !!it.exempt }))
         : [blankLine()];
     },
     openEdit(d) {
@@ -778,3 +844,35 @@ window.crmInvoiceModal = function crmInvoiceModal(opts) {
     close() { const d = this.$refs.dlg; if (d && d.open) d.close(); }
   });
 };
+
+/* =========================================================================
+   Tema claro / oscuro
+   =========================================================================
+   El tema lo aplica un script en línea del <head>, antes del primer pintado.
+   Aquí solo vive el cambio manual: escribe la preferencia y avisa a quien
+   necesite repintarse, como los gráficos, que llevan sus colores en JS y no
+   se enteran de un cambio de CSS. */
+window.schTema = function () {
+  var d = document.documentElement;
+  var oscuro = d.getAttribute('data-tema') === 'oscuro';
+  if (oscuro) { d.removeAttribute('data-tema'); } else { d.setAttribute('data-tema', 'oscuro'); }
+  try { localStorage.setItem('schTema', oscuro ? 'claro' : 'oscuro'); } catch (e) {}
+  window.dispatchEvent(new CustomEvent('sch:tema', { detail: { oscuro: !oscuro } }));
+};
+
+/* Si el usuario nunca eligió, el CRM sigue al sistema — también si lo cambia
+   con la pestaña abierta. */
+(function () {
+  if (!window.matchMedia) { return; }
+  var mq = window.matchMedia('(prefers-color-scheme: dark)');
+  var alSistema = function (e) {
+    var guardado = null;
+    try { guardado = localStorage.getItem('schTema'); } catch (x) {}
+    if (guardado) { return; }
+    var d = document.documentElement;
+    if (e.matches) { d.setAttribute('data-tema', 'oscuro'); } else { d.removeAttribute('data-tema'); }
+    window.dispatchEvent(new CustomEvent('sch:tema', { detail: { oscuro: e.matches } }));
+  };
+  if (mq.addEventListener) { mq.addEventListener('change', alSistema); }
+  else if (mq.addListener) { mq.addListener(alSistema); }
+})();

@@ -9,14 +9,27 @@ function e(?string $value): string
 
 function money(float|int|string|null $value): string
 {
-    return 'RD$ ' . number_format((float) $value, 2, '.', ',');
+    // Espacio duro: «RD$» y su cifra no se separan al final de una línea.
+    return "RD\$ " . number_format((float) $value, 2, '.', ',');
+}
+
+/**
+ * Evita que una palabra de una sola letra quede sola al final de una línea.
+ *
+ * En español «y», «o», «a», «e» y «u» son palabras completas, y partir la
+ * línea justo después deja una letra huérfana que se lee como un error de
+ * maquetación. Se atan a la siguiente con espacio duro.
+ */
+function sin_viudas(string $texto): string
+{
+    return (string) preg_replace('/(^|\s)([yoaeuYOAEU])\s+/u', '$1$2' . "\u{00A0}", $texto);
 }
 
 /** Currency-aware money formatter (DOP -> RD$, USD -> US$). */
 function money_cur(float|int|string|null $value, string $currency = 'DOP'): string
 {
     $sym = strtoupper($currency) === 'USD' ? 'US$' : 'RD$';
-    return $sym . ' ' . number_format((float) $value, 2, '.', ',');
+    return $sym . " " . number_format((float) $value, 2, '.', ',');
 }
 
 /**
@@ -269,13 +282,72 @@ function csrf_field(): string
 
 function verify_csrf(): void
 {
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $token = $_POST['csrf'] ?? '';
-        if (!hash_equals(csrf_token(), (string) $token)) {
-            http_response_code(419);
-            exit('Token de seguridad invalido.');
-        }
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        return;
     }
+    $token = $_POST['csrf'] ?? '';
+    if (hash_equals(csrf_token(), (string) $token)) {
+        return;
+    }
+
+    /*
+     * Esto le pasa a gente normal: dejas la pestaña abierta durante el
+     * almuerzo, vuelves y pulsas «Guardar». Antes salían ocho palabras en
+     * texto plano sobre fondo blanco, sin marca, sin explicación y sin salida.
+     * El token expirado no es un ataque en el 99% de los casos, es una sesión
+     * vieja, y la pantalla tiene que decir qué pasó y cómo seguir.
+     */
+    /* 419 no es un código estándar y Apache lo convierte en 500, que le diría
+       al navegador y a los registros que el servidor falló. No falló: la
+       petición no está autorizada. */
+    http_response_code(403);
+    $volver = e((string) ($_SERVER['HTTP_REFERER'] ?? url('crm/index.php')));
+    $entrar = e(url('crm/login.php'));
+    echo <<<HTML
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sesión vencida | CRM SCH MEDICOS</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; padding:1.5rem;
+         background:#F6F8F7; color:#0F1B14;
+         font-family:Aptos,"Segoe UI",system-ui,Arial,sans-serif; }
+  .caja { max-width:30rem; padding:2rem 1.9rem; border:1px solid #E1E6E9; border-radius:18px;
+          background:#fff; box-shadow:0 1px 2px rgba(15,27,20,.04),0 10px 28px -18px rgba(15,27,20,.22); }
+  h1 { margin:.6rem 0 .5rem; font-size:1.3rem; font-weight:650; letter-spacing:-.028em; }
+  p { margin:0 0 1.2rem; color:#5B6B62; font-size:.92rem; line-height:1.6; }
+  .ic { display:grid; place-items:center; width:42px; height:42px; border-radius:12px;
+        background:#F8F3E7; color:#7A6320; font-size:1.3rem; }
+  .acc { display:flex; gap:.6rem; flex-wrap:wrap; }
+  a { display:inline-flex; align-items:center; min-height:40px; padding:0 1.05rem; border-radius:11px;
+      font-size:.9rem; font-weight:600; text-decoration:none; }
+  .p { background:#027F31; color:#fff; border:1px solid #027F31; }
+  .s { background:#fff; color:#0F1B14; border:1px solid #E1E6E9; }
+  a:focus-visible { outline:2px solid #027F31; outline-offset:2px; }
+  @media (prefers-color-scheme: dark) {
+    body { background:#0F1712; color:#E9F0EB; }
+    .caja { background:#141D18; border-color:#2F3E36; }
+    p { color:#B9C7BE; }
+    .ic { background:#2E2716; color:#D4B872; }
+    .s { background:#1B2620; color:#E9F0EB; border-color:#2F3E36; }
+  }
+</style></head>
+<body>
+  <main class="caja">
+    <span class="ic" aria-hidden="true">!</span>
+    <h1>Tu sesión venció</h1>
+    <p>Por seguridad el CRM caduca las sesiones inactivas, así que no se guardó
+       lo que acabas de enviar. Vuelve a entrar y repítelo: los datos anteriores
+       siguen intactos.</p>
+    <div class="acc">
+      <a class="p" href="{$entrar}">Volver a entrar</a>
+      <a class="s" href="{$volver}">Regresar</a>
+    </div>
+  </main>
+</body></html>
+HTML;
+    exit;
 }
 
 /* ============================================================
@@ -445,8 +517,25 @@ function is_local_env(): bool
     return (bool) preg_match('/^(localhost|127\.0\.0\.1|\[::1\]|::1)(:\d+)?$/', $host);
 }
 
+/**
+ * ¿Existe la tabla? ¿Y la columna?
+ *
+ * Se pregunta muchísimo: solo en includes/ hay más de ochenta llamadas, y
+ * varias dentro de bucles. Cada una iba a information_schema, que en MySQL 8
+ * es de las consultas más caras que hay porque abre las definiciones de tabla.
+ * El panel hacía 192 consultas y buena parte eran la misma pregunta repetida.
+ *
+ * Se recuerda SOLO la respuesta afirmativa, igual que index_exists(): una
+ * tabla que existe no desaparece a mitad de la petición, pero una que no
+ * existe SÍ puede crearla un ensure_*_schema() un momento después, y cachear
+ * ese «no» dejaría al CRM creyendo que le falta media base.
+ */
 function table_exists(string $table): bool
 {
+    static $si = [];
+    if (isset($si[$table])) {
+        return true;
+    }
     $pdo = db(false);
     if (!$pdo) {
         return false;
@@ -455,7 +544,9 @@ function table_exists(string $table): bool
     try {
         $stmt = $pdo->prepare('SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?');
         $stmt->execute([$table]);
-        return (int) $stmt->fetchColumn() > 0;
+        $hay = (int) $stmt->fetchColumn() > 0;
+        if ($hay) { $si[$table] = true; }
+        return $hay;
     } catch (Throwable) {
         return false;
     }
@@ -463,6 +554,11 @@ function table_exists(string $table): bool
 
 function column_exists(string $table, string $column): bool
 {
+    static $si = [];
+    $k = $table . '.' . $column;
+    if (isset($si[$k])) {
+        return true;
+    }
     $pdo = db(false);
     if (!$pdo) {
         return false;
@@ -471,7 +567,9 @@ function column_exists(string $table, string $column): bool
     try {
         $stmt = $pdo->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?');
         $stmt->execute([$table, $column]);
-        return (int) $stmt->fetchColumn() > 0;
+        $hay = (int) $stmt->fetchColumn() > 0;
+        if ($hay) { $si[$k] = true; }
+        return $hay;
     } catch (Throwable) {
         return false;
     }
@@ -1067,6 +1165,37 @@ function invoice_payment_conditions(): array
     return ['Contado', 'Crédito'];
 }
 
+/**
+ * Prioridades y estados válidos de un ticket.
+ *
+ * Van aquí y no dentro de la pantalla porque el orden importa fuera de ella:
+ * el listado ordena con FIELD(priority,'Critica','Alta','Media','Baja') y los
+ * colores se asignan por nombre. Una prioridad inventada no rompe nada de
+ * golpe —simplemente el ticket se cae de todos los filtros y ordena al final,
+ * que es peor: nadie lo ve.
+ */
+function ticket_priorities(): array
+{
+    return ['Critica', 'Alta', 'Media', 'Baja'];
+}
+
+function ticket_statuses(): array
+{
+    return ['Abierto', 'En proceso', 'Cotizado', 'Resuelto', 'Cerrado'];
+}
+
+function ticket_priority_or_default(?string $p): string
+{
+    $p = trim((string) $p);
+    return in_array($p, ticket_priorities(), true) ? $p : 'Media';
+}
+
+function ticket_status_or_default(?string $s): string
+{
+    $s = trim((string) $s);
+    return in_array($s, ticket_statuses(), true) ? $s : 'Abierto';
+}
+
 function invoice_payment_methods(): array
 {
     return ['Efectivo', 'Transferencia', 'Cheque', 'Tarjeta de crédito', 'Tarjeta de débito', 'Crédito', 'Otro'];
@@ -1113,14 +1242,19 @@ function invoice_aging_buckets(): array
 function invoice_aging(array $inv): array
 {
     $status = (string) ($inv['status'] ?? '');
-    $net = round((float) ($inv['total'] ?? 0) - (float) ($inv['itbis_retained'] ?? 0) - (float) ($inv['isr_retained'] ?? 0), 2);
-    $balance = round($net - (float) ($inv['amount_paid'] ?? 0), 2);
+    $balance = invoice_balance($inv);
 
     if ($status === 'Borrador' || $status === '') {
         return ['key' => 'borrador', 'label' => 'Sin emitir', 'days' => null, 'balance' => $balance, 'tone' => 'muted'];
     }
     if ($status === 'Anulada') {
         return ['key' => 'anulada', 'label' => 'Anulada', 'days' => null, 'balance' => 0.0, 'tone' => 'muted'];
+    }
+    // Saldo negativo: el cliente pagó más de lo que terminó debiendo — pasa
+    // cuando se acredita una factura ya cobrada. No es una cuenta por cobrar,
+    // es una por devolver, y llamarla «saldada» escondería ese dinero.
+    if ($balance <= -0.009) {
+        return ['key' => 'a_favor', 'label' => 'Saldo a favor del cliente', 'days' => null, 'balance' => $balance, 'tone' => 'warn'];
     }
     if ($balance <= 0.009) {
         return ['key' => 'saldada', 'label' => 'Saldada', 'days' => null, 'balance' => 0.0, 'tone' => 'ok'];
@@ -1179,6 +1313,88 @@ function invoice_due_sql(string $table = 'invoices'): string
 }
 
 /**
+ * Importe NETO exigible de un comprobante, en su propia moneda: el total menos
+ * lo que el cliente nunca va a desembolsar — las retenciones que practica y las
+ * notas de crédito ya emitidas contra él.
+ *
+ * Fuente única de la fórmula. Antes vivía copiada en seis consultas distintas,
+ * que es exactamente como una de ellas se queda atrás cuando la regla cambia.
+ */
+function invoice_net_sql(string $table = 'invoices'): string
+{
+    $credited = column_exists('invoices', 'credited_amount') ? " - {$table}.credited_amount" : '';
+    return "({$table}.total - {$table}.itbis_retained - {$table}.isr_retained{$credited})";
+}
+
+/** Saldo vivo: lo exigible menos lo ya abonado. */
+function invoice_balance_sql(string $table = 'invoices'): string
+{
+    return '(' . invoice_net_sql($table) . " - {$table}.amount_paid)";
+}
+
+/** Equivalente en PHP de invoice_net_sql(), sobre una fila ya cargada. */
+function invoice_net(array $inv): float
+{
+    return round(
+        (float) ($inv['total'] ?? 0)
+        - (float) ($inv['itbis_retained'] ?? 0)
+        - (float) ($inv['isr_retained'] ?? 0)
+        - (float) ($inv['credited_amount'] ?? 0),
+        2
+    );
+}
+
+/** Equivalente en PHP de invoice_balance_sql(). */
+function invoice_balance(array $inv): float
+{
+    return round(invoice_net($inv) - (float) ($inv['amount_paid'] ?? 0), 2);
+}
+
+/** Tipos de comprobante que son nota de crédito (serie vigente y electrónica). */
+function ncf_credit_note_types(): array
+{
+    return ['04', '34'];
+}
+
+/**
+ * ¿Es este comprobante una nota de crédito?
+ *
+ * Importa para la cartera: una nota de crédito nace con "saldo" porque nadie la
+ * paga nunca — es un crédito a favor del cliente, no algo que se le cobre.
+ * Contarla como cuenta por cobrar infla la cartera y ensucia la antigüedad, así
+ * que queda fuera de todo cálculo de cobranza. (Aplicarla contra la factura que
+ * modifica es otra función que el CRM todavía no tiene.)
+ */
+function invoice_is_credit_note(array $inv): bool
+{
+    return in_array((string) ($inv['ncf_type'] ?? ''), ncf_credit_note_types(), true);
+}
+
+/** Fragmento SQL equivalente a invoice_is_credit_note(), negado. */
+function invoice_not_credit_note_sql(string $table = 'invoices'): string
+{
+    return "{$table}.ncf_type NOT IN ('04','34')";
+}
+
+/**
+ * Condición SQL de «esto es cobrable». Fuente ÚNICA de la cartera, para que el
+ * resumen por antigüedad, los recordatorios de pago, el estado de cuenta y los
+ * reportes no puedan dar cifras distintas del mismo saldo.
+ *
+ * Un comprobante forma cartera si está emitido, tiene saldo vivo, y además:
+ *   · no es proforma  — no tiene valor fiscal ni NCF, es solo una oferta;
+ *   · no es nota de crédito — es un crédito A FAVOR del cliente, no una deuda.
+ */
+function invoice_receivable_sql(string $table = 'invoices'): string
+{
+    $cond = "{$table}.status = 'Emitida' AND " . invoice_not_credit_note_sql($table);
+    if (column_exists('invoices', 'is_proforma')) {
+        $cond .= " AND {$table}.is_proforma = 0";
+    }
+    return $cond . ' AND ' . invoice_balance_sql($table) . ' > 0.009';
+}
+
+/**
  * Tasa SQL del comprobante para llevar cualquier importe suyo a RD$ (1 en pesos).
  * Es el equivalente en consulta de la conversión que hace receivables_aging(),
  * para que los KPIs no sumen dólares y pesos como si fueran la misma moneda.
@@ -1211,9 +1427,8 @@ function receivables_aging(): array
     $rows = fetch_all(
         'SELECT invoices.*, clients.name AS c_name
          FROM invoices LEFT JOIN clients ON clients.id = invoices.client_id
-         WHERE invoices.status = ? AND (invoices.total - invoices.itbis_retained - invoices.isr_retained - invoices.amount_paid) > 0.009
-         ORDER BY ' . invoice_due_sql() . ' ASC, invoices.id ASC',
-        ['Emitida']
+         WHERE ' . invoice_receivable_sql() . '
+         ORDER BY ' . invoice_due_sql() . ' ASC, invoices.id ASC'
     );
     foreach ($rows as $r) {
         $a = invoice_aging($r);
@@ -1236,7 +1451,7 @@ function receivables_aging(): array
 /** Condición SQL del tramo, para filtrar y totalizar cuentas por cobrar. */
 function invoice_aging_condition(string $bucket): string
 {
-    $pending = "invoices.status='Emitida' AND (invoices.total - invoices.itbis_retained - invoices.isr_retained - invoices.amount_paid) > 0.009";
+    $pending = invoice_receivable_sql();
     $d = 'DATEDIFF(CURDATE(), ' . invoice_due_sql() . ')';
     return match ($bucket) {
         'por_vencer' => "{$pending} AND {$d} < 0",
@@ -1275,9 +1490,8 @@ function client_receivables(int $clientId, array $onlyIds = []): array
 
     $sql = 'SELECT invoices.* FROM invoices
             WHERE invoices.client_id = ?
-              AND invoices.status = ?
-              AND (invoices.total - invoices.itbis_retained - invoices.isr_retained - invoices.amount_paid) > 0.009';
-    $params = [$clientId, 'Emitida'];
+              AND ' . invoice_receivable_sql();
+    $params = [$clientId];
     $ids = array_values(array_filter(array_map('intval', $onlyIds), fn ($i) => $i > 0));
     if ($ids) {
         $sql .= ' AND invoices.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
@@ -1330,9 +1544,7 @@ function receivables_clients(bool $onlyOverdue = false): array
     $rows = fetch_all(
         'SELECT invoices.*, clients.name AS c_name, clients.rnc AS c_rnc, clients.email AS c_email, clients.phone AS c_phone
          FROM invoices LEFT JOIN clients ON clients.id = invoices.client_id
-         WHERE invoices.status = ?
-           AND (invoices.total - invoices.itbis_retained - invoices.isr_retained - invoices.amount_paid) > 0.009',
-        ['Emitida']
+         WHERE ' . invoice_receivable_sql()
     );
 
     $byClient = [];
@@ -1465,14 +1677,33 @@ function reminder_fill(string $text, array $vars): string
 }
 
 /** Normaliza una fecha 'YYYY-MM-DD' real; null si viene vacía, cero o inválida. */
-function invoice_valid_date(string $date): ?string
+/**
+ * Una fecha AAAA-MM-DD real, o null si no lo es.
+ *
+ * Este MySQL no corre en modo estricto: una fecha inválida no da error, se
+ * guarda como 0000-00-00 y desde ahí ensucia todo lo que la lea —el equipo
+ * aparece vencido desde siempre en la agenda y en los avisos—. Como el fallo
+ * es silencioso, la fecha se valida ANTES de llegar a la columna, en todas las
+ * pantallas y no solo en la de cobro.
+ *
+ * Rechaza también el 31 de febrero: createFromFormat lo aceptaría corriéndolo
+ * al 3 de marzo, así que se compara la fecha reconstruida con la original.
+ */
+function valid_date(?string $date): ?string
 {
-    $date = trim($date);
-    if ($date === '' || $date === '0000-00-00') {
+    $date = trim((string) $date);
+    if ($date === '' || str_starts_with($date, '0000-00-00')) {
         return null;
     }
-    $d = DateTime::createFromFormat('Y-m-d', substr($date, 0, 10));
-    return ($d && $d->format('Y-m-d') === substr($date, 0, 10)) ? $d->format('Y-m-d') : null;
+    $solo = substr($date, 0, 10);
+    $d = DateTime::createFromFormat('Y-m-d', $solo);
+    return ($d && $d->format('Y-m-d') === $solo) ? $d->format('Y-m-d') : null;
+}
+
+/** Nombre histórico de valid_date(); lo usan las pantallas de facturación. */
+function invoice_valid_date(string $date): ?string
+{
+    return valid_date($date);
 }
 
 /**
@@ -1523,6 +1754,236 @@ function invoice_release_ncf(int $invoiceId): bool
     // fiscal ocupado), de modo que ese comprobante quede libre para reasignarse.
     $pdo->prepare('UPDATE invoices SET ncf=NULL, updated_at=NOW() WHERE id=?')->execute([$invoiceId]);
     return true;
+}
+
+/* =========================== Notas de crédito =========================== */
+
+/**
+ * Recalcula cuánto se le ha acreditado a una factura mediante notas de crédito
+ * emitidas contra ella, y lo guarda en credited_amount.
+ *
+ * Se recalcula desde cero en lugar de sumar o restar incrementos: así una nota
+ * anulada, borrada o re-emitida siempre deja la factura en el estado correcto,
+ * sin depender de que cada camino acuerde de ajustar el contador.
+ *
+ * El crédito se topa al importe exigible pendiente: acreditar más de lo que se
+ * debe dejaría un saldo negativo, que no significa nada en una cuenta por
+ * cobrar. Si eso pasa, el exceso se ignora aquí y se avisa en pantalla.
+ */
+function invoice_recalc_credited(int $invoiceId): float
+{
+    if ($invoiceId <= 0 || !db(false) || !table_exists('invoices')
+        || !column_exists('invoices', 'credited_amount') || !column_exists('invoices', 'modifies_invoice_id')) {
+        return 0.0;
+    }
+    $inv = fetch_one('SELECT total, itbis_retained, isr_retained FROM invoices WHERE id=?', [$invoiceId]);
+    if (!$inv) {
+        return 0.0;
+    }
+
+    $types = "'" . implode("','", ncf_credit_note_types()) . "'";
+    $sum = (float) (fetch_one(
+        "SELECT COALESCE(SUM(total),0) v FROM invoices
+          WHERE modifies_invoice_id = ? AND ncf_type IN ({$types}) AND status IN ('Emitida','Pagada')",
+        [$invoiceId]
+    )['v'] ?? 0);
+
+    $ceiling = round((float) $inv['total'] - (float) $inv['itbis_retained'] - (float) $inv['isr_retained'], 2);
+    $credited = round(max(0.0, min($sum, $ceiling)), 2);
+
+    db()->prepare('UPDATE invoices SET credited_amount=?, updated_at=NOW() WHERE id=?')->execute([$credited, $invoiceId]);
+    return $credited;
+}
+
+/**
+ * Crédito acumulado contra una factura hasta una fecha, inclusive.
+ *
+ * Existe para los documentos históricos —el recibo de ingreso, sobre todo—:
+ * un recibo dice cuánto se debía el día que se cobró, y una nota de crédito
+ * emitida después no puede cambiar ese número. Si el recibo se reimprimiera con
+ * el saldo de hoy, la copia del cliente y la nuestra dejarían de coincidir.
+ */
+function invoice_credited_as_of(int $invoiceId, string $date): float
+{
+    if ($invoiceId <= 0 || !db(false) || !table_exists('invoices')
+        || !column_exists('invoices', 'modifies_invoice_id')) {
+        return 0.0;
+    }
+    $date = trim($date);
+    if ($date === '' || strtotime($date) === false) {
+        return 0.0;
+    }
+    $types = "'" . implode("','", ncf_credit_note_types()) . "'";
+    $sum = (float) (fetch_one(
+        "SELECT COALESCE(SUM(total),0) v FROM invoices
+          WHERE modifies_invoice_id = ? AND ncf_type IN ({$types}) AND status IN ('Emitida','Pagada')
+            AND DATE(COALESCE(emitted_at, issue_date)) <= ?",
+        [$invoiceId, date('Y-m-d', strtotime($date))]
+    )['v'] ?? 0);
+    return round(max(0.0, $sum), 2);
+}
+
+/** Notas de crédito emitidas contra una factura (para mostrarlas en su ficha). */
+function invoice_credit_notes(int $invoiceId): array
+{
+    if ($invoiceId <= 0 || !db(false) || !table_exists('invoices') || !column_exists('invoices', 'modifies_invoice_id')) {
+        return [];
+    }
+    $types = "'" . implode("','", ncf_credit_note_types()) . "'";
+    return fetch_all(
+        "SELECT id, invoice_number, ncf, status, total, currency, issue_date, emitted_at, notes
+           FROM invoices WHERE modifies_invoice_id = ? AND ncf_type IN ({$types})
+          ORDER BY id DESC",
+        [$invoiceId]
+    );
+}
+
+/** ¿Puede esta factura recibir una nota de crédito? Devuelve el motivo si no. */
+function invoice_can_be_credited(array $inv): array
+{
+    if (!in_array((string) ($inv['status'] ?? ''), ['Emitida', 'Pagada'], true)) {
+        return [false, 'Solo se acredita un comprobante ya emitido.'];
+    }
+    if (invoice_is_proforma($inv)) {
+        return [false, 'Una proforma no es un comprobante fiscal: no se acredita, se edita.'];
+    }
+    if (invoice_is_credit_note($inv)) {
+        return [false, 'Una nota de crédito no se acredita a sí misma.'];
+    }
+    if (trim((string) ($inv['ncf'] ?? '')) === '') {
+        return [false, 'El comprobante no tiene NCF.'];
+    }
+    if (invoice_net($inv) <= 0.009) {
+        return [false, 'El comprobante ya está acreditado por completo.'];
+    }
+    return [true, ''];
+}
+
+/* ============================ Recibo de ingreso ============================ */
+
+/** Siguiente número de recibo de ingreso del año: REC-2026-0001. */
+function next_receipt_number(): string
+{
+    $year = date('Y');
+    $n = 1;
+    if (db(false) && table_exists('invoice_payments') && column_exists('invoice_payments', 'receipt_number')) {
+        $last = fetch_one(
+            'SELECT receipt_number FROM invoice_payments WHERE receipt_number LIKE ? ORDER BY id DESC LIMIT 1',
+            ["REC-{$year}-%"]
+        );
+        if ($last && preg_match('/-(\d+)$/', (string) $last['receipt_number'], $m)) {
+            $n = ((int) $m[1]) + 1;
+        }
+    }
+    return 'REC-' . $year . '-' . str_pad((string) $n, 4, '0', STR_PAD_LEFT);
+}
+
+/**
+ * Reserva el siguiente número de recibo de forma atómica.
+ *
+ * Debe llamarse DENTRO de una transacción ya abierta. Bloquea la fila del
+ * contador en `settings`, así que dos cobros simultáneos se serializan y cada
+ * uno se lleva un número distinto — igual que hace invoice_emit() con el NCF.
+ *
+ * El contador se siembra a partir del último recibo existente, de modo que la
+ * numeración continúa donde estaba sin necesidad de migrar datos.
+ */
+/**
+ * Reserva atómica de un número correlativo por año.
+ *
+ * Una sola sentencia inserta o incrementa el contador y deja el valor nuevo en
+ * LAST_INSERT_ID(): no hay ventana entre leer y escribir, así que dos procesos
+ * simultáneos no pueden llevarse el mismo número ni bloquearse entre sí.
+ *
+ * $semillaSql debe devolver el último número ya usado, para que la numeración
+ * continúe donde estaba sin migrar datos existentes.
+ */
+function reserve_serial(PDO $pdo, string $contador, string $prefijo, string $semillaSql, string $semillaLike): string
+{
+    $year = date('Y');
+    $clave = $contador . '_' . $year;
+
+    static $semilla = [];
+    if (!isset($semilla[$clave])) {
+        $semilla[$clave] = 0;
+        try {
+            $ultimo = fetch_one($semillaSql, [str_replace('{Y}', $year, $semillaLike)]);
+            if ($ultimo && preg_match('/-(\d+)$/', (string) reset($ultimo), $m)) {
+                $semilla[$clave] = (int) $m[1];
+            }
+        } catch (Throwable) { /* tabla o columna aún sin crear */ }
+    }
+
+    $pdo->prepare(
+        'INSERT INTO settings (setting_key, setting_value, updated_at)
+              VALUES (?, LAST_INSERT_ID(? + 1), NOW())
+         ON DUPLICATE KEY UPDATE
+              setting_value = LAST_INSERT_ID(setting_value + 1), updated_at = NOW()'
+    )->execute([$clave, $semilla[$clave]]);
+
+    return $prefijo . '-' . $year . '-' . str_pad((string) $pdo->lastInsertId(), 4, '0', STR_PAD_LEFT);
+}
+
+/** Número de factura, reservado sin carrera. Debe ir dentro de la transacción. */
+function reserve_invoice_number(PDO $pdo): string
+{
+    return reserve_serial(
+        $pdo, 'invoice_seq', 'FAC',
+        'SELECT invoice_number FROM invoices WHERE invoice_number LIKE ? ORDER BY id DESC LIMIT 1',
+        'FAC-{Y}-%'
+    );
+}
+
+/** Número de cotización, reservado sin carrera. */
+function reserve_quote_number(PDO $pdo): string
+{
+    return reserve_serial(
+        $pdo, 'quote_seq', 'SCH',
+        'SELECT quote_number FROM quotes WHERE quote_number LIKE ? ORDER BY id DESC LIMIT 1',
+        'SCH-{Y}-%'
+    );
+}
+
+function reserve_receipt_number(PDO $pdo): string
+{
+    $year = date('Y');
+    $clave = 'receipt_seq_' . $year;
+
+    /*
+     * Una sola sentencia: inserta el contador si no existe o lo incrementa si
+     * ya está, y en ambos casos deja el valor NUEVO en LAST_INSERT_ID(). Al no
+     * haber ventana entre leer y escribir, dos cobros simultáneos no pueden
+     * llevarse el mismo número ni bloquearse entre sí.
+     *
+     * La versión anterior usaba SELECT ... FOR UPDATE y quitaba los duplicados,
+     * pero con la fila aún inexistente cada proceso bloqueaba el hueco y MySQL
+     * los mataba: siete de ocho cobros terminaban en interbloqueo.
+     *
+     * La semilla sale del último recibo ya emitido, así la numeración continúa
+     * donde estaba sin migrar nada.
+     */
+    static $semilla = [];
+    if (!isset($semilla[$year])) {
+        $semilla[$year] = 0;
+        $ultimo = fetch_one(
+            'SELECT receipt_number FROM invoice_payments WHERE receipt_number LIKE ? ORDER BY id DESC LIMIT 1',
+            ["REC-{$year}-%"]
+        );
+        if ($ultimo && preg_match('/-(\d+)$/', (string) $ultimo['receipt_number'], $m)) {
+            $semilla[$year] = (int) $m[1];
+        }
+    }
+
+    $pdo->prepare(
+        'INSERT INTO settings (setting_key, setting_value, updated_at)
+              VALUES (?, LAST_INSERT_ID(? + 1), NOW())
+         ON DUPLICATE KEY UPDATE
+              setting_value = LAST_INSERT_ID(setting_value + 1), updated_at = NOW()'
+    )->execute([$clave, $semilla[$year]]);
+
+    $n = (int) $pdo->lastInsertId();
+
+    return 'REC-' . $year . '-' . str_pad((string) $n, 4, '0', STR_PAD_LEFT);
 }
 
 /**
@@ -1587,6 +2048,14 @@ function invoice_emit(int $invoiceId): array
             ->execute([$ncf, $pool['expiration'], 'Emitida', $issue, $due, $invoiceId]);
         if ($ownTransaction) { $pdo->commit(); }
         log_activity('invoice', $invoiceId, 'factura_emitida', $ncf);
+
+        // Una nota de crédito recién emitida reduce el saldo de la factura que
+        // modifica. Se hace fuera de la transacción del NCF: si fallara, el
+        // comprobante ya es válido y el saldo se rehace al volver a abrirlo.
+        if (in_array($type, ncf_credit_note_types(), true) && (int) ($inv['modifies_invoice_id'] ?? 0) > 0) {
+            invoice_recalc_credited((int) $inv['modifies_invoice_id']);
+        }
+
         return ['ok' => true, 'message' => 'Factura emitida con NCF ' . $ncf . '.', 'ncf' => $ncf];
     } catch (Throwable $e) {
         if ($ownTransaction && $pdo->inTransaction()) { $pdo->rollBack(); }
@@ -1723,10 +2192,61 @@ function ensure_invoice_schema(): void
             // Descuento único del documento: el monto ya existía; el porcentaje se
             // guarda aparte para reabrir la factura en el modo en que se capturó.
             'discount_pct' => "ALTER TABLE invoices ADD COLUMN discount_pct DECIMAL(6,3) NOT NULL DEFAULT 0 AFTER discount_amount",
+            // Código de anulación de la DGII (01..11). El motivo en texto libre
+            // sigue existiendo para el rastro interno; este es el que exige el 608.
+            'void_code' => "ALTER TABLE invoices ADD COLUMN void_code VARCHAR(2) NULL AFTER void_reason",
+            // Monto acreditado por notas de crédito emitidas CONTRA esta factura.
+            // Reduce el saldo exigible sin tocar amount_paid: el cliente no pagó
+            // ese dinero, se le perdonó, y confundir ambas cosas falsea la caja.
+            'credited_amount' => 'ALTER TABLE invoices ADD COLUMN credited_amount DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER amount_paid',
         ];
         foreach ($ecfColumns as $col => $sql) {
             if (!column_exists('invoices', $col)) {
                 try { $pdo->exec($sql); } catch (Throwable) { /* ignore */ }
+            }
+        }
+
+        // Numeración del recibo de ingreso que se entrega al cliente al cobrar.
+        if (table_exists('invoice_payments') && !column_exists('invoice_payments', 'receipt_number')) {
+            try {
+                $pdo->exec('ALTER TABLE invoice_payments ADD COLUMN receipt_number VARCHAR(40) NULL AFTER id');
+            } catch (Throwable) { /* ignore */ }
+        }
+
+        /*
+         * Unicidad en la BASE, no solo en el código.
+         *
+         * El NCF ya se toma con SELECT ... FOR UPDATE y eso funciona. Pero si
+         * algo llega por fuera de invoice_emit() —una importación, dos rangos
+         * que solapan, un respaldo restaurado a medias— el duplicado entra sin
+         * una queja y el 607 declara el mismo comprobante dos veces. El índice
+         * lo vuelve imposible.
+         *
+         * El número de recibo no tenía ni índice normal útil: ocho cobros a la
+         * vez produjeron ocho recibos con el MISMO número, todos correctos
+         * según la base.
+         *
+         * Ambas columnas admiten NULL y los borradores lo usan, así que un
+         * UNIQUE de MySQL los deja convivir: solo exige que los emitidos no se
+         * repitan.
+         */
+        foreach ([
+            ['invoices', 'ncf', 'uniq_invoices_ncf'],
+            ['invoice_payments', 'receipt_number', 'uniq_payment_receipt'],
+        ] as [$tabla, $col, $idx]) {
+            if (!table_exists($tabla) || !column_exists($tabla, $col)) {
+                continue;
+            }
+            if (index_exists($tabla, $idx)) {
+                continue;
+            }
+            try {
+                // Una cadena vacía SÍ colisiona consigo misma; NULL no.
+                $pdo->exec("UPDATE {$tabla} SET {$col}=NULL WHERE {$col}=''");
+                $pdo->exec("ALTER TABLE {$tabla} ADD UNIQUE INDEX {$idx} ({$col})");
+            } catch (Throwable) {
+                /* Si ya hay duplicados el índice no entra: se avisa en pantalla
+                   desde database/migrate.php en vez de romper el arranque. */
             }
         }
     } catch (Throwable) {
@@ -1734,6 +2254,30 @@ function ensure_invoice_schema(): void
     }
 }
 
+/** ¿Existe ya ese índice? Evita intentar crearlo dos veces en cada arranque. */
+function index_exists(string $table, string $index): bool
+{
+    static $cache = [];
+    $k = $table . '.' . $index;
+    if (array_key_exists($k, $cache)) {
+        return $cache[$k];
+    }
+    try {
+        $row = fetch_one(
+            'SELECT COUNT(*) c FROM information_schema.statistics
+              WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?',
+            [$table, $index]
+        );
+        $hay = ((int) ($row['c'] ?? 0)) > 0;
+        // Solo se recuerda el SÍ: un índice que falta puede crearse en esta
+        // misma petición, y cachear el NO haría que la comprobación mintiera
+        // justo después de haberlo creado. Uno que existe no desaparece.
+        if ($hay) { $cache[$k] = true; }
+        return $hay;
+    } catch (Throwable) {
+        return false;
+    }
+}
 function client_support_access(array $client, bool $persist = true): array
 {
     $slug = trim((string) ($client['support_slug'] ?? ''));
@@ -1827,16 +2371,21 @@ function db_count(string $table, string $where = '1=1', array $params = []): int
     return (int) $stmt->fetchColumn();
 }
 
+/**
+ * Estado en el vocabulario de la red: marca estampada + color de línea.
+ * El tono nunca va solo — cada variante trae su glifo — porque un estado que
+ * solo se distingue por color no se distingue en una impresión ni para quien
+ * no separa el verde del rojo.
+ */
 function status_class(string $status): string
 {
     return match (strtolower($status)) {
-        'abierto', 'pendiente', 'borrador', 'nuevo', 'requiere revision', 'requiere revisión' => 'bg-amber-50 text-amber-700 ring-1 ring-amber-200',
-        'en proceso', 'enviado', 'cotizado', 'contactado', 'prospecto' => 'bg-blue-50 text-blue-700 ring-1 ring-blue-200',
-        'aprobado', 'resuelto', 'activo', 'convertido' => 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200',
-        'negociacion', 'negociación' => 'bg-amber-100 text-amber-800 ring-1 ring-amber-300',
-        'cerrado', 'inactivo', 'rechazado', 'descartado', 'retirado', 'demo' => 'bg-slate-100 text-slate-600 ring-1 ring-slate-200',
-        'critico', 'crítico', 'alta', 'vencido', 'vencida', 'fuera de servicio' => 'bg-red-50 text-red-700 ring-1 ring-red-200',
-        default => 'bg-slate-100 text-slate-700 ring-1 ring-slate-200',
+        'abierto', 'pendiente', 'borrador', 'nuevo', 'requiere revision', 'requiere revisión' => 'gas-estado--espera',
+        'en proceso', 'enviado', 'cotizado', 'contactado', 'prospecto', 'negociacion', 'negociación' => 'gas-estado--curso',
+        'aprobado', 'resuelto', 'activo', 'convertido' => 'gas-estado--ok',
+        'cerrado', 'inactivo', 'rechazado', 'descartado', 'retirado', 'demo' => 'gas-estado--cerrado',
+        'critico', 'crítico', 'alta', 'vencido', 'vencida', 'fuera de servicio' => 'gas-estado--alarma',
+        default => 'gas-estado--cerrado',
     };
 }
 
@@ -1913,9 +2462,9 @@ function pdf_render_fit(callable $build, \Dompdf\Options $options, int $maxLevel
 function priority_class(string $priority): string
 {
     return match (strtolower($priority)) {
-        'critica', 'alta' => 'bg-red-50 text-red-700 ring-1 ring-red-200',
-        'media' => 'bg-amber-50 text-amber-700 ring-1 ring-amber-200',
-        default => 'bg-slate-100 text-slate-700 ring-1 ring-slate-200',
+        'critica', 'crítica', 'alta' => 'gas-estado--alarma',
+        'media' => 'gas-estado--espera',
+        default => 'gas-estado--cerrado',
     };
 }
 
@@ -1966,4 +2515,25 @@ function brand_lock(string $variant = 'public'): string
         . '<img class="sch-brand__mark" src="' . $logo . '" alt="' . e(APP_NAME) . '" width="200" height="182">'
         . '<span class="sch-brand__text"><strong>' . e($word) . '</strong></span>'
         . '<span class="sch-brand__since"><b>DESDE</b>' . e(APP_FOUNDED) . '</span></a>';
+}
+
+/**
+ * Encabezado de pantalla: qué estoy viendo, de qué se trata y el dato vivo que
+ * la resume. Es la primera línea de cada módulo del CRM.
+ */
+function sch_encabezado(string $nombre, string $descripcion = '', string $dato = ''): string
+{
+    $out  = '<div class="sch-head">';
+    $out .= '<div><h2 class="sch-head__t">' . e($nombre) . '</h2>';
+    if ($descripcion !== '') { $out .= '<p class="sch-head__d">' . e($descripcion) . '</p>'; }
+    $out .= '</div>';
+    if ($dato !== '') { $out .= '<span class="sch-head__dato">' . e($dato) . '</span>'; }
+    return $out . '</div>';
+}
+
+/** Nombre anterior de sch_encabezado(). */
+function gas_banda(string $linea, string $nombre, string $descripcion = '', string $dato = ''): string
+{
+    unset($linea);   // el lenguaje anterior teñía la banda por línea de gas; hoy no.
+    return sch_encabezado($nombre, $descripcion, $dato);
 }

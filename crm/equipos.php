@@ -6,6 +6,11 @@ verify_csrf();
 $hasDb = db(false) && table_exists('equipment');
 $clients = $hasDb ? fetch_all('SELECT id, name FROM clients ORDER BY name ASC') : [];
 
+/* La lista vive aquí arriba porque la usan dos cosas: el filtro del listado y
+   la validación del alta. Estaba solo junto al filtro, y por eso el alta
+   aceptaba cualquier estado inventado. */
+$equipStatuses = ['activo', 'requiere revision', 'fuera de servicio', 'retirado'];
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && isset($_POST['delete_id'])) {
         if (!current_can('equipos.delete')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/equipos.php'); }
     $did = (int) $_POST['delete_id'];
@@ -28,15 +33,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         trim((string) ($_POST['serial'] ?? '')),
         trim((string) ($_POST['area'] ?? '')),
         trim((string) ($_POST['location'] ?? '')),
-        $_POST['installation_date'] ?: null,
-        $_POST['warranty_until'] ?: null,
-        trim((string) ($_POST['status'] ?? 'activo')),
-        $_POST['next_service_at'] ?: null,
+        valid_date($_POST['installation_date'] ?? null),
+        valid_date($_POST['warranty_until'] ?? null),
+        in_array(trim((string) ($_POST['status'] ?? '')), $equipStatuses, true)
+            ? trim((string) $_POST['status']) : 'activo',
+        valid_date($_POST['next_service_at'] ?? null),
         trim((string) ($_POST['notes'] ?? '')),
     ];
 
     if ($payload[0] <= 0 || $payload[1] === '') {
         flash('warning', 'Selecciona cliente y nombre del equipo.');
+    } elseif (!fetch_one('SELECT id FROM clients WHERE id=?', [$payload[0]])) {
+        /* Sin esta comprobación la clave foránea lanzaba una excepción sin
+           capturar y el técnico veía una pantalla en blanco. Pasa de verdad:
+           el formulario se llenó con una lista de clientes que ya cambió. */
+        flash('warning', 'Ese cliente ya no existe. Actualiza la pantalla y vuelve a elegirlo.');
     } elseif ($id > 0) {
         $stmt = db()->prepare('UPDATE equipment SET client_id=?, name=?, brand=?, model=?, serial=?, area=?, location=?, installation_date=?, warranty_until=?, status=?, next_service_at=?, notes=?, updated_at=NOW() WHERE id=?');
         $stmt->execute([...$payload, $id]);
@@ -72,7 +83,6 @@ $emptyEquip = $equipShape([]);
 $emptyEquip['client_id'] = '';
 $editingClean = $editing ? $equipShape($editing) : null;
 
-$equipStatuses = ['activo', 'requiere revision', 'fuera de servicio', 'retirado'];
 $q = trim((string) ($_GET['q'] ?? ''));
 $clientFilter = (int) ($_GET['client_id'] ?? 0);
 $statusFilter = trim((string) ($_GET['status'] ?? ''));
@@ -137,15 +147,16 @@ $healthBadge = function (array $x): string {
 $crmTitle = 'Equipos';
 require_once __DIR__ . '/../includes/crm_header.php';
 ?>
+<?= sch_encabezado('Equipos', 'Inventario instalado, garantías y mantenimiento') ?>
+
 
 <?php if (!$hasDb): ?>
-    <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para guardar equipos.</div>
+    <div class="gas-aviso">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para guardar equipos.</div>
 <?php endif; ?>
 
 <section class="crm-cockpit" x-data="crmFormModal(<?= e(json_encode($emptyEquip)) ?>, <?= $editingClean ? e(json_encode($editingClean)) : 'null' ?>)">
     <div class="crm-cockpit__top">
         <div class="crm-cockpit__hero crm-cockpit__hero--service">
-            <span class="crm-kicker"><i data-lucide="monitor"></i>Inventario técnico</span>
             <h2>Equipos instalados, garantía y próximo servicio sin abrir registros.</h2>
             <p>Controla series, ubicaciones y estados de mantenimiento por cliente. Los equipos con revisión o vencimiento quedan arriba como señales operativas.</p>
             <div class="crm-cockpit__actions">
@@ -199,11 +210,11 @@ require_once __DIR__ . '/../includes/crm_header.php';
                         <td><?= e($item['serial'] ?: 'Sin serie') ?></td>
                         <td>
                             <?= e(date_es($item['next_service_at'] ?? null)) ?>
-                            <?php if (!empty($item['last_service_at'])): ?><p class="mt-1 text-xs text-slate-400">Último: <?= e(date_es($item['last_service_at'])) ?></p><?php endif; ?>
+                            <?php if (!empty($item['last_service_at'])): ?><p class="mt-1 text-xs gas-apunte">Último: <?= e(date_es($item['last_service_at'])) ?></p><?php endif; ?>
                         </td>
                         <td>
                             <span class="status-chip <?= e(status_class($item['status'])) ?>"><?= e(status_label($item['status'])) ?></span>
-                            <?php $hb = $healthBadge($item); if ($hb !== ''): ?><span class="status-chip bg-red-50 text-red-700 ring-1 ring-red-200" style="margin-top:.2rem"><?= e($hb) ?></span><?php endif; ?>
+                            <?php $hb = $healthBadge($item); if ($hb !== ''): ?><span class="status-chip gas-estado--alarma" style="margin-top:.2rem"><?= e($hb) ?></span><?php endif; ?>
                         </td>
                         <td class="text-right">
                             <div class="crm-row-actions">

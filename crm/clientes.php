@@ -5,6 +5,11 @@ verify_csrf();
 
 $hasDb = db(false) && table_exists('clients');
 
+/* Los mismos tres estados que ofrece el desplegable del formulario. Un estado
+   fuera de esta lista deja al cliente invisible: no cuenta como activo ni como
+   prospecto, y no aparece en ningún filtro. */
+$clientStatuses = ['activo', 'inactivo', 'prospecto'];
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb && isset($_POST['delete_id'])) {
         if (!current_can('clientes.delete')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/clientes.php'); }
     $did = (int) $_POST['delete_id'];
@@ -27,11 +32,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         trim((string) ($_POST['address'] ?? '')),
         trim((string) ($_POST['city'] ?? '')),
         trim((string) ($_POST['sector'] ?? '')),
-        trim((string) ($_POST['status'] ?? 'activo')),
+        in_array(trim((string) ($_POST['status'] ?? '')), $clientStatuses, true)
+            ? trim((string) $_POST['status']) : 'activo',
     ];
 
     if ($payload[0] === '') {
         flash('warning', 'El nombre del cliente es obligatorio.');
+    } elseif ($payload[2] !== '' && !filter_var($payload[2], FILTER_VALIDATE_EMAIL)) {
+        /* Un correo mal escrito no se nota hasta que se envía la factura y
+           rebota. Mejor decirlo al guardar. */
+        flash('warning', 'El correo «' . $payload[2] . '» no parece válido. Revísalo o déjalo en blanco.');
+    } elseif ($id > 0 && !fetch_one('SELECT id FROM clients WHERE id=?', [$id])) {
+        flash('warning', 'Ese cliente ya no existe: alguien lo eliminó mientras lo editabas.');
+        redirect('crm/clientes.php');
     } elseif ($id > 0) {
         $stmt = db()->prepare('UPDATE clients SET name=?, rnc=?, email=?, phone=?, address=?, city=?, sector=?, status=?, updated_at=NOW() WHERE id=?');
         $stmt->execute([...$payload, $id]);
@@ -106,15 +119,16 @@ $clientQueryForPage = fn (int $p) => http_build_query(array_filter(['q' => $q, '
 $crmTitle = 'Clientes';
 require_once __DIR__ . '/../includes/crm_header.php';
 ?>
+<?= sch_encabezado('Clientes', 'Instituciones, contactos y acceso a soporte') ?>
+
 
 <?php if (!$hasDb): ?>
-    <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para guardar clientes.</div>
+    <div class="gas-aviso">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para guardar clientes.</div>
 <?php endif; ?>
 
 <section class="crm-cockpit" x-data="crmFormModal(<?= e(json_encode($emptyClient)) ?>, <?= $editingClean ? e(json_encode($editingClean)) : 'null' ?>)">
     <div class="crm-cockpit__top">
         <div class="crm-cockpit__hero">
-            <span class="crm-kicker"><i data-lucide="building-2"></i>Directorio institucional</span>
             <h2>Clientes con contexto comercial y operativo en una sola vista.</h2>
             <p>Ubica instituciones, contactos, sector y estado sin entrar a cada registro. El alta y la edicion siguen en modal para no perder el flujo.</p>
             <div class="crm-cockpit__actions">
@@ -164,7 +178,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                         </td>
                         <td>
                             <p><?= e($client['email'] ?: 'Sin correo') ?></p>
-                            <p class="mt-1 text-slate-500"><?= e($client['phone'] ?: 'Sin telefono') ?></p>
+                            <p class="mt-1 text-slate-500"><?= e($client['phone'] ?: 'Sin teléfono') ?></p>
                         </td>
                         <td><?= e($client['city'] ?: 'Sin ciudad') ?></td>
                         <td><span class="status-chip <?= e(status_class($client['status'])) ?>"><?= e(status_label($client['status'])) ?></span></td>

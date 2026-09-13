@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($res['ok']) {
             establish_session($res['user']);
             login_clear_failures($ipKey, login_email_key((string) ($res['user']['email'] ?? '')));
-            flash('success', 'Sesion iniciada.');
+            flash('success', 'Sesión iniciada.');
             redirect('crm/index.php');
         }
         flash('warning', $res['error']);
@@ -55,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!otp_active() || !empty($user['demo'])) {
                     establish_session($user);
                     login_clear_failures($ipKey, $emailHash);
-                    flash('success', 'Sesion iniciada.');
+                    flash('success', 'Sesión iniciada.');
                     redirect('crm/index.php');
                 }
                 // OTP required: email the code, then move to the verify step (PRG).
@@ -64,11 +64,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     login_clear_failures($ipKey, $emailHash); // password was correct
                     flash('success', 'Te enviamos un código de verificación a tu correo.');
                 } else {
-                    flash('warning', 'No se pudo enviar el código: ' . $start['error']);
+                    flash('error', 'No se pudo enviar el código: ' . $start['error']);
                 }
             } else {
                 login_record_failure($ipKey, $emailHash);
-                flash('warning', 'Credenciales invalidas.');
+                flash('warning', 'Credenciales inválidas.');
             }
         }
         redirect('crm/login.php');
@@ -89,16 +89,17 @@ $pendingEmailMask = $pending !== null ? otp_mask_email((string) ($pending['email
     <meta name="robots" content="noindex, nofollow">
     <title>Acceso CRM | SCH MEDICOS</title>
     <link rel="icon" href="<?= asset('assets/media/cropped-logo_SCH_-removebg-preview-32x32.png') ?>" sizes="32x32">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..800&family=Geist+Mono:wght@500..600&display=swap" rel="stylesheet">
+    <script>(function(){var d=document.documentElement;try{var t=localStorage.getItem('schTema');
+    if(!t){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'oscuro':'claro';}
+    if(t==='oscuro')d.setAttribute('data-tema','oscuro');}catch(e){}})();</script>
     <link rel="stylesheet" href="<?= asset('assets/css/tailwind.css') ?>">
     <link rel="stylesheet" href="<?= asset('assets/css/app.css') ?>">
     <link rel="stylesheet" href="<?= asset('assets/css/site-v2.css') ?>">
+    <link rel="stylesheet" href="<?= asset('assets/css/sch.css') ?>">
     <script defer src="https://unpkg.com/lucide@latest"></script>
     <script defer src="<?= asset('assets/js/app.js') ?>"></script>
 </head>
-<body class="sx sxl">
+<body class="sx sxl crm-sch sch-acceso">
     <main class="sxl-shell">
         <aside class="sxl-aside">
             <img class="sxl-aside__img" src="<?= asset('assets/media/5.png') ?>" alt="" aria-hidden="true">
@@ -129,11 +130,11 @@ $pendingEmailMask = $pending !== null ? otp_mask_email((string) ($pending['email
                 <?php if ($step === 'otp'): ?>
                     <span class="sx-kicker" style="margin-top:1.4rem">Verificacion en dos pasos</span>
                     <h1>Ingresa el codigo</h1>
-                    <p class="sxl-sub">Enviamos un codigo de 6 digitos a <strong><?= e($pendingEmailMask) ?></strong>. Vence en 10 minutos.</p>
+                    <p class="sxl-sub">Enviamos un código de 6 dígitos a <strong><?= e($pendingEmailMask) ?></strong>. Vence en 10 minutos.</p>
                 <?php else: ?>
                     <span class="sx-kicker" style="margin-top:1.4rem">Panel interno</span>
                     <h1>Entrar al CRM</h1>
-                    <p class="sxl-sub">Acceso para ventas, soporte e ingenieria de SCH MEDICOS.</p>
+                    <p class="sxl-sub">Acceso para ventas, soporte e ingeniería de SCH MEDICOS.</p>
                 <?php endif; ?>
 
                 <?php foreach (flashes() as $item): ?>
@@ -147,7 +148,7 @@ $pendingEmailMask = $pending !== null ? otp_mask_email((string) ($pending['email
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="otp_verify">
                     <label class="sxl-field">
-                        <span>Codigo de verificacion</span>
+                        <span>Código de verificación</span>
                         <div class="sxl-input">
                             <i data-lucide="shield-check"></i>
                             <input type="text" name="code" required autofocus inputmode="numeric" pattern="[0-9 ]*" maxlength="7" autocomplete="one-time-code" placeholder="123 456" style="letter-spacing:.3em;font-weight:600">
@@ -178,14 +179,14 @@ $pendingEmailMask = $pending !== null ? otp_mask_email((string) ($pending['email
                         </div>
                     </label>
                     <label class="sxl-field">
-                        <span>Contrasena</span>
+                        <span>Contraseña</span>
                         <div class="sxl-input">
                             <i data-lucide="lock"></i>
                             <input type="password" name="password" id="login-pwd" required autocomplete="current-password" value="<?= $isLocal ? 'admin123' : '' ?>">
-                            <button type="button" class="sxl-toggle" aria-label="Mostrar u ocultar contrasena" onclick="schTogglePwd(this)"><i data-lucide="eye"></i></button>
+                            <button type="button" class="sxl-toggle" aria-label="Mostrar u ocultar contraseña" onclick="schTogglePwd(this)"><i data-lucide="eye"></i></button>
                         </div>
                     </label>
-                    <button class="sxl-submit" type="submit">Iniciar sesion <i data-lucide="arrow-right"></i></button>
+                    <button class="sxl-submit" type="submit">Iniciar sesión <i data-lucide="arrow-right"></i></button>
                 </form>
 
                 <?php if ($isLocal): ?>

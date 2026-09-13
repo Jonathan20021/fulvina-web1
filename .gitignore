@@ -20,3 +20,7 @@ Thumbs.db
 # deploy no depende de que PHP pueda crearlas). Las fotos, no: son por servidor.
 uploads/cotizaciones/*
 !uploads/cotizaciones/.gitkeep
+
+# Material de trabajo de la herramienta de diseño (capturas de revisión y
+# registros). Es scratch de una sesión, no fuente del proyecto.
+.impeccable/

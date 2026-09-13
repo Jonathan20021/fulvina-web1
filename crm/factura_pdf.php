@@ -58,7 +58,7 @@ $discountPct = (float) ($inv['discount_pct'] ?? 0);
 $gross = round((float) ($inv['subtotal'] ?? 0) + $discount, 2);
 
 $statusColor = match (strtolower($status)) {
-    'pagada' => '#0a7d36',
+    'pagada' => '#027F31',
     'emitida' => '#0666b3',
     'anulada' => '#64748b',
     default => '#d97706',
@@ -99,11 +99,11 @@ $buildHtml = function (int $level) use (
     .center { text-align: center; }
     h1, h2, h3 { margin: 0; }
 
-    .topbar { height: 4px; background: #0a7d36; }
+    .topbar { height: 4px; background: #027F31; }
     .head { width: 100%; border-collapse: collapse; margin-top: 16px; }
     .head td { vertical-align: top; }
     .brand-logo { width: 60px; height: auto; }
-    .brand-name { font-size: 20px; font-weight: bold; color: #0a7d36; letter-spacing: -.3px; }
+    .brand-name { font-size: 20px; font-weight: bold; color: #027F31; letter-spacing: -.3px; }
     .brand-sub { color: #5b6b7b; font-size: 9px; margin-top: 1px; }
     .brand-meta { color: #5b6b7b; font-size: 8.6px; margin-top: 6px; line-height: 1.5; }
     .doc-box { border: 1px solid #d8e2ec; border-radius: 8px; padding: 9px 12px; }
@@ -111,8 +111,8 @@ $buildHtml = function (int $level) use (
     .doc-number { font-size: 17px; font-weight: bold; color: #0e1a28; letter-spacing: -.5px; margin-top: 1px; }
     .badge { display: inline-block; padding: 3px 11px; border-radius: 20px; color: #fff; font-size: 8.5px; font-weight: bold; margin-top: 4px; }
     .ncf-box { margin-top: 7px; border: 1px solid #c7d6c9; border-radius: 6px; background: #f5faf6; padding: 5px 9px; }
-    .ncf-box .k { color: #066128; font-size: 7.6px; letter-spacing: 1.2px; text-transform: uppercase; font-weight: bold; }
-    .ncf-box .v { font-size: 15px; font-weight: bold; color: #0a7d36; letter-spacing: .5px; }
+    .ncf-box .k { color: #016627; font-size: 7.6px; letter-spacing: 1.2px; text-transform: uppercase; font-weight: bold; }
+    .ncf-box .v { font-size: 15px; font-weight: bold; color: #027F31; letter-spacing: .5px; }
     .ncf-box .t { color: #5b6b7b; font-size: 8px; }
     .doc-meta { margin-top: 7px; color: #5b6b7b; font-size: 9px; line-height: 1.55; }
     .doc-meta b { color: #0e1a28; }
@@ -126,18 +126,18 @@ $buildHtml = function (int $level) use (
     .pcard { border: 1px solid #e3eaf1; border-radius: 8px; padding: 11px 13px; min-height: 78px; }
     .pcard-l { margin-right: 8px; }
     .pcard-r { margin-left: 8px; }
-    .pcard h3 { color: #0a7d36; font-size: 8.5px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 5px; }
+    .pcard h3 { color: #027F31; font-size: 8.5px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 5px; }
     .pcard .name { font-size: 12px; font-weight: bold; color: #0e1a28; }
     .pcard p { margin: 3px 0 0; color: #5b6b7b; font-size: 9.3px; line-height: 1.5; }
     .pcard .rnc { color: #0e1a28; font-weight: bold; }
 
-    .subject-row { margin-top: 14px; border-left: 3px solid #0a7d36; padding: 2px 0 2px 10px; }
+    .subject-row { margin-top: 14px; border-left: 3px solid #027F31; padding: 2px 0 2px 10px; }
     .subject-row .k { color: #8696a6; font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; }
     .subject-row .v { font-size: 12.5px; font-weight: bold; color: #0e1a28; }
-    .cond-tag { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 12px; background: #e8f4ec; color: #066128; font-size: 8.5px; font-weight: bold; }
+    .cond-tag { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 12px; background: #e8f4ec; color: #016627; font-size: 8.5px; font-weight: bold; }
 
     table.items { width: 100%; border-collapse: collapse; margin-top: 16px; }
-    table.items thead th { background: #0a7d36; color: #fff; font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: .5px; padding: 8px 10px; text-align: left; }
+    table.items thead th { background: #027F31; color: #fff; font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: .5px; padding: 8px 10px; text-align: left; }
     table.items thead th.r { text-align: right; }
     table.items tbody td { padding: 8px 10px; border-bottom: 1px solid #eef3f8; font-size: 10px; vertical-align: top; }
     table.items tbody tr:nth-child(even) td { background: #f7faf8; }
@@ -155,7 +155,7 @@ $buildHtml = function (int $level) use (
     .tt td.k { color: #5b6b7b; }
     .tt td.v { text-align: right; font-weight: bold; color: #0e1a28; white-space: nowrap; }
     .tt tr.sep td { border-top: 1px solid #e3eaf1; }
-    .tt tr.total td { background: #0a7d36; color: #fff; font-size: 13.5px; font-weight: bold; }
+    .tt tr.total td { background: #027F31; color: #fff; font-size: 13.5px; font-weight: bold; }
     .tt tr.total td.k { color: #eafff2; }
     .tt tr.minor td { color: #5b6b7b; font-size: 9.4px; padding-top: 4px; padding-bottom: 4px; }
     .tt tr.net td { font-size: 11.5px; font-weight: bold; color: #0e1a28; border-top: 1px solid #e3eaf1; }
@@ -180,9 +180,9 @@ $buildHtml = function (int $level) use (
     .sign-line span { display: block; font-size: 8.4px; color: #5b6b7b; margin-top: 1px; }
 
     .foot { position: fixed; left: -40px; right: -40px; bottom: -<?= $footBottom ?>px; height: 60px; }
-    .foot-inner { border-top: 2px solid #0a7d36; margin: 0 40px; padding-top: 7px; color: #5b6b7b; font-size: 8.4px; line-height: 1.5; }
+    .foot-inner { border-top: 2px solid #027F31; margin: 0 40px; padding-top: 7px; color: #5b6b7b; font-size: 8.4px; line-height: 1.5; }
     .foot-inner table { width: 100%; border-collapse: collapse; }
-    .foot-inner b { color: #0a7d36; }
+    .foot-inner b { color: #027F31; }
 
 <?php if ($level >= 1): ?>
     /* Densidad compacta: gana ~1 bloque de firmas sin tocar la jerarquía visual. */
@@ -260,7 +260,7 @@ $buildHtml = function (int $level) use (
                     <tr>
                         <?php if ($logoData): ?><td style="width: 70px; vertical-align: top;"><img src="<?= $logoData ?>" class="brand-logo"></td><?php endif; ?>
                         <td style="vertical-align: top; padding-top: 2px;">
-                            <div class="brand-name"><?= $h(APP_LEGAL) ?></div>
+                            <div class="brand-name"><?= $h(sin_viudas(APP_LEGAL)) ?></div>
                             <div class="brand-meta"><?php if (APP_RNC !== ''): ?>RNC: <?= $h(APP_RNC) ?><br><?php endif; ?><?= $h(APP_ADDRESS) ?><br>Tel. <?= $h(APP_PHONE) ?> · <?= $h(APP_INFO_EMAIL) ?></div>
                         </td>
                     </tr>

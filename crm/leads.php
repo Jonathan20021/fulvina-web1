@@ -80,15 +80,16 @@ if ($hasDb) {
 $crmTitle = 'Leads';
 require_once __DIR__ . '/../includes/crm_header.php';
 ?>
+<?= sch_encabezado('Leads', 'Solicitudes del sitio público listas para convertir') ?>
+
 
 <?php if (!$hasDb): ?>
-    <div class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para gestionar leads.</div>
+    <div class="gas-aviso">Modo demo. Ejecuta <a class="underline" href="<?= url('install.php') ?>">install.php</a> para gestionar leads.</div>
 <?php endif; ?>
 
 <section class="crm-cockpit">
     <div class="crm-cockpit__top">
         <div class="crm-cockpit__hero">
-            <span class="crm-kicker"><i data-lucide="inbox"></i>Prospección comercial</span>
             <h2>Solicitudes del sitio público listas para convertir.</h2>
             <p>Da seguimiento a cada lead, cámbialo de estado y conviértelo en cliente con un clic para iniciar su ficha y cotizaciones.</p>
             <div class="crm-cockpit__actions">

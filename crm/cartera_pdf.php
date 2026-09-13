@@ -27,7 +27,7 @@ if (is_file($logoPath)) {
 
 /* Color por tramo, coherente con la pantalla. */
 $tone = [
-    'por_vencer' => ['#066128', '#f5faf6', '#c7d6c9'],
+    'por_vencer' => ['#016627', '#f5faf6', '#c7d6c9'],
     '0-30'       => ['#92660a', '#fffaf0', '#f4d58a'],
     '31-60'      => ['#92660a', '#fffaf0', '#f4d58a'],
     '61-90'      => ['#b42318', '#fef2f2', '#f3c4c4'],
@@ -39,40 +39,44 @@ ob_start();
 <!doctype html>
 <html lang="es"><head><meta charset="utf-8"><style>
     * { font-family: "DejaVu Sans", sans-serif; }
-    @page { margin: 28px 30px 70px; }
+    @page { margin: 28px 30px 58px; }
     body { margin: 0; color: #0e1a28; font-size: 10px; line-height: 1.4; }
     .muted { color: #56697b; }
     .right { text-align: right; }
     h1,h2,h3 { margin: 0; }
-    .accent { height: 5px; background: #0a7d36; }
+    .accent { height: 5px; background: #027F31; }
     .head { width: 100%; border-collapse: collapse; margin-top: 14px; }
     .head td { vertical-align: top; }
-    .brand-name { font-size: 18px; font-weight: bold; color: #0a7d36; letter-spacing: -.3px; }
+    .brand-name { font-size: 18px; font-weight: bold; color: #027F31; letter-spacing: -.3px; }
     .brand-sub { color: #56697b; font-size: 9px; }
     .doc-label { color: #8696a6; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; }
     .doc-title { font-size: 17px; font-weight: bold; color: #0e1a28; }
     .doc-meta { margin-top: 5px; color: #56697b; font-size: 9px; }
     .doc-meta b { color: #0e1a28; }
-    .kpis { width: 100%; border-collapse: separate; border-spacing: 5px; margin-top: 14px; }
+    .kpis { width: 100%; border-collapse: separate; border-spacing: 5px; margin-top: 10px; }
     .kpi { border: 1px solid #e3eaf1; border-radius: 7px; padding: 7px 9px; width: 16.6%; }
     .kpi .k { color: #8696a6; font-size: 7.6px; text-transform: uppercase; letter-spacing: .5px; }
     .kpi .v { font-size: 12px; font-weight: bold; margin-top: 3px; }
     .kpi .n { color: #56697b; font-size: 8px; }
-    .section { margin-top: 15px; page-break-inside: avoid; }
+    /* Sin page-break-inside aquí: esta sección crece con los datos y, cuando
+       mide más de una página, la regla desperdicia la hoja entera. */
+    .section { margin-top: 11px; }
+    .section h3 { page-break-after: avoid; }
+    .section table tr { page-break-inside: avoid; }
     .section h3 { font-size: 11px; padding: 5px 8px; border-radius: 6px 6px 0 0; margin: 0; }
     table.data { width: 100%; border-collapse: collapse; }
     table.data th { background: #f1f8f3; color: #41515f; font-size: 8.2px; text-transform: uppercase; letter-spacing: .4px; padding: 5px 6px; text-align: left; border-bottom: 1px solid #d8e6dd; }
     table.data th.r, table.data td.r { text-align: right; }
     table.data td { padding: 5px 6px; border-bottom: 1px solid #eef3f8; font-size: 9.2px; }
     table.data tr.sub td { background: #f7fafc; font-weight: bold; border-bottom: 1px solid #d8e6dd; }
-    .grand { margin-top: 16px; border: 2px solid #0a7d36; border-radius: 7px; padding: 8px 10px; }
-    .grand .k { color: #0a7d36; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; }
+    .grand { margin-top: 10px; border: 2px solid #027F31; border-radius: 7px; padding: 8px 10px; }
+    .grand .k { color: #027F31; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; }
     .grand .v { font-size: 17px; font-weight: bold; }
-    .note { margin-top: 12px; color: #56697b; font-size: 8.4px; }
+    .note { margin-top: 7px; color: #56697b; font-size: 8.4px; }
     .foot { position: fixed; left: -30px; right: -30px; bottom: -50px; height: 42px; }
-    .foot-inner { border-top: 2px solid #0a7d36; margin: 0 30px; padding-top: 6px; color: #56697b; font-size: 8.4px; }
+    .foot-inner { border-top: 2px solid #027F31; margin: 0 30px; padding-top: 6px; color: #56697b; font-size: 8.4px; }
     .foot-inner table { width: 100%; border-collapse: collapse; }
-    .foot-inner b { color: #0a7d36; }
+    .foot-inner b { color: #027F31; }
 </style></head>
 <body>
     <div class="foot"><div class="foot-inner"><table><tr>
@@ -86,7 +90,7 @@ ob_start();
             <table><tr>
                 <?php if ($logoData): ?><td style="width:54px;vertical-align:top;"><img src="<?= $logoData ?>" style="width:46px;"></td><?php endif; ?>
                 <td style="vertical-align:top;padding-top:2px;">
-                    <div class="brand-name"><?= $h(APP_LEGAL) ?></div>
+                    <div class="brand-name"><?= $h(sin_viudas(APP_LEGAL)) ?></div>
                     <?php if (APP_RNC !== ''): ?><div class="brand-sub">RNC: <?= $h(APP_RNC) ?></div><?php endif; ?>
                 </td>
             </tr></table>
@@ -106,9 +110,9 @@ ob_start();
                 <div class="n"><?= $h((string) $b['count']) ?> fact. · <?= $h($pct((float) $b['amount'])) ?></div>
             </td>
         <?php endforeach; ?>
-        <td class="kpi" style="border-color:#0a7d36;">
+        <td class="kpi" style="border-color:#027F31;">
             <div class="k">Total por cobrar</div>
-            <div class="v" style="color:#0a7d36;"><?= $m($total['amount']) ?></div>
+            <div class="v" style="color:#027F31;"><?= $m($total['amount']) ?></div>
             <div class="n"><?= $h((string) $total['count']) ?> facturas</div>
         </td>
     </tr></table>
@@ -120,6 +124,9 @@ ob_start();
                 <?= $h($b['label']) ?> — <?= $h((string) $b['count']) ?> factura<?= $b['count'] === 1 ? '' : 's' ?> · <?= $m($b['amount']) ?>
             </h3>
             <table class="data">
+                <!-- En <thead> a propósito: Dompdf lo repite en cada página de una
+                     tabla partida. Suelto, las hojas 2 y 3 salían sin cabecera. -->
+                <thead>
                 <tr>
                     <th style="width:23%">Cliente</th>
                     <th style="width:13%">Factura</th>
@@ -130,6 +137,7 @@ ob_start();
                     <th class="r" style="width:12%">Total</th>
                     <th class="r" style="width:12%">Saldo RD$</th>
                 </tr>
+                </thead>
                 <?php foreach ($b['rows'] as $r): ?>
                     <tr>
                         <td><?= $h($r['client_name'] ?: ($r['c_name'] ?? 'Cliente')) ?><?php if (!empty($r['client_rnc'])): ?><br><span class="muted"><?= $h($r['client_rnc']) ?></span><?php endif; ?></td>
