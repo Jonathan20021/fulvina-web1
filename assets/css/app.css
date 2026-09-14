@@ -5059,7 +5059,9 @@ html { scroll-padding-top: 74px; }
   gap: clamp(1rem, 2.5vw, 1.6rem);
   width: min(100% - 2rem, 1160px);
   margin-inline: auto;
-  align-items: stretch;
+  /* Cada tarjeta a su altura. Con «stretch», el formulario se estiraba hasta
+     igualar la columna oscura y el primer paso quedaba con la mitad en blanco. */
+  align-items: start;
 }
 .helpdesk-rail,
 .helpdesk-wizard,
@@ -5072,7 +5074,6 @@ html { scroll-padding-top: 74px; }
 .helpdesk-rail {
   display: flex;
   flex-direction: column;
-  min-height: 650px;
   background:
     linear-gradient(160deg, rgba(11, 21, 33, .96), rgba(8, 50, 29, .94)),
     #0b1521;
@@ -5102,12 +5103,14 @@ html { scroll-padding-top: 74px; }
   text-transform: uppercase;
 }
 .helpdesk-rail h1 {
-  max-width: 12ch;
+  /* Era clamp(2rem, 4vw, 3.35rem) sobre 12ch: un nombre largo de hospital
+     ocupaba tres líneas y se comía la columna. Identifica, no es el titular. */
+  max-width: 18ch;
   margin-top: .45rem;
   color: #fff;
-  font-size: clamp(2rem, 4vw, 3.35rem);
-  line-height: .96;
-  letter-spacing: -.035em;
+  font-size: clamp(1.6rem, 2.4vw, 2.1rem);
+  line-height: 1.08;
+  letter-spacing: -.02em;
 }
 .helpdesk-rail > span {
   display: block;
@@ -5120,7 +5123,6 @@ html { scroll-padding-top: 74px; }
 .helpdesk-rail__meta {
   display: grid;
   gap: .65rem;
-  margin-top: auto;
   padding-top: 2rem;
 }
 .helpdesk-rail__meta article {
@@ -5177,7 +5179,6 @@ html { scroll-padding-top: 74px; }
 .helpdesk-wizard {
   display: flex;
   flex-direction: column;
-  min-height: 650px;
   overflow: hidden;
 }
 .helpdesk-wizard__top {
@@ -9856,3 +9857,281 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--blue); }
   .crm-primary-btn:hover svg,
   .crm-secondary-btn:hover svg { transform: none; }
 }
+
+/* =========================================================================
+   PORTAL DE SOPORTE DEL CLIENTE — segunda pasada
+   ------------------------------------------------------------------------
+   El asistente arrastraba tres problemas: la mitad de la tarjeta en blanco
+   (las columnas se estiraban a la más alta), la barra de pasos con los
+   rótulos cortados, y el botón principal en azul heredado de app.css junto a
+   una columna verde con el logo de SCH. Aquí se corrigen los tres.
+   ========================================================================= */
+
+/* --- Columna oscura: de 1047px a lo que de verdad hace falta ------------- */
+.helpdesk-rail__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+  margin-top: 1.4rem;
+  padding: 0;
+  list-style: none;
+}
+.helpdesk-rail__chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .07);
+  padding: .3rem .65rem;
+  color: #DCE7DF;
+  font-size: .74rem;
+  font-weight: 600;
+}
+.helpdesk-rail__chips svg { width: 13px; height: 13px; color: #8EE5B1; }
+
+/* --- La salida de emergencia, arriba y visible --------------------------- */
+.helpdesk-urgente {
+  margin-top: 1.5rem;
+  border: 1px solid rgba(255, 176, 176, .3);
+  border-radius: 14px;
+  background: rgba(194, 32, 44, .14);
+  padding: .9rem 1rem;
+}
+.helpdesk-urgente p {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  color: #FFD9DC;
+  font-size: .86rem;
+}
+.helpdesk-urgente p svg { width: 16px; height: 16px; flex: none; }
+.helpdesk-urgente > span {
+  display: block;
+  margin-top: .2rem;
+  color: #E6BFC3;
+  font-size: .82rem;
+  line-height: 1.5;
+}
+.helpdesk-urgente__tels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: .4rem;
+  margin-top: .7rem;
+}
+.helpdesk-urgente__tels a {
+  display: block;
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .22);
+  padding: .5rem .6rem;
+  text-decoration: none;
+  transition: background .15s ease, border-color .15s ease;
+}
+.helpdesk-urgente__tels a:hover { background: rgba(0, 0, 0, .38); border-color: rgba(255, 255, 255, .3); }
+.helpdesk-urgente__tels b { display: block; color: #fff; font-size: .92rem; letter-spacing: -.01em; }
+.helpdesk-urgente__tels small { display: block; color: #C6B4B6; font-size: .7rem; }
+
+/* --- «Ten a mano» -------------------------------------------------------- */
+.helpdesk-rail__ayuda {
+  margin-top: 1.3rem;
+  border-top: 1px solid rgba(255, 255, 255, .12);
+  padding-top: 1.1rem;
+}
+.helpdesk-rail__ayuda > strong {
+  display: block;
+  color: #8EE5B1;
+  font-size: .7rem;
+  font-weight: 800;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.helpdesk-rail__wa {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  /* 24px de alto minimo: es un enlace que se pulsa con el dedo (WCAG 2.5.8).
+     Con solo la altura del texto se quedaba en 20px. */
+  min-height: 24px;
+  margin-top: .75rem;
+  padding-block: .25rem;
+  color: #8EE5B1;
+  font-size: .82rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.helpdesk-rail__wa svg { width: 15px; height: 15px; }
+.helpdesk-rail__wa:hover { color: #B6F2CF; text-decoration: underline; }
+
+/* --- Barra de pasos: que se lean enteros --------------------------------- */
+.helpdesk-progress { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.helpdesk-progress button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Rótulos que separan las dos mitades del primer paso ----------------- */
+.helpdesk-legend {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin-bottom: .85rem;
+  color: var(--ink);
+  font-size: .82rem;
+  font-weight: 800;
+  letter-spacing: .01em;
+}
+.helpdesk-legend:not(:first-child) {
+  margin-top: 1.6rem;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 1.4rem;
+}
+/* Sin número: el asistente ya numera los pasos arriba y dos numeraciones
+   encima confundían («1 Contacto y equipo» y debajo «1 Quién reporta»).
+   Un filete verde basta para separar las dos mitades del paso. */
+.helpdesk-legend::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  flex: none;
+  border-radius: 2px;
+  background: #027F31;
+}
+
+/* --- El verde de SCH, no el azul heredado -------------------------------- */
+/* Verde plano, el mismo del CRM (#027F31 = 5.14:1 con texto blanco). El
+   degradado que puse primero promediaba 4.10:1 y no llegaba a AA. */
+.helpdesk-public .helpdesk-portal .crm-primary-btn,
+.helpdesk-public .helpdesk-portal .sch-btn-primary {
+  background: #027F31;
+  border: 1px solid #027F31;
+}
+.helpdesk-public .helpdesk-portal .crm-primary-btn:hover,
+.helpdesk-public .helpdesk-portal .sch-btn-primary:hover {
+  background: #016627;
+  border-color: #016627;
+}
+.helpdesk-public .helpdesk-wizard__top p,
+.helpdesk-public .helpdesk-step-count { color: #016627; }
+.helpdesk-public .helpdesk-step-count { background: #E7F4EC; }
+.helpdesk-public .helpdesk-progress button.is-done,
+.helpdesk-public .helpdesk-progress button.is-active { border-top-color: #027F31; color: #0F1B14; }
+.helpdesk-public .helpdesk-progress button.is-done b,
+.helpdesk-public .helpdesk-progress button.is-active b { background: #027F31; color: #fff; }
+
+/* La columna izquierda son DOS tarjetas: el rail y la llamada de urgencia.
+   Van envueltas para que en escritorio se apilen y en móvil puedan separarse:
+   allí el formulario manda, pero el teléfono tiene que quedar por encima. */
+.helpdesk-col {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(.7rem, 1.4vw, 1rem);
+  min-width: 0;
+}
+.helpdesk-urgente {
+  margin-top: 0;
+  border-radius: 18px;
+  background:
+    linear-gradient(160deg, rgba(11, 21, 33, .96), rgba(58, 14, 18, .94)),
+    #0b1521;
+  padding: 1rem 1.1rem;
+}
+
+@media (max-width: 1099px) {
+  /* Los hijos de la columna pasan a ser hijos de la rejilla, y así cada uno
+     puede ordenarse por su cuenta. */
+  .helpdesk-col { display: contents; }
+  .helpdesk-urgente { order: -2; }
+  .helpdesk-wizard,
+  .helpdesk-done { order: -1; }
+}
+
+/* =========================================================================
+   IMPACTO EN LA OPERACIÓN — que el nivel se vea, y que se pueda usar a ciegas
+   ------------------------------------------------------------------------
+   Dos fallos: las cuatro opciones eran idénticas hasta pulsarlas —«Crítica»
+   se veía igual que «Baja»— y la elegida se teñía de verde, el color del
+   acierto, para decir «servicio detenido o riesgo». Además el radio va oculto
+   con opacity:0 y al llegar con Tab no cambiaba NADA: quien navega con teclado
+   no sabía en qué opción estaba.
+   ========================================================================= */
+.helpdesk-impact label {
+  position: relative;
+  padding-left: 1.75rem;          /* sitio para el punto de severidad */
+}
+/* El punto lleva el tono aunque la opción no esté elegida: así el nivel se lee
+   de un vistazo, antes de decidir. */
+.helpdesk-impact label::before {
+  content: "";
+  position: absolute;
+  top: .95rem;
+  left: .8rem;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--imp, #5B6B62);
+}
+.helpdesk-impact .imp--baja    { --imp: #5B6B62; --imp-tinte: #F2F4F3; }
+.helpdesk-impact .imp--media   { --imp: #6C5E3D; --imp-tinte: #F8F3E7; }
+.helpdesk-impact .imp--alta    { --imp: #A8551F; --imp-tinte: #FBF0E7; }
+.helpdesk-impact .imp--critica { --imp: #C2202C; --imp-tinte: #FCEEEF; }
+
+/* La elegida toma SU color, no el verde. Va con el prefijo .helpdesk-public
+   porque el portal ya tiene su propio bloque para estas tarjetas y, sin
+   igualar la especificidad, el verde seguía ganando. Mismo degradado que la
+   tarjeta en reposo (blanco -> tinte) para no romper el lenguaje. */
+.helpdesk-public .helpdesk-impact label.is-selected {
+  border-color: var(--imp);
+  background: linear-gradient(180deg, #fff, var(--imp-tinte));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--imp) 12%, transparent),
+              inset 0 0 0 1px var(--imp);
+}
+.helpdesk-public .helpdesk-impact label.is-selected span { color: var(--imp); }
+.helpdesk-public .helpdesk-impact label.is-selected small { color: var(--imp); opacity: .9; }
+
+/* Anillo de foco en la tarjeta cuando el radio oculto recibe el teclado. */
+.helpdesk-impact input:focus-visible + span {
+  outline: none;
+}
+.helpdesk-impact label:has(input:focus-visible) {
+  outline: 3px solid var(--imp, #027F31);
+  outline-offset: 2px;
+}
+/* Reserva para navegadores sin :has() — el radio dibuja su propio anillo. */
+@supports not selector(:has(*)) {
+  .helpdesk-impact input {
+    position: static;
+    opacity: 1;
+    width: 14px;
+    height: 14px;
+    pointer-events: auto;
+  }
+}
+
+/* La ayuda de la descripción cambia de tono cuando ya hay suficiente: es la
+   única confirmación de que el texto alcanza para enviar. */
+.helpdesk-public .sch-field__hint--ok {
+  color: #016627;
+  font-weight: 600;
+}
+
+/* Los «Editar» de la revisión medían 35x18: por debajo del mínimo táctil de
+   24px (WCAG 2.5.8), y es justo el botón que se pulsa cuando hay una errata
+   que corregir antes de enviar. Se le da altura y área sin cambiar su aspecto
+   de enlace. */
+.helpdesk-review dd button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 8px;
+  /* Sin margen negativo: agrandaba el area de toque sacando el boton 6px fuera
+     de su celda, y se desalineaba del resto de la columna. */
+  padding: .25rem .45rem;
+}
+.helpdesk-review dd button:hover {
+  background: var(--brand-tint);
+  text-decoration: none;
+}
+.helpdesk-public .helpdesk-review dd button { color: #016627; }
+.helpdesk-public .helpdesk-review dd button:hover { background: #E7F4EC; }

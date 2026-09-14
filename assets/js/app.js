@@ -292,16 +292,23 @@ window.crmFormModal = function crmFormModal(defaults, autoEdit) {
    `config` = { storageKey, equipment: [{id, label}] } injected per client. */
 window.publicTicketWizard = function publicTicketWizard(config) {
   const cfg = config || {};
-  const STEPS = 4;
+  /* Tres pasos, no cuatro.
+     Contacto eran cuatro campos cortos —y casi siempre ya rellenados con los
+     del último reporte—, así que ocupaba un paso entero para pedir un clic.
+     Va junto al equipo, que es la otra mitad de "quién y qué". Queda: quién y
+     qué / qué pasa / revisar. Un clic menos y ningún paso a medio llenar. */
+  const STEPS = 3;
   const CONTACT_KEYS = ['contact_name', 'email', 'phone', 'department'];
 
   return {
     step: 1,
     steps: STEPS,
-    titles: ['Contacto del reporte', 'Activo afectado', 'Prioridad y descripción', 'Revisión y envío'],
+    titles: ['Contacto y equipo', 'Qué está pasando', 'Revisión y envío'],
+    /* Rótulos cortos para la barra de pasos: los largos se cortaban a la
+       mitad («Prioridad y descri…») y un paso ilegible no orienta a nadie. */
+    shortTitles: ['Contacto y equipo', 'La falla', 'Revisión'],
     hints: [
-      'Necesitamos a quién buscar cuando el técnico tome el caso.',
-      'Identifica el activo para llegar con el repuesto correcto.',
+      'A quién buscar cuando el técnico tome el caso, y sobre qué equipo.',
       'Mientras mejor descrito, más rápido se resuelve.',
       'Revisa antes de enviar. Puedes editar cualquier dato.'
     ],
@@ -359,6 +366,15 @@ window.publicTicketWizard = function publicTicketWizard(config) {
       return found ? found.label : '';
     },
 
+    /* La descripción necesita 20 caracteres para pasar la validación. Antes eso
+       solo se sabía al fallar, y el contador decía «0 caracteres», que no ayuda
+       a nadie: nadie cuenta letras. Mejor decir cuánto falta y avisar cuándo ya
+       alcanza. */
+    DESC_MIN: 20,
+    get descLen() { return this.fields.description.trim().length; },
+    get descFaltan() { return Math.max(0, this.DESC_MIN - this.descLen); },
+    get descOk() { return this.descLen >= this.DESC_MIN; },
+
     get review() {
       const f = this.fields;
       const asset = this.equipmentLabel() || [f.equipment_name, f.serial].filter(Boolean).join(' · ');
@@ -368,11 +384,11 @@ window.publicTicketWizard = function publicTicketWizard(config) {
         row('Correo', f.email, 1),
         row('Teléfono', f.phone, 1),
         row('Área o departamento', f.department || f.area, 1),
-        row('Equipo', asset, 2),
-        row('Impacto', f.impact, 3),
-        row('Asunto', f.subject, 3),
-        row('Descripción', f.description, 3),
-        row('Disponibilidad', f.availability, 3)
+        row('Equipo', asset, 1),
+        row('Impacto', f.impact, 2),
+        row('Asunto', f.subject, 2),
+        row('Descripción', f.description, 2),
+        row('Disponibilidad', f.availability, 2)
       ];
     },
 
@@ -395,7 +411,7 @@ window.publicTicketWizard = function publicTicketWizard(config) {
         if (!f.contact_name.trim()) found.contact_name = 'Indica quién reporta el caso.';
         if (!this.validEmail(f.email)) found.email = 'Escribe un correo válido, ahí llega el seguimiento.';
       }
-      if (step === 3) {
+      if (step === 2) {
         if (!f.subject.trim()) found.subject = 'Resume el caso en una línea.';
         else if (f.subject.trim().length < 6) found.subject = 'El asunto es muy corto para identificar el caso.';
         if (!f.description.trim()) found.description = 'Describe la falla antes de enviar el ticket.';

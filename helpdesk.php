@@ -125,41 +125,46 @@ require_once __DIR__ . '/includes/public_header.php';
 <?php else: ?>
     <section class="helpdesk-portal" x-data="publicTicketWizard(<?= e(json_encode(['storageKey' => 'sch-helpdesk-' . $slug, 'equipment' => $equipmentOptions], JSON_UNESCAPED_UNICODE)) ?>)" x-init="init()">
         <div class="helpdesk-shell">
+            <div class="helpdesk-col">
             <aside class="helpdesk-rail" data-reveal="scale">
                 <span class="helpdesk-rail__logo"><img src="<?= asset(APP_LOGO) ?>" alt="SCH MEDICOS" width="200" height="182"></span>
                 <p class="helpdesk-kicker">Centro de helpdesk</p>
                 <h1><?= e($client['name']) ?></h1>
                 <span>Este canal crea tickets directos en la bandeja de soporte SCH MEDICOS con trazabilidad por empresa.</span>
-                <div class="helpdesk-rail__meta">
-                    <article><i data-lucide="building-2"></i><b><?= e($client['sector'] ?: 'Institucional') ?></b><small>Tipo de cliente</small></article>
-                    <article><i data-lucide="map-pin"></i><b><?= e($client['city'] ?: 'República Dominicana') ?></b><small>Ubicación</small></article>
-                    <article><i data-lucide="timer"></i><b>24/7</b><small>Entrada de reportes</small></article>
-                </div>
-                <ul class="helpdesk-rail__checklist">
-                    <li><i data-lucide="check"></i>Nombre y correo de quien reporta</li>
-                    <li><i data-lucide="check"></i>Equipo, serie y área afectada</li>
-                    <li><i data-lucide="check"></i>Qué falla y desde cuándo</li>
+                <?php /* Tres datos que antes ocupaban tres tarjetas de 70px cada una.
+                         Confirman que el enlace es el correcto —eso vale—, pero no
+                         merecen un tercio de la columna: caben en una línea. */ ?>
+                <ul class="helpdesk-rail__chips">
+                    <li><i data-lucide="building-2"></i><?= e($client['sector'] ?: 'Institucional') ?></li>
+                    <li><i data-lucide="map-pin"></i><?= e($client['city'] ?: 'República Dominicana') ?></li>
+                    <li><i data-lucide="timer"></i>Abierto 24/7</li>
                 </ul>
-                <div class="helpdesk-rail__contact">
-                    <strong>Soporte inmediato</strong>
-                    <p>Si el equipo está detenido o hay riesgo clínico, llama antes de abrir el ticket.</p>
-                    <a href="<?= tel_href(APP_PHONE) ?>">
-                        <i data-lucide="phone"></i>
-                        <span><?= e(APP_PHONE) ?></span>
-                        <small>Central</small>
-                    </a>
-                    <a href="<?= tel_href(APP_PHONE_SUPPORT) ?>">
-                        <i data-lucide="headset"></i>
-                        <span><?= e(APP_PHONE_SUPPORT) ?></span>
-                        <small>Soporte técnico</small>
-                    </a>
-                    <a href="https://wa.me/<?= APP_WHATSAPP ?>" target="_blank" rel="noopener">
-                        <i data-lucide="message-circle"></i>
-                        <span>WhatsApp SCH</span>
-                        <small>Respuesta en horario laboral</small>
+
+                <div class="helpdesk-rail__ayuda">
+                    <strong>Ten a mano</strong>
+                    <ul class="helpdesk-rail__checklist">
+                        <li><i data-lucide="check"></i>Nombre y correo de quien reporta</li>
+                        <li><i data-lucide="check"></i>Equipo, serie y área afectada</li>
+                        <li><i data-lucide="check"></i>Qué falla y desde cuándo</li>
+                    </ul>
+                    <a class="helpdesk-rail__wa" href="https://wa.me/<?= APP_WHATSAPP ?>" target="_blank" rel="noopener">
+                        <i data-lucide="message-circle"></i>¿Dudas? Escríbenos por WhatsApp
                     </a>
                 </div>
             </aside>
+
+            <?php /* Fuera del rail a proposito: en movil el formulario va primero y este
+                     bloque tiene que quedar ARRIBA, no debajo de mil pixeles de campos.
+                     Quien tiene un equipo detenido no debe scrollear para encontrarlo. */ ?>
+            <div class="helpdesk-urgente">
+                <p><i data-lucide="phone-call"></i><b>¿Equipo detenido o riesgo para un paciente?</b></p>
+                <span>No abras un ticket: llama. Es más rápido.</span>
+                <div class="helpdesk-urgente__tels">
+                    <a href="<?= tel_href(APP_PHONE_SUPPORT) ?>"><b><?= e(APP_PHONE_SUPPORT) ?></b><small>Soporte técnico</small></a>
+                    <a href="<?= tel_href(APP_PHONE) ?>"><b><?= e(APP_PHONE) ?></b><small>Central</small></a>
+                </div>
+            </div>
+            </div>
 
 <?php if ($createdTicket): ?>
                 <article class="helpdesk-done" data-reveal="scale">
@@ -197,11 +202,11 @@ require_once __DIR__ . '/includes/public_header.php';
                         <h2 x-text="titles[step - 1]">Contacto del reporte</h2>
                         <small x-text="hints[step - 1]">Necesitamos saber a quién buscar cuando el técnico tome el caso.</small>
                     </div>
-                    <span class="helpdesk-step-count">Paso <b x-text="step">1</b> de 4</span>
+                    <span class="helpdesk-step-count">Paso <b x-text="step">1</b> de 3</span>
                 </div>
 
                 <ol class="helpdesk-progress">
-                    <template x-for="(title, i) in titles" :key="title">
+                    <template x-for="(title, i) in shortTitles" :key="title">
                         <li>
                             <button type="button"
                                     :class="{ 'is-active': step === i + 1, 'is-done': step > i + 1 }"
@@ -214,6 +219,7 @@ require_once __DIR__ . '/includes/public_header.php';
                 </ol>
 
                 <div class="helpdesk-step" x-show="step === 1" x-transition.opacity>
+                    <p class="helpdesk-legend">Quién reporta</p>
                     <div class="helpdesk-form-grid">
                         <label class="sch-field" :class="errors.contact_name && 'has-error'">
                             <span>Nombre del contacto *</span>
@@ -236,9 +242,8 @@ require_once __DIR__ . '/includes/public_header.php';
                         </label>
                     </div>
                     <p class="helpdesk-note" x-show="remembered" x-cloak><i data-lucide="user-check"></i><span>Reusamos tus datos del último reporte. <button type="button" @click="forget()">No soy yo</button></span></p>
-                </div>
 
-                <div class="helpdesk-step" x-show="step === 2" x-transition.opacity x-cloak>
+                    <p class="helpdesk-legend">Qué equipo</p>
                     <div class="helpdesk-form-grid">
                         <label class="sch-field sch-field--full">
                             <span>Equipo registrado</span>
@@ -270,12 +275,15 @@ require_once __DIR__ . '/includes/public_header.php';
                     </div>
                 </div>
 
-                <div class="helpdesk-step" x-show="step === 3" x-transition.opacity x-cloak>
+                <div class="helpdesk-step" x-show="step === 2" x-transition.opacity x-cloak>
                     <fieldset class="helpdesk-impact-set">
                         <legend>Impacto en la operación</legend>
                         <div class="helpdesk-impact">
+                            <?php /* El nivel se lee ANTES de elegir: cada opción lleva su tono, del
+                                     neutro al rojo. Antes las cuatro eran iguales y la seleccionada se
+                                     ponía verde —el color del acierto— aunque fuera «servicio detenido». */ ?>
                             <?php foreach (['Baja', 'Media', 'Alta', 'Crítica'] as $impact): ?>
-                                <label :class="fields.impact === '<?= e($impact) ?>' ? 'is-selected' : ''">
+                                <label class="imp--<?= e(strtolower(str_replace('í', 'i', $impact))) ?>" :class="fields.impact === '<?= e($impact) ?>' ? 'is-selected' : ''">
                                     <input type="radio" name="impact" value="<?= e($impact) ?>" x-model="fields.impact">
                                     <span><?= e($impact) ?></span>
                                     <small><?= e(match ($impact) {
@@ -297,7 +305,7 @@ require_once __DIR__ . '/includes/public_header.php';
                         <span>Descripción técnica *</span>
                         <textarea name="description" rows="6" x-model="fields.description" @input="clear('description')" placeholder="Describe síntomas, alarmas, hora aproximada, área afectada y acciones realizadas." :aria-invalid="!!errors.description"></textarea>
                         <small class="sch-field__error" x-show="errors.description" x-text="errors.description" x-cloak></small>
-                        <small class="sch-field__hint" x-show="!errors.description">Mientras más detalle, menos visitas de diagnóstico. <b x-text="fields.description.length"></b> caracteres.</small>
+                        <small class="sch-field__hint" :class="descOk && 'sch-field__hint--ok'" x-show="!errors.description"><span x-show="!descOk">Cuenta los síntomas, las alarmas y desde cuándo. Faltan <b x-text="descFaltan"></b> caracteres para poder enviarlo.</span><span x-show="descOk" x-cloak>Con esto el técnico ya puede preparar la visita. Mientras más detalle, menos viajes.</span></small>
                     </label>
                     <label class="sch-field">
                         <span>Disponibilidad para visita</span>
@@ -305,7 +313,7 @@ require_once __DIR__ . '/includes/public_header.php';
                     </label>
                 </div>
 
-                <div class="helpdesk-step" x-show="step === 4" x-transition.opacity x-cloak>
+                <div class="helpdesk-step" x-show="step === 3" x-transition.opacity x-cloak>
                     <dl class="helpdesk-review">
                         <template x-for="row in review" :key="row.label">
                             <div :class="row.empty && 'is-empty'">
@@ -322,8 +330,8 @@ require_once __DIR__ . '/includes/public_header.php';
                 <div class="helpdesk-wizard__foot">
                     <button type="button" class="crm-secondary-btn" @click="back()" x-show="step > 1" x-cloak><i data-lucide="arrow-left"></i>Anterior</button>
                     <span></span>
-                    <button type="button" class="crm-primary-btn" @click="next()" x-show="step < 4"><i data-lucide="arrow-right"></i>Continuar</button>
-                    <button type="submit" class="crm-primary-btn" x-show="step === 4" x-cloak :disabled="sending"><i data-lucide="send"></i><span x-text="sending ? 'Enviando…' : 'Enviar ticket'">Enviar ticket</span></button>
+                    <button type="button" class="crm-primary-btn" @click="next()" x-show="step < 3"><i data-lucide="arrow-right"></i>Continuar</button>
+                    <button type="submit" class="crm-primary-btn" x-show="step === 3" x-cloak :disabled="sending"><i data-lucide="send"></i><span x-text="sending ? 'Enviando…' : 'Enviar ticket'">Enviar ticket</span></button>
                 </div>
             </form>
             <?php endif; ?>

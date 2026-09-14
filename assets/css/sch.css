@@ -1125,9 +1125,16 @@ body.crm-sch .dash-noti b { color: var(--tinta); }
 body.crm-sch .dash-noti span { color: var(--tinta-2); }
 
 /* «Emitida», «En proceso» y demás estados neutros se quedaban en 4.39:1 sobre
-   su propio tinte. La cápsula neutra lleva su tinta un paso más oscura. */
-body.crm-sch .status-chip,
-body.crm-sch .ops-status,
+   su propio tinte. La cápsula neutra lleva su tinta un paso más oscura.
+
+   OJO con el alcance: al principio esto decía solo «.status-chip» y, por ir
+   después de las variantes, les aplastaba el color a TODAS. «Vencida» salía
+   gris sobre fondo rosa y «Activo» gris sobre verde: el fondo seguía diciendo
+   peligro o éxito y la tinta ya no decía nada. Cada variante con significado
+   se pinta sola y todas pasan AA sobre su propio tinte (5.2:1 la más justa),
+   así que aquí solo entra la cápsula sin estado. */
+body.crm-sch .status-chip:not([class*="gas-estado--"]):not([class*="text-"]),
+body.crm-sch .ops-status:not([class*="gas-estado--"]):not([class*="text-"]),
 body.crm-sch .gas-estado--curso { color: #4F5D55; }
 
 /* =========================================================================
@@ -1289,7 +1296,9 @@ body.crm-sch .helpdesk-board-card__meta em {
 }
 body.crm-sch .helpdesk-board-card__title { color: var(--tinta); font-weight: 620; letter-spacing: -.012em; }
 body.crm-sch .helpdesk-board-card__client { color: var(--tinta-2); font-size: .78rem; }
-body.crm-sch .helpdesk-board-card__foot small { color: var(--tinta-3); font-size: .72rem; }
+/* Sin el :not(), este selector gana por especificidad a la variante del chip
+   y «Vencido» salía gris sobre su fondo rosa dentro del tablero. */
+body.crm-sch .helpdesk-board-card__foot small:not(.status-chip) { color: var(--tinta-3); font-size: .72rem; }
 
 /* La lista operativa comparte la misma cara. */
 body.crm-sch .helpdesk-ticket {
