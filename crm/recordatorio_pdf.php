@@ -3,11 +3,16 @@
  * Recordatorio de pago / estado de cuenta en PDF.
  *
  * Modos:
- *   ?client=ID          → estado de cuenta con TODOS los comprobantes con saldo del cliente.
- *   ?id=FACTURA_ID      → recordatorio de una sola factura (resuelve su cliente).
- *   ?scope=all          → lote: un recordatorio por cliente, uno por página (solo cartera).
+ *   ?client=ID          → estado de cuenta del cliente, con los ajustes guardados en
+ *                         «Editar estado de cuenta» (crm/estado_cuenta.php): comprobantes
+ *                         incluidos, tono, textos, nota, formas de pago y firma.
+ *   ?id=FACTURA_ID      → recordatorio de una sola factura (resuelve su cliente). Usa
+ *                         siempre el texto estándar: es un aviso puntual, no el estado de cuenta.
+ *   ?scope=all          → lote: un estado de cuenta por cliente, uno por página (solo
+ *                         cartera), cada uno con sus ajustes.
  *   &vencidas=1         → en el lote, únicamente clientes con comprobantes ya vencidos.
- *   &tono=cordial|firme|final  → fuerza el tono; por defecto se elige por días de atraso.
+ *   &tono=cordial|firme|final  → fuerza el tono; si no, el guardado para el cliente, y si
+ *                         no hay, se elige por días de atraso.
  *   &download=1         → fuerza la descarga en vez de la vista previa.
  *
  * El documento es para el cliente: lleva el logo, los datos fiscales de la
@@ -82,13 +87,13 @@ if (!$hasDb) {
                      'address' => 'Av. Principal, Santiago de los Caballeros', 'email' => 'compras@hms.local', 'phone' => '809-000-0000'],
         'rows' => $demoRows, 'count' => 2, 'total_dop' => 20960.0, 'by_currency' => ['DOP' => 20960.0],
         'overdue_count' => 1, 'overdue_dop' => 12700.0, 'upcoming_dop' => 8260.0, 'max_days' => 45,
-        'next_due' => date('Y-m-d', strtotime('+10 days')),
+        'next_due' => date('Y-m-d', strtotime('+10 days')), 'custom' => null,
     ];
 } elseif ($scope === 'all') {
-    foreach (receivables_clients($onlyOverdue) as $c) {
-        $data = client_receivables((int) $c['client_id']);
-        if ($data['count'] > 0) {
-            $docs[] = $data;
+    foreach (statement_batch_clients($onlyOverdue) as $c) {
+        $built = statement_build((int) $c['client_id'], $c['custom'], true);
+        if ($built['data']['count'] > 0) {
+            $docs[] = $built['data'] + ['custom' => $built['custom']];
         }
     }
     if (!$docs) {
@@ -108,12 +113,21 @@ if (!$hasDb) {
         http_response_code(400);
         exit('Indica el cliente o la factura del recordatorio.');
     }
-    $data = client_receivables($clientId, $onlyInvoice ? [$invoiceId] : []);
+    if ($onlyInvoice) {
+        $data = client_receivables($clientId, [$invoiceId]) + ['custom' => null];
+        $pending = $data['count'];
+    } else {
+        $built = statement_build($clientId);
+        $data = $built['data'] + ['custom' => $built['custom']];
+        $pending = $built['pending'];
+    }
     if ($data['count'] === 0) {
         http_response_code(404);
         exit($onlyInvoice
             ? 'Esta factura no tiene saldo pendiente: no procede un recordatorio de pago.'
-            : 'Este cliente no tiene comprobantes con saldo pendiente.');
+            : ($pending > 0
+                ? 'Todos los comprobantes pendientes de este cliente están fuera de su estado de cuenta. Ábrelo en «Editar estado de cuenta» y marca al menos uno.'
+                : 'Este cliente no tiene comprobantes con saldo pendiente.'));
     }
     $docs[] = $data;
 }
@@ -136,8 +150,6 @@ if (is_file($logoPath) && is_readable($logoPath)) {
     }
 }
 
-$paymentInfo = reminder_payment_info();
-$contactInfo = reminder_contact();
 $today = date('Y-m-d');
 $issuer = current_user()['name'] ?? '';
 
@@ -221,6 +233,10 @@ ob_start();
     .due-box .w { color: #41515f; font-size: 8.4px; margin-top: 3px; line-height: 1.4; }
     .due-box .split { color: #41515f; font-size: 8.4px; margin-top: 4px; }
 
+    .note-box { margin-top: 9px; border: 1px solid #e3eaf1; border-radius: 8px; padding: 7px 10px; background: #fbfcfd; page-break-inside: avoid; }
+    .note-box .k { color: #8696a6; font-size: 7.8px; letter-spacing: 1.4px; text-transform: uppercase; font-weight: bold; }
+    .note-box p { margin-top: 2px; color: #1a2734; font-size: 9.6px; line-height: 1.5; }
+    .plan-line { color: #41515f; font-size: 7.9px; }
     .close-text { margin-top: 8px; color: #2b3b4b; font-size: 9.9px; line-height: 1.55; text-align: justify; }
     .note { margin-top: 7px; color: #8696a6; font-size: 8px; line-height: 1.5; }
 
@@ -251,15 +267,20 @@ ob_start();
 
 <?php foreach ($docs as $doc):
     $client = $doc['client'] ?? [];
-    $toneKey = $forcedTone !== '' ? $forcedTone : reminder_tone_for((int) $doc['max_days']);
+    $custom = $doc['custom'] ?? null;
+    $savedTone = (string) ($custom['tone'] ?? '');
+    $toneKey = $forcedTone !== '' ? $forcedTone
+        : (isset($tones[$savedTone]) ? $savedTone : reminder_tone_for((int) $doc['max_days']));
     $t = $tones[$toneKey];
+    $tx = statement_texts($custom, $toneKey);
     $vars = [
         'empresa' => APP_LEGAL,
         'cliente' => (string) ($client['name'] ?? 'Cliente'),
         'fecha' => date_es($today),
         'total' => $m($doc['total_dop']),
+        'vencido' => $m($doc['overdue_dop']),
         'dias' => (string) (int) $doc['max_days'],
-        'contacto' => $contactInfo,
+        'contacto' => $tx['contact'],
     ];
     $ref = 'REC-' . date('Ymd') . '-' . str_pad((string) (int) ($client['id'] ?? 0), 4, '0', STR_PAD_LEFT);
     $words = money_in_words((float) $doc['total_dop'], 'DOP');
@@ -301,7 +322,7 @@ ob_start();
         </table>
 
         <div class="to">
-            <h3>Dirigido a · Atención: Departamento de Cuentas por Pagar</h3>
+            <h3>Dirigido a<?= trim($tx['attention']) !== '' ? ' · Atención: ' . $h($tx['attention']) : '' ?></h3>
             <div class="name"><?= $h($client['name'] ?? 'Cliente') ?><?php if (!empty($client['rnc'])): ?><span class="rnc"> · RNC/Cédula: <?= $h($client['rnc']) ?></span><?php endif; ?></div>
             <p>
                 <?php
@@ -317,10 +338,10 @@ ob_start();
 
         <div class="subject" style="border-left: 3px solid <?= $t['color'] ?>;">
             <div class="k">Asunto</div>
-            <div class="v"><?= $h(reminder_fill($t['subject'], $vars)) ?></div>
+            <div class="v"><?= $h(reminder_fill($tx['subject'], $vars)) ?></div>
         </div>
 
-        <p class="body-text"><?= $h(reminder_fill($t['intro'], $vars)) ?></p>
+        <p class="body-text"><?= nl2br($h(reminder_fill($tx['intro'], $vars))) ?></p>
 
         <table class="kpis">
             <tr>
@@ -372,10 +393,13 @@ ob_start();
                         <td>
                             <span class="doc-name"><?= $h($r['invoice_number'] ?? '') ?></span>
                             <?php if (!empty($r['title'])): ?><br><span class="muted"><?= $h($r['title']) ?></span><?php endif; ?>
+                            <?php if (!empty($r['plan'])): $pl = $r['plan']; ?>
+                                <br><span class="plan-line">Plan de <?= (int) $pl['cuotas'] ?> cuotas<?php if ((int) $pl['pagadas'] > 0): ?> · <?= (int) $pl['pagadas'] ?> pagada<?= (int) $pl['pagadas'] === 1 ? '' : 's' ?><?php endif; ?><?php if ((float) $pl['vencido'] > 0.009): ?> · vencido <?= $h($mc($pl['vencido'], $rCur)) ?><?php endif; ?><?php if (!empty($pl['proxima'])): ?> · próxima <?= $h($mc($pl['proxima']['pending'], $rCur)) ?> el <?= $h(date_es($pl['proxima']['due_date'])) ?><?php endif; ?></span>
+                            <?php endif; ?>
                         </td>
                         <td><span class="ncf-mono"><?= $h($r['ncf'] ?: '—') ?></span></td>
                         <td><?= $h(date_es($r['issue_date'] ?? null)) ?></td>
-                        <td><?= $h(date_es($r['due_date'] ?? null)) ?></td>
+                        <td><?= $h(date_es($r['due_effective'] ?? $r['due_date'] ?? null)) ?><?php if (!empty($r['plan']['actual'])): ?><br><span class="muted" style="font-size:7.8px">cuota <?= (int) $r['plan']['actual']['seq'] ?> de <?= (int) $r['plan']['cuotas'] ?></span><?php endif; ?></td>
                         <td class="r"><span class="days-chip <?= $chip ?>"><?= $rDays > 0 ? $h((string) $rDays) . ' d' : ($rDays === 0 ? 'hoy' : 'en ' . $h((string) abs($rDays)) . ' d') ?></span></td>
                         <td class="r"><?= $h($mc($r['total'] ?? 0, $rCur)) ?></td>
                         <td class="r"><?= (float) ($r['amount_paid'] ?? 0) > 0 ? $h($mc($r['amount_paid'], $rCur)) : '—' ?></td>
@@ -389,12 +413,19 @@ ob_start();
             </tbody>
         </table>
 
+        <?php if (trim($tx['note']) !== ''): ?>
+            <div class="note-box" style="background: <?= $t['soft'] ?>; border-color: <?= $t['line'] ?>;">
+                <div class="k">Nota</div>
+                <p><?= nl2br($h(reminder_fill($tx['note'], $vars))) ?></p>
+            </div>
+        <?php endif; ?>
+
         <table class="lower">
             <tr>
                 <td class="l">
                     <div class="pay-box">
                         <h3>Formas de pago</h3>
-                        <p><?= nl2br($h(trim($paymentInfo))) ?></p>
+                        <p><?= nl2br($h(trim(reminder_fill($tx['payment_info'], $vars)))) ?></p>
                     </div>
                 </td>
                 <td class="r">
@@ -414,14 +445,14 @@ ob_start();
             </tr>
         </table>
 
-        <p class="close-text"><?= $h(reminder_fill($t['close'], $vars)) ?></p>
+        <p class="close-text"><?= nl2br($h(reminder_fill($tx['closing'], $vars))) ?></p>
 
         <table class="sign">
             <tr>
                 <td style="width:42%; vertical-align: bottom; padding-top: 6px;">
                     <div class="sign-line">
                         <b>Por <?= $h(APP_LEGAL) ?></b>
-                        <span><?= $h($contactInfo) ?></span>
+                        <span><?= $h($tx['contact']) ?></span>
                     </div>
                 </td>
                 <td style="width:58%; vertical-align: bottom; padding-left: 18px;">

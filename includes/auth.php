@@ -4,16 +4,90 @@ declare(strict_types=1);
 
 function current_user(): ?array
 {
+    if (isset($_SESSION['user'])) {
+        session_user_refresh();
+    }
     return $_SESSION['user'] ?? null;
 }
 
 function is_logged_in(): bool
 {
-    return isset($_SESSION['user']);
+    return isset($_SESSION['user']) && session_user_refresh();
+}
+
+/**
+ * Confirma contra la base que el usuario de la sesión sigue existiendo, sigue
+ * activo, y trae su rol ACTUAL. Una vez por petición.
+ *
+ * Antes la sesión guardaba el rol al iniciar y el CRM se fiaba de esa copia
+ * hasta que la persona cerraba el navegador. Consecuencias probadas:
+ *   · a quien se bajaba de admin a ventas le seguía funcionando Configuración;
+ *   · a quien se desactivaba o se borraba seguía entrando a todo.
+ * Desactivar a un empleado que se va tiene que cortarle el acceso YA, no cuando
+ * se le ocurra cerrar la pestaña.
+ *
+ * Cuesta una consulta por clave primaria. Sin base de datos no hay contra qué
+ * comprobar, y el administrador demo local (id 0) no existe en ninguna tabla:
+ * en esos dos casos se respeta la sesión.
+ */
+function session_user_refresh(): bool
+{
+    static $vigente = null;
+    if ($vigente !== null) {
+        return $vigente && isset($_SESSION['user']);
+    }
+    if (!isset($_SESSION['user'])) {
+        return $vigente = false;
+    }
+    $u = $_SESSION['user'];
+    if (!empty($u['demo'])) {
+        return $vigente = true;
+    }
+    $pdo = db(false);
+    if (!$pdo || !table_exists('users')) {
+        return $vigente = true;
+    }
+
+    $id = (int) ($u['id'] ?? 0);
+    $cols = 'id, name, email, role, status' . (column_exists('users', 'must_change_password') ? ', must_change_password' : '');
+    $row = null;
+    if ($id > 0) {
+        try {
+            $row = fetch_one("SELECT {$cols} FROM users WHERE id = ? LIMIT 1", [$id]);
+        } catch (Throwable) {
+            // Un fallo puntual de la base no debe expulsar a nadie.
+            return $vigente = true;
+        }
+    }
+
+    if (!$row || (string) $row['status'] !== 'activo') {
+        unset($_SESSION['user']);
+        if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
+            session_regenerate_id(true);
+        }
+        flash('warning', 'Tu sesión se cerró porque tu cuenta cambió. Si crees que es un error, habla con el administrador.');
+        return $vigente = false;
+    }
+
+    $_SESSION['user']['role'] = (string) $row['role'];
+    $_SESSION['user']['name'] = (string) $row['name'];
+    $_SESSION['user']['email'] = (string) $row['email'];
+    if (array_key_exists('must_change_password', $row)) {
+        if ((int) $row['must_change_password'] === 1) {
+            $_SESSION['user']['must_change_password'] = true;
+        } else {
+            unset($_SESSION['user']['must_change_password']);
+        }
+    }
+    return $vigente = true;
 }
 
 function current_role(): string
 {
+    // El rol que manda es el de la base, no el que había al iniciar sesión.
+    if (isset($_SESSION['user'])) {
+        session_user_refresh();
+    }
     return (string) ($_SESSION['user']['role'] ?? '');
 }
 
@@ -202,6 +276,17 @@ function authenticate_user(string $email, string $password): ?array
                 'role' => $user['role'],
                 'must_change_password' => (int) ($user['must_change_password'] ?? 0) === 1,
             ];
+        }
+
+        /* Mismo trabajo cuando el correo no existe. Sin esto, comprobar la clave
+           (bcrypt) solo ocurría si el usuario existía: 43 ms frente a 0,1 ms,
+           medido. El retardo fijo del login se sumaba a los dos por igual, así
+           que la diferencia seguía viéndose desde fuera y bastaba cronometrar
+           para saber qué correos son de empleados, sin conocer ninguna clave. */
+        if (!$user) {
+            // Hash FIJO y precalculado: calcularlo aquí costaría otros ~43 ms y la
+            // diferencia se invertiría en vez de desaparecer.
+            password_verify($password, '$2y$10$cGSBHxyYzbaUiOkIKKAXAuAf6TLKZFV1PBZDjsxNQjyTuhrOThXLa');
         }
 
         // Database reachable: ONLY a real, verified, active user may enter.

@@ -317,6 +317,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
 
         if ($clientId <= 0 || $title === '' || count($items) === 0) {
             flash('warning', 'Selecciona cliente, título y al menos una línea de cotización.');
+        } elseif (!fetch_one('SELECT id FROM clients WHERE id=?', [$clientId])) {
+            /* Sin esta comprobación la clave foránea lanzaba una excepción sin
+               capturar y se perdía la cotización entera —partidas, precios y
+               condiciones— en una pantalla en blanco. Pasa cuando la lista de
+               clientes del formulario cambió mientras se llenaba. */
+            flash('warning', 'Ese cliente ya no existe. Vuelve a elegirlo: la cotización no se guardó.');
         } else {
             $spread = distribute_discount($items, $discountValue, $discountMode);
             $items = $spread['items'];

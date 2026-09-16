@@ -317,11 +317,40 @@ function otp_mask_email(string $email): string
  * Verify a submitted code against the pending login.
  * Returns ['ok' => bool, 'user' => array|null, 'error' => string].
  */
+/**
+ * Clave del contador de códigos fallidos de UNA CUENTA.
+ *
+ * El límite de 5 intentos vivía en la sesión: con la contraseña correcta bastaba
+ * volver a entrar para recibir un código nuevo y probar otros 5, sin fin, porque
+ * acertar la clave borra los fallos registrados. Contando por cuenta en la base,
+ * cerrar sesión o cambiar de navegador ya no reinicia nada.
+ *
+ * La columna mide 64: «otp:» + hash completo serían 68 y MySQL estricto (el de
+ * producción) rechazaría la fila, apagando el contador sin avisar.
+ */
+function otp_fail_key(string $email): string
+{
+    return 'otp:' . substr(login_email_key($email), 0, 48);
+}
+
+/** Códigos fallidos permitidos por cuenta cada 15 minutos. */
+const OTP_MAX_FALLOS_CUENTA = 10;
+
+function otp_account_locked(string $email): bool
+{
+    return $email !== '' && login_recent_failures(otp_fail_key($email)) >= OTP_MAX_FALLOS_CUENTA;
+}
+
 function otp_verify(string $code): array
 {
     $p = otp_pending();
     if ($p === null) {
         return ['ok' => false, 'user' => null, 'error' => 'El código expiró. Inicia sesión de nuevo.'];
+    }
+    $cuenta = (string) ($p['email'] ?? '');
+    if (otp_account_locked($cuenta)) {
+        otp_clear();
+        return ['ok' => false, 'user' => null, 'error' => 'Demasiados códigos incorrectos para esta cuenta. Espera 15 minutos antes de volver a intentar.'];
     }
     if ((int) ($p['attempts'] ?? 0) >= 5) {
         otp_clear();
@@ -333,8 +362,10 @@ function otp_verify(string $code): array
     if ($code !== '' && hash_equals((string) $p['hash'], hash('sha256', $code))) {
         $user = $p['user'];
         otp_clear();
+        login_clear_failures(otp_fail_key($cuenta));
         return ['ok' => true, 'user' => $user, 'error' => ''];
     }
+    login_record_failure(otp_fail_key($cuenta));
     return ['ok' => false, 'user' => null, 'error' => 'Código incorrecto. Verifica e intenta otra vez.'];
 }
 

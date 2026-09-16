@@ -27,7 +27,7 @@ $num = static fn ($v) => number_format((float) $v, 2, '.', ''); // punto decimal
 
 $put([APP_LEGAL . ' — Cuentas por cobrar por antigüedad']);
 $put(['Generado', date('d/m/Y H:i'), 'Por', (string) (current_user()['name'] ?? '')]);
-$put(['Criterio', 'Días contados desde la fecha de vencimiento; saldo neto de abonos y retenciones; USD convertido a RD$ con la tasa del comprobante']);
+$put(['Criterio', 'Días contados desde la fecha de vencimiento (con plan de cuotas, desde la cuota pendiente más antigua); saldo neto de abonos y retenciones; USD convertido a RD$ con la tasa del comprobante']);
 $put([]);
 
 $put(['RESUMEN POR TRAMO']);
@@ -51,7 +51,7 @@ foreach ($report['buckets'] as $b) {
             (string) ($r['ncf'] ?? ''),
             (string) $r['ncf_type'] . ' - ' . ncf_type_label((string) $r['ncf_type']),
             date_es($r['issue_date'] ?? null),
-            date_es($r['due_date'] ?? null),
+            date_es($r['due_effective'] ?? $r['due_date'] ?? null),
             (string) ($r['payment_condition'] ?? ''),
             (string) ($r['currency'] ?? 'DOP'),
             $num($r['total']),

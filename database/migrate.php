@@ -66,6 +66,10 @@ $out('invoices/invoice_items/ncf_sequences + discount_pct: OK');
 
 ensure_products_schema();
 $out('products + product_id/unit_cost en partidas: OK');
+ensure_cobros_schema();
+$out('historial de recibos + plan de cuotas: OK');
+ensure_statement_schema();
+$out('estados de cuenta editables: OK');
 
 /*
  * 3) Enlazar notas de crédito históricas.
@@ -136,6 +140,10 @@ $checks = [
     ['quote_items', 'unit_cost'],
     ['equipment', 'last_service_at'],
     ['clients', 'support_slug'],
+    ['invoices', 'installment_base'],
+    ['invoice_installments', 'cumulative'],
+    ['invoice_payment_log', 'before_json'],
+    ['client_statements', 'excluded_ids'],
 ];
 $allOk = true;
 foreach ($checks as [$table, $col]) {
@@ -143,6 +151,13 @@ foreach ($checks as [$table, $col]) {
     $allOk = $allOk && $ok;
     $out(sprintf('  [%s] %s.%s', $ok ? 'OK' : 'FALTA', $table, $col));
 }
+/* El índice de recibos: tiene que ser por (recibo, factura). Uno UNIQUE sobre el
+   número a secas rompe cualquier cobro repartido entre varias facturas. */
+$lineaOk = table_exists('invoice_payments') && index_exists('invoice_payments', 'uniq_receipt_line', true);
+$viejo = table_exists('invoice_payments') && index_exists('invoice_payments', 'uniq_payment_receipt', true);
+$allOk = $allOk && $lineaOk && !$viejo;
+$out(sprintf('  [%s] invoice_payments: índice único por (recibo, factura)', $lineaOk ? 'OK' : 'FALTA'));
+$out(sprintf('  [%s] invoice_payments: sin el índice único viejo sobre el número', $viejo ? 'FALTA quitarlo' : 'OK'));
 foreach (['activity_log', 'contacts', 'settings', 'login_attempts'] as $t) {
     // login_attempts is created lazily on first login attempt; it's fine if absent here.
     $exists = table_exists($t);

@@ -2864,3 +2864,444 @@ body.crm-sch .usr-pendiente {
   white-space: nowrap;
 }
 :root[data-tema="oscuro"] body.crm-sch .usr-pendiente { color: #D4B872; }
+
+/* =========================================================================
+   44 · COBROS: RECIBOS QUE SE CORRIGEN Y PLANES EN CUOTAS
+   ========================================================================= */
+
+/* --- Tabla de cuotas ----------------------------------------------------- */
+body.crm-sch .cuotas__de { color: var(--tinta-3); font-size: .74rem; }
+body.crm-sch .cuotas__cero { color: var(--tinta-3); }
+/* La cuota pagada se apaga: lo que importa leer es lo que falta. */
+body.crm-sch .cuotas__fila--pagada td { color: var(--tinta-2); }
+body.crm-sch .cuotas__fila--pagada td strong { color: var(--tinta-2); font-weight: 600; }
+body.crm-sch .cuotas__fila--vencida td:first-child { box-shadow: inset 3px 0 0 var(--baja); }
+
+/* --- Pagos registrados --------------------------------------------------- */
+body.crm-sch .recibo-multi {
+  display: inline-block;
+  margin-left: .4rem;
+  border-radius: 999px;
+  background: var(--bronce-suave);
+  padding: .08rem .45rem;
+  color: var(--bronce-tinta);
+  font-size: .68rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+body.crm-sch .crm-icon-action--peligro:hover { color: var(--baja); background: var(--baja-suave); }
+
+/* --- Historial ----------------------------------------------------------- */
+body.crm-sch .recibo-hist__lista { display: grid; gap: .1rem; }
+body.crm-sch .recibo-hist__item {
+  display: flex;
+  align-items: flex-start;
+  gap: .75rem;
+  border-top: 1px solid var(--linea);
+  padding: .7rem 0;
+}
+body.crm-sch .recibo-hist__item:first-child { border-top: 0; }
+body.crm-sch .recibo-hist__item .status-chip { flex: none; margin-top: .1rem; }
+body.crm-sch .recibo-hist__cuerpo p { color: var(--tinta); font-size: .86rem; }
+body.crm-sch .recibo-hist__cuerpo small { display: block; margin-top: .15rem; color: var(--tinta-2); font-size: .76rem; }
+
+/* --- Diálogo: corregir / anular ------------------------------------------ */
+body.crm-sch .crm-modal__icon--peligro { background: var(--baja-suave); color: var(--baja); }
+body.crm-sch .recibo-edit__rotulo {
+  margin: 1.1rem 0 .45rem;
+  color: var(--tinta-2);
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+body.crm-sch .recibo-edit__lineas { display: grid; gap: .4rem; }
+body.crm-sch .recibo-edit__linea {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 11rem;
+  align-items: center;
+  gap: .75rem;
+  border: 1px solid var(--linea);
+  border-radius: 12px;
+  padding: .45rem .5rem .45rem .8rem;
+}
+body.crm-sch .recibo-edit__linea.is-aqui { border-color: var(--verde); background: var(--verde-tenue); }
+body.crm-sch .recibo-edit__linea b { display: block; color: var(--tinta); font-size: .86rem; font-family: var(--font-mono, monospace); }
+body.crm-sch .recibo-edit__linea small { color: var(--verde-tinta); font-size: .7rem; font-weight: 600; }
+body.crm-sch .recibo-edit__total { margin-top: .55rem; color: var(--tinta-2); font-size: .82rem; text-align: right; }
+body.crm-sch .recibo-edit__total b { color: var(--tinta); }
+body.crm-sch .recibo-edit__ayuda { margin-top: .35rem; color: var(--tinta-2); font-size: .76rem; }
+body.crm-sch .recibo-edit__resumen { display: grid; gap: .3rem; margin: .7rem 0 0; padding: 0; list-style: none; }
+body.crm-sch .recibo-edit__resumen li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px dashed var(--linea-2);
+  padding: .35rem 0;
+  font-size: .86rem;
+}
+body.crm-sch .recibo-edit__resumen li span { color: var(--tinta-2); font-family: var(--font-mono, monospace); }
+body.crm-sch .recibo-edit__resumen li b { color: var(--tinta); }
+
+/* --- Diálogo: plan de cuotas --------------------------------------------- */
+body.crm-sch .crm-modal--ancho { width: min(100% - 2rem, 640px); max-width: 640px; }
+body.crm-sch .plan-gen {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr) minmax(0, 1fr);
+  gap: .7rem;
+  align-items: end;
+}
+body.crm-sch .plan-gen__btn { grid-column: 1 / -1; justify-self: start; }
+body.crm-sch .plan-filas { margin-top: 1rem; border: 1px solid var(--linea); border-radius: 14px; overflow: hidden; }
+body.crm-sch .plan-filas__cab,
+body.crm-sch .plan-filas__fila {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr) 10rem;
+  gap: .6rem;
+  align-items: center;
+  padding: .45rem .7rem;
+}
+body.crm-sch .plan-filas__cab {
+  background: var(--nube);
+  color: var(--tinta-2);
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+body.crm-sch .plan-filas__fila { border-top: 1px solid var(--linea); }
+body.crm-sch .plan-filas__n { color: var(--tinta-2); font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
+body.crm-sch .plan-filas__fila.has-error .crm-input { border-color: var(--baja); }
+body.crm-sch .plan-cuadre {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: .5rem;
+  margin-top: .8rem;
+  border-radius: 12px;
+  padding: .6rem .8rem;
+  font-size: .84rem;
+}
+body.crm-sch .plan-cuadre span { display: inline-flex; align-items: center; gap: .3rem; }
+body.crm-sch .plan-cuadre.is-ok { background: var(--verde-suave); color: var(--verde-tinta); }
+body.crm-sch .plan-cuadre.is-mal { background: var(--baja-suave); color: var(--baja); }
+body.crm-sch .plan-cuadre b { font-variant-numeric: tabular-nums; }
+body.crm-sch .plan-aviso { margin-top: .5rem; color: var(--baja); font-size: .8rem; font-weight: 600; }
+
+@media (max-width: 560px) {
+  body.crm-sch .plan-gen { grid-template-columns: 1fr 1fr; }
+  body.crm-sch .plan-gen label:first-child { grid-column: 1 / -1; }
+  body.crm-sch .recibo-edit__linea { grid-template-columns: 1fr; }
+  body.crm-sch .plan-filas__cab,
+  body.crm-sch .plan-filas__fila { grid-template-columns: 1.6rem minmax(0, 1fr) 7.5rem; gap: .4rem; padding-inline: .5rem; }
+}
+
+/* En oscuro la tinta de alarma sobre su tinte necesita el rojo claro. */
+:root[data-tema="oscuro"] body.crm-sch .plan-cuadre.is-mal,
+:root[data-tema="oscuro"] body.crm-sch .plan-aviso { color: #F28B92; }
+:root[data-tema="oscuro"] body.crm-sch .crm-icon-action--peligro:hover { color: #F28B92; }
+
+/* La tarjeta no tiene relleno propio (las tablas van a sangre) y su cabecera
+   sí: la lista del historial quedaba 18px más a la izquierda que el título. */
+body.crm-sch .recibo-hist__lista { padding: 0 1.1rem .5rem; }
+/* «Anulado» y «Corregido» miden distinto: con ancho fijo los números de recibo
+   quedan en la misma columna y se leen como lista, no como texto suelto. */
+body.crm-sch .recibo-hist__item .status-chip { min-width: 6.4rem; justify-content: center; }
+
+/* =========================================================================
+   45 · ESTADO DE CUENTA EDITABLE
+   ------------------------------------------------------------------------
+   Una pantalla de redacción: a la izquierda lo que se decide (qué comprobantes,
+   qué tono, qué se dice) y a la derecha la hoja que va a recibir el cliente,
+   que cambia mientras se escribe. La hoja es papel también de noche, como la
+   vista de una factura (sección 41): es la previsualización de un documento.
+   ========================================================================= */
+
+body.crm-sch .edo-cab {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: .8rem 1.2rem;
+  margin-bottom: 1rem;
+}
+body.crm-sch .edo-cab h2 { color: var(--tinta); font-size: 1.35rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; text-wrap: balance; }
+body.crm-sch .edo-cab p { margin-top: .25rem; color: var(--tinta-2); font-size: .86rem; font-variant-numeric: tabular-nums; }
+body.crm-sch .edo-cab__acc { display: flex; flex-wrap: wrap; gap: .5rem; }
+
+body.crm-sch .edo-aviso { align-items: flex-start; }
+body.crm-sch .edo-aviso p { line-height: 1.5; }
+
+body.crm-sch .edo-ajustado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--linea-2);
+  border-radius: var(--r-interior);
+  background: var(--papel);
+  padding: .6rem .6rem .6rem .9rem;
+}
+body.crm-sch .edo-ajustado p { display: flex; align-items: flex-start; gap: .55rem; color: var(--tinta-2); font-size: .84rem; line-height: 1.5; }
+body.crm-sch .edo-ajustado p svg { flex: none; width: 17px; height: 17px; margin-top: .12rem; color: var(--bronce-tinta); }
+body.crm-sch .edo-ajustado b { color: var(--tinta); }
+
+body.crm-sch .edo-chip {
+  display: inline-block;
+  margin-left: .4rem;
+  border-radius: 999px;
+  background: var(--bronce-suave);
+  padding: .08rem .5rem;
+  color: var(--bronce-tinta);
+  font-size: .68rem;
+  font-weight: 700;
+  vertical-align: .08rem;
+  white-space: nowrap;
+}
+
+body.crm-sch .edo-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+body.crm-sch .edo-col { display: grid; gap: 1rem; min-width: 0; }
+@media (min-width: 1180px) {
+  body.crm-sch .edo-grid { grid-template-columns: minmax(0, 1fr) minmax(340px, 400px); }
+}
+
+/* --- Comprobantes -------------------------------------------------------- */
+body.crm-sch .edo-cuenta { flex: none; color: var(--tinta-2); font-size: .84rem; white-space: nowrap; }
+body.crm-sch .edo-cuenta b { color: var(--tinta); font-variant-numeric: tabular-nums; }
+/* .crm-table trae min-width: 680px para las tablas anchas del CRM. Aquí la
+   tabla comparte fila con la hoja: con ese mínimo el saldo quedaba cortado
+   detrás de un scroll, y es justo la columna que se viene a mirar. */
+body.crm-sch .edo-tabla { min-width: 0; }
+body.crm-sch .edo-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+body.crm-sch .edo-tabla .edo-tabla__chk { width: 2.75rem; padding-right: 0; }
+body.crm-sch .edo-tabla__vence .inv-age-chip { display: table; margin-top: .25rem; white-space: nowrap; }
+body.crm-sch .edo-tabla .edo-tabla__chk input { display: block; width: 18px; height: 18px; cursor: pointer; }
+body.crm-sch .edo-tabla__doc { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: .15rem .5rem; cursor: pointer; }
+body.crm-sch .edo-sub { margin-top: .15rem; color: var(--tinta-2); font-size: .76rem; line-height: 1.4; }
+body.crm-sch .edo-fuera { margin-top: .2rem; color: var(--bronce-tinta); font-size: .74rem; font-weight: 700; }
+/* Lo que queda fuera se apaga pero se sigue leyendo: hay que poder
+   arrepentirse sin adivinar qué era cada fila. */
+body.crm-sch .edo-tabla tr.is-fuera td { color: var(--tinta-2); }
+body.crm-sch .edo-tabla tr.is-fuera .edo-tabla__doc strong {
+  color: var(--tinta-2);
+  text-decoration: line-through;
+  text-decoration-color: var(--tinta-3);
+}
+body.crm-sch .edo-tabla tr.is-fuera .inv-age-chip { opacity: .55; }
+body.crm-sch .edo-falta { margin: .7rem 1rem .9rem; color: var(--baja); font-size: .82rem; font-weight: 700; }
+
+/* En el teléfono cada comprobante es un bloque: casilla, documento y saldo
+   arriba; vencimiento debajo. Como tabla de cuatro columnas el saldo quedaba
+   fuera de la pantalla. */
+@media (max-width: 620px) {
+  body.crm-sch .edo-tabla thead { display: none; }
+  body.crm-sch .edo-tabla,
+  body.crm-sch .edo-tabla tbody { display: block; }
+  body.crm-sch .edo-tabla tr {
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr) auto;
+    grid-template-areas: "chk doc saldo" "chk vence vence";
+    column-gap: .6rem;
+    border-bottom: 1px solid var(--linea);
+    padding: .75rem .9rem;
+  }
+  body.crm-sch .edo-tabla td { display: block; border: 0; padding: 0; }
+  body.crm-sch .edo-tabla .edo-tabla__chk { grid-area: chk; width: auto; padding-top: .1rem; }
+  body.crm-sch .edo-tabla .edo-tabla__comp { grid-area: doc; min-width: 0; }
+  body.crm-sch .edo-tabla .edo-tabla__saldo { grid-area: saldo; }
+  body.crm-sch .edo-tabla .edo-tabla__vence {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .25rem .5rem;
+    grid-area: vence;
+    margin-top: .35rem;
+    color: var(--tinta-2);
+    font-size: .8rem;
+  }
+  body.crm-sch .edo-tabla__vence .inv-age-chip { display: inline-block; margin-top: 0; }
+  body.crm-sch .edo-tabla__vence .edo-sub { width: 100%; margin-top: 0; }
+}
+
+/* --- Tono ---------------------------------------------------------------- */
+body.crm-sch .edo-tonos { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .6rem; }
+@media (max-width: 860px) {
+  body.crm-sch .edo-tonos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+body.crm-sch .edo-tono {
+  display: flex;
+  align-items: flex-start;
+  gap: .55rem;
+  min-height: 3.6rem;
+  border: 1px solid var(--linea-2);
+  border-radius: var(--r-interior);
+  background: var(--papel);
+  padding: .65rem .7rem;
+  cursor: pointer;
+  transition: border-color .15s var(--curva), background-color .15s var(--curva), box-shadow .15s var(--curva);
+}
+body.crm-sch .edo-tono:hover { border-color: var(--tinta-3); }
+body.crm-sch .edo-tono.is-on { border-color: var(--verde); background: var(--verde-tenue); box-shadow: inset 0 0 0 1px var(--verde); }
+body.crm-sch .edo-tono:has(input:focus-visible) { outline: 2px solid var(--verde); outline-offset: 2px; }
+body.crm-sch .edo-tono input { flex: none; margin-top: .18rem; }
+body.crm-sch .edo-tono__tx { min-width: 0; }
+body.crm-sch .edo-tono__tx b { display: flex; align-items: center; gap: .4rem; color: var(--tinta); font-size: .88rem; line-height: 1.25; }
+body.crm-sch .edo-tono__tx small { display: block; margin-top: .15rem; color: var(--tinta-2); font-size: .75rem; line-height: 1.35; }
+body.crm-sch .edo-tono__punto { flex: none; width: .6rem; height: .6rem; border-radius: 999px; }
+body.crm-sch .edo-tono-aviso {
+  display: flex;
+  align-items: flex-start;
+  gap: .5rem;
+  margin-top: .75rem;
+  border-radius: var(--r-control);
+  background: var(--bronce-suave);
+  padding: .55rem .7rem;
+  color: var(--bronce-tinta);
+  font-size: .8rem;
+  line-height: 1.45;
+}
+body.crm-sch .edo-tono-aviso svg { flex: none; width: 16px; height: 16px; margin-top: .1rem; }
+body.crm-sch .edo-tono-aviso b { color: inherit; }
+
+/* --- Carta y campos ------------------------------------------------------ */
+body.crm-sch .edo-campos { display: grid; gap: 1.05rem; }
+body.crm-sch .edo-marcas {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem;
+  border-radius: var(--r-interior);
+  background: var(--nube);
+  padding: .5rem .6rem;
+}
+body.crm-sch .edo-marcas > span { margin-right: .2rem; color: var(--tinta-2); font-size: .76rem; font-weight: 700; }
+body.crm-sch .edo-marca {
+  min-height: 30px;
+  border: 1px solid var(--linea-2);
+  border-radius: 999px;
+  background: var(--papel);
+  padding: .2rem .7rem;
+  color: var(--tinta);
+  font-size: .76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s var(--curva), color .15s var(--curva);
+}
+body.crm-sch .edo-marca:hover { border-color: var(--verde); color: var(--verde-tinta); }
+body.crm-sch .edo-campo__cab { display: flex; align-items: center; justify-content: space-between; gap: .6rem; min-height: 26px; margin-bottom: .3rem; }
+body.crm-sch .edo-campo__cab label { color: var(--tinta-2); font-size: .78rem; font-weight: 700; }
+body.crm-sch .edo-restablecer {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  min-height: 26px;
+  border-radius: 8px;
+  padding: .1rem .45rem;
+  color: var(--verde-tinta);
+  font-size: .74rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+body.crm-sch .edo-restablecer:hover { background: var(--verde-suave); }
+body.crm-sch .edo-restablecer svg { width: 13px; height: 13px; }
+/* Fuera de .crm-field los controles no se estiran solos. */
+body.crm-sch .edo-campo .crm-input,
+body.crm-sch .edo-campo .crm-textarea { width: 100%; }
+body.crm-sch .edo-campo textarea { min-height: 5.5rem; resize: vertical; line-height: 1.55; }
+body.crm-sch .edo-campo__pie { display: flex; align-items: baseline; justify-content: space-between; gap: .8rem; margin-top: .3rem; }
+body.crm-sch .edo-contador { flex: none; color: var(--tinta-2); font-size: .74rem; font-variant-numeric: tabular-nums; }
+body.crm-sch .edo-error { margin-top: .3rem; color: var(--baja); font-size: .78rem; font-weight: 600; line-height: 1.45; }
+body.crm-sch .edo-campo.has-error .crm-input,
+body.crm-sch .edo-campo.has-error .crm-textarea { border-color: var(--baja); }
+
+/* --- La hoja ------------------------------------------------------------- */
+body.crm-sch .edo-vista { display: grid; gap: .6rem; min-width: 0; }
+@media (min-width: 1180px) {
+  body.crm-sch .edo-vista { position: sticky; top: 76px; }
+}
+body.crm-sch .edo-vista__cab h3 { color: var(--tinta); font-size: .95rem; font-weight: 700; }
+body.crm-sch .edo-vista__cab p { margin-top: .1rem; color: var(--tinta-2); font-size: .78rem; }
+body.crm-sch .edo-hoja {
+  --tono: #0a7d36;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #e3eaf1;
+  border-radius: 14px;
+  background: #fff;
+  padding: 1.35rem 1.25rem 1.15rem;
+  color: #1a2734;
+  color-scheme: light;
+  font-size: .8rem;
+  line-height: 1.55;
+  box-shadow: var(--sombra);
+}
+@media (min-width: 1180px) {
+  /* Deja libre la barra de guardar, que también va pegada abajo. */
+  body.crm-sch .edo-hoja { max-height: calc(100vh - 215px); overflow-y: auto; }
+}
+body.crm-sch .edo-hoja::before { content: ""; position: absolute; inset: 0 0 auto; height: 4px; background: var(--tono); transition: background-color .2s var(--curva); }
+body.crm-sch .edo-hoja__titulo { display: flex; align-items: baseline; justify-content: space-between; gap: .6rem; }
+body.crm-sch .edo-hoja__titulo strong { color: #0e1a28; font-size: 1rem; letter-spacing: -.01em; }
+body.crm-sch .edo-hoja__titulo span { flex: none; color: var(--tono); font-size: .72rem; font-weight: 700; }
+body.crm-sch .edo-hoja__dir { margin-top: .85rem; color: #5b6b7b; font-size: .72rem; font-weight: 600; }
+body.crm-sch .edo-hoja__cliente { color: #0e1a28; font-size: .88rem; font-weight: 700; line-height: 1.35; }
+body.crm-sch .edo-hoja__asunto { margin-top: .75rem; color: #0e1a28; font-weight: 700; line-height: 1.45; }
+body.crm-sch .edo-hoja__texto { margin-top: .55rem; color: #2b3b4b; white-space: pre-line; overflow-wrap: anywhere; }
+body.crm-sch .edo-hoja__texto--chico { margin-top: .1rem; color: #41515f; font-size: .74rem; }
+body.crm-sch .edo-hoja__sub { margin-top: .75rem; color: #5b6b7b; font-size: .7rem; font-weight: 700; }
+body.crm-sch .edo-hoja__cifras { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem; margin: .8rem 0 0; }
+body.crm-sch .edo-hoja__cifras div { min-width: 0; border: 1px solid #e3eaf1; border-radius: 8px; padding: .4rem .5rem; }
+body.crm-sch .edo-hoja__cifras dt { color: #5b6b7b; font-size: .66rem; font-weight: 600; }
+body.crm-sch .edo-hoja__cifras dd { margin: 0; overflow-wrap: anywhere; color: #0e1a28; font-size: .78rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+body.crm-sch .edo-hoja__nota {
+  margin-top: .75rem;
+  border: 1px solid #e3eaf1;
+  border-color: color-mix(in srgb, var(--tono) 28%, #fff);
+  border-radius: 8px;
+  background: #fbfcfd;
+  background: color-mix(in srgb, var(--tono) 6%, #fff);
+  padding: .5rem .65rem;
+}
+body.crm-sch .edo-hoja__nota span { display: block; color: var(--tono); font-size: .7rem; font-weight: 700; }
+body.crm-sch .edo-hoja__nota p { margin-top: .1rem; color: #1a2734; white-space: pre-line; overflow-wrap: anywhere; }
+body.crm-sch .edo-hoja__firma { max-width: 75%; margin-top: 1rem; border-top: 1px solid #1a2734; padding-top: .35rem; color: #5b6b7b; font-size: .72rem; line-height: 1.4; }
+body.crm-sch .edo-hoja__firma b { display: block; color: #0e1a28; }
+
+/* --- Barra de guardar ---------------------------------------------------- */
+body.crm-sch .edo-barra {
+  position: sticky;
+  bottom: .75rem;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem 1rem;
+  margin-top: 1rem;
+  border: 1px solid var(--linea-2);
+  border-radius: var(--r-tarjeta);
+  background: var(--papel);
+  padding: .65rem .7rem .65rem 1rem;
+  box-shadow: var(--sombra-alta);
+}
+body.crm-sch .edo-barra__estado { color: var(--tinta-2); font-size: .84rem; }
+body.crm-sch .edo-barra__estado .is-mal { color: var(--baja); font-weight: 700; }
+body.crm-sch .edo-barra__estado .is-sucio { color: var(--bronce-tinta); font-weight: 700; }
+body.crm-sch .edo-barra__btns { display: flex; flex-wrap: wrap; gap: .5rem; }
+body.crm-sch .edo-barra__btns button:disabled { cursor: not-allowed; opacity: .55; }
+@media (max-width: 620px) {
+  /* En el teléfono pegada abajo se comía un quinto de la pantalla mientras se
+     escribe: va al final del formulario, como en cualquier formulario móvil. */
+  body.crm-sch .edo-barra { position: static; padding: .6rem; box-shadow: var(--sombra); }
+  body.crm-sch .edo-barra__btns { width: 100%; }
+  body.crm-sch .edo-barra__btns > * { flex: 1 1 auto; justify-content: center; }
+}

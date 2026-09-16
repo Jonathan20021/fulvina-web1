@@ -102,9 +102,20 @@ function invoice_compute_totals(array $items, float $taxRate, float $isc, float 
 function invoice_is_overdue(array $inv): bool
 {
     if ((string) ($inv['status'] ?? '') !== 'Emitida') { return false; }
-    $due = (string) ($inv['due_date'] ?? '');
-    if ($due === '' || $due === '0000-00-00') { return false; }
+    $due = invoice_row_due($inv);
+    if ($due === '') { return false; }
     return strtotime($due) < strtotime(date('Y-m-d')) && invoice_balance($inv) > 0.009;
+}
+
+/**
+ * El vencimiento que se muestra en una fila: con plan de cuotas, el de la cuota
+ * pendiente más antigua. Sin plan, due_date tal cual (una factura sin
+ * vencimiento no se marca «Vencida», como antes).
+ */
+function invoice_row_due(array $inv): string
+{
+    $cuota = function_exists('installments_effective_due') ? installments_effective_due($inv) : null;
+    return $cuota ?? (valid_date((string) ($inv['due_date'] ?? '')) ?? '');
 }
 
 /* =========================== POST handlers =========================== */
@@ -125,12 +136,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
         }
         $sid = (int) ($_POST['id'] ?? 0);
         $prefix = strtoupper(trim((string) ($_POST['prefix'] ?? 'B'))) === 'E' ? 'E' : 'B';
-        $type = substr(preg_replace('/\D/', '', (string) ($_POST['ncf_type'] ?? '')) ?: '', 0, 2);
-        // El tipo debe pertenecer a la serie elegida; si no, el rango nunca casaría
-        // con una factura (B01 vs E31) y el NCF no se asignaría al emitir.
-        $type = ncf_normalize_type($type, $prefix);
+        $typeAsked = substr(preg_replace('/\D/', '', (string) ($_POST['ncf_type'] ?? '')) ?: '', 0, 2);
+        $type = ncf_normalize_type($typeAsked, $prefix);
         $from = max(1, (int) ($_POST['seq_from'] ?? 1));
-        $to = max($from, (int) ($_POST['seq_to'] ?? $from));
+        $toRaw = (int) ($_POST['seq_to'] ?? 0);
+
+        /* Un rango de NCF lo AUTORIZA la DGII: aquí no se corrige nada en silencio.
+           Antes, pedir el tipo 31 con la serie B guardaba un B01 activo del 1 al
+           100 —convertido por el mapa de equivalencias, que sirve para facturar
+           pero no para registrar autorizaciones—, «500 hasta 10» quedaba como un
+           rango de un solo número, y dos rangos activos podían solaparse. El
+           solape no falla al guardarlo: falla meses después, cuando se agota el
+           primero y el segundo repite números, y a partir de ahí ningún
+           comprobante de ese tipo se puede emitir. */
+        $ncfError = '';
+        if ($typeAsked !== '' && $type !== $typeAsked) {
+            $ncfError = sprintf('El tipo %s no pertenece a la serie %s (su equivalente sería %s). Revisa la serie y el tipo: un rango se registra tal como lo autorizó la DGII.', $typeAsked, $prefix, $type);
+        } elseif ($toRaw < $from) {
+            $ncfError = sprintf('El rango está al revés: termina en %d y empieza en %d.', $toRaw, $from);
+        }
+        $to = max($from, $toRaw);
         // «Próximo a usar»: si el campo llega vacío al editar un rango existente
         // se conserva el contador actual; nunca se rebobina en silencio.
         $nextRaw = trim((string) ($_POST['seq_next'] ?? ''));
@@ -143,7 +168,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
         $exp = valid_date($_POST['expiration'] ?? null);
         $active = isset($_POST['active']) ? 1 : 0;
         $note = trim((string) ($_POST['note'] ?? ''));
-        if (!isset(ncf_types()[$type])) {
+
+        // «Próximo» puede ser to+1 (rango agotado), nunca más allá.
+        if ($ncfError === '' && $next > $to + 1) {
+            $ncfError = sprintf('El próximo número (%d) queda fuera del rango %d–%d.', $next, $from, $to);
+        }
+        // Solape con otro rango ACTIVO del mismo tipo y serie. Solo se mira si este
+        // queda activo: uno inactivo no emite, y así se puede corregir un rango
+        // mal cargado desactivándolo y registrando el bueno.
+        if ($ncfError === '' && $active === 1) {
+            $choque = fetch_one(
+                'SELECT id, seq_from, seq_to FROM ncf_sequences
+                  WHERE prefix=? AND ncf_type=? AND active=1 AND id<>? AND seq_from<=? AND seq_to>=?
+                  ORDER BY seq_from LIMIT 1',
+                [$prefix, $type, $sid, $to, $from]
+            );
+            if ($choque) {
+                $ncfError = sprintf(
+                    'Ese rango se solapa con otro activo de %s%s (%d–%d): los dos entregarían los mismos números. Ajusta los límites o desactiva el otro.',
+                    $prefix, $type, (int) $choque['seq_from'], (int) $choque['seq_to']
+                );
+            }
+        }
+
+        if ($ncfError !== '') {
+            flash('warning', $ncfError);
+        } elseif (!isset(ncf_types()[$type])) {
             flash('warning', 'Selecciona un tipo de comprobante válido.');
         } elseif ($sid > 0) {
             db()->prepare('UPDATE ncf_sequences SET prefix=?, ncf_type=?, seq_from=?, seq_to=?, seq_next=?, expiration=?, active=?, note=?, updated_at=NOW() WHERE id=?')
@@ -226,31 +276,84 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
             if ($amount > 0) {
                 $pdo = db();
                 $pdo->beginTransaction();
-                // El recibo se numera al registrar el cobro: es el comprobante
-                // que se le entrega al cliente y debe existir desde el minuto uno.
-                $hasReceiptCol = column_exists('invoice_payments', 'receipt_number');
-                if ($hasReceiptCol) {
-                    $pdo->prepare('INSERT INTO invoice_payments (receipt_number, invoice_id, amount, method, reference, paid_at, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())')
-                        ->execute([reserve_receipt_number($pdo), $iid, $amount, $method, $reference, $paidAt, $note, current_user()['id'] ?? null]);
-                } else {
-                    $pdo->prepare('INSERT INTO invoice_payments (invoice_id, amount, method, reference, paid_at, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())')
-                        ->execute([$iid, $amount, $method, $reference, $paidAt, $note, current_user()['id'] ?? null]);
+                try {
+                    /* Bloqueo y tope de saldo. Esta pantalla no comprobaba cuánto se
+                       debía: aceptaba cobrar 50,000 sobre una factura de 1,000 y la
+                       dejaba «Pagada» con 49,000 de más. La pantalla de Cobro ya lo
+                       impedía; esta se había quedado atrás. */
+                    $locked = $pdo->query('SELECT * FROM invoices WHERE id=' . $iid . ' FOR UPDATE')->fetch(PDO::FETCH_ASSOC);
+                    $saldo = invoice_balance($locked);
+                    if ($amount > $saldo + 0.009) {
+                        throw new RuntimeException($saldo <= 0.009
+                            ? 'Esta factura ya está saldada: no admite más cobros.'
+                            : sprintf('El pago (%s) supera lo que se debe (%s). Si el cliente pagó de más, registra solo el saldo y anota el excedente.',
+                                money_cur($amount, (string) $locked['currency']), money_cur($saldo, (string) $locked['currency'])));
+                    }
+                    // El recibo se numera al registrar el cobro: es el comprobante
+                    // que se le entrega al cliente y debe existir desde el minuto uno.
+                    $hasReceiptCol = column_exists('invoice_payments', 'receipt_number');
+                    if ($hasReceiptCol) {
+                        $pdo->prepare('INSERT INTO invoice_payments (receipt_number, invoice_id, amount, method, reference, paid_at, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())')
+                            ->execute([reserve_receipt_number($pdo), $iid, $amount, $method, $reference, $paidAt, $note, current_user()['id'] ?? null]);
+                    } else {
+                        $pdo->prepare('INSERT INTO invoice_payments (invoice_id, amount, method, reference, paid_at, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())')
+                            ->execute([$iid, $amount, $method, $reference, $paidAt, $note, current_user()['id'] ?? null]);
+                    }
+                    invoice_recalc_paid($pdo, $iid);
+                    $pdo->commit();
+                    log_activity('invoice', $iid, 'pago_registrado', money_cur($amount, (string) $inv['currency']));
+                    flash('success', 'Pago registrado.');
+                } catch (RuntimeException $e) {
+                    if ($pdo->inTransaction()) { $pdo->rollBack(); }
+                    flash('warning', $e->getMessage());
+                } catch (Throwable $e) {
+                    if ($pdo->inTransaction()) { $pdo->rollBack(); }
+                    error_log('pago factura: ' . $e->getMessage());
+                    flash('error', 'No se pudo registrar el pago. No se guardó nada.');
                 }
-                $newPaid = round((float) $inv['amount_paid'] + $amount, 2);
-                $net = invoice_net($inv);
-                if ($newPaid + 0.009 >= $net) {
-                    $pdo->prepare('UPDATE invoices SET amount_paid=?, status=?, paid_at=COALESCE(paid_at, NOW()), updated_at=NOW() WHERE id=?')->execute([$newPaid, 'Pagada', $iid]);
-                } else {
-                    $pdo->prepare('UPDATE invoices SET amount_paid=?, updated_at=NOW() WHERE id=?')->execute([$newPaid, $iid]);
-                }
-                $pdo->commit();
-                log_activity('invoice', $iid, 'pago_registrado', money_cur($amount, (string) $inv['currency']));
-                flash('success', 'Pago registrado.');
             } else {
                 flash('warning', 'Indica un monto de pago mayor que cero.');
             }
         }
         redirect('crm/facturas.php?action=view&id=' . $iid);
+    }
+
+    /* ---- Corregir un recibo de ingreso -------------------------------- */
+    if ($form === 'receipt_edit') {
+        $iid = (int) ($_POST['id'] ?? 0);
+        if (!current_can('facturas.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/facturas.php?action=view&id=' . $iid); }
+        [$ok, $msg] = receipt_update((int) ($_POST['payment_id'] ?? 0), [
+            'paid_at' => $_POST['paid_at'] ?? '',
+            'method' => $_POST['method'] ?? '',
+            'reference' => $_POST['reference'] ?? '',
+            'note' => $_POST['note'] ?? '',
+            'reason' => $_POST['reason'] ?? '',
+            'alloc' => (array) ($_POST['alloc'] ?? []),
+        ]);
+        flash($ok ? 'success' : 'warning', $msg);
+        redirect('crm/facturas.php?action=view&id=' . $iid . '#pagos');
+    }
+
+    /* ---- Anular un recibo de ingreso ---------------------------------- */
+    if ($form === 'receipt_void') {
+        $iid = (int) ($_POST['id'] ?? 0);
+        // Anular devuelve dinero al saldo de uno o varios clientes: pide el
+        // permiso de borrar, no el de editar.
+        if (!current_can('facturas.delete')) { flash('warning', 'Anular un recibo requiere permiso para eliminar en Facturación.'); redirect('crm/facturas.php?action=view&id=' . $iid); }
+        [$ok, $msg] = receipt_void((int) ($_POST['payment_id'] ?? 0), (string) ($_POST['reason'] ?? ''));
+        flash($ok ? 'success' : 'warning', $msg);
+        redirect('crm/facturas.php?action=view&id=' . $iid . '#pagos');
+    }
+
+    /* ---- Plan de pago en cuotas --------------------------------------- */
+    if ($form === 'plan_save' || $form === 'plan_delete') {
+        $iid = (int) ($_POST['id'] ?? 0);
+        if (!current_can('facturas.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/facturas.php?action=view&id=' . $iid); }
+        [$ok, $msg] = $form === 'plan_save'
+            ? installments_save($iid, (array) ($_POST['due'] ?? []), (array) ($_POST['amt'] ?? []))
+            : installments_delete($iid);
+        flash($ok ? 'success' : 'warning', $msg);
+        redirect('crm/facturas.php?action=view&id=' . $iid . '#cuotas');
     }
 
     /* ---- Emitir nota de crédito contra un comprobante ------------------ */
@@ -713,6 +816,53 @@ if ($action === 'view') {
         $ncfIsLast = (int) (fetch_one('SELECT COUNT(*) c FROM ncf_sequences WHERE prefix=? AND ncf_type=? AND seq_next=?', [(string) $inv['ncf_prefix'], (string) $inv['ncf_type'], $seqNum + 1])['c'] ?? 0) > 0;
     }
 
+    /* ---- Recibos: grupos para corregir, e historial ---------------------- */
+    $realInvoice = $hasInvoices && (int) ($inv['id'] ?? 0) > 0;
+    $canEditReceipts = $realInvoice && current_can('facturas.edit');
+    $canVoidReceipts = $realInvoice && current_can('facturas.delete');
+    // Cada recibo con TODAS sus líneas: uno puede cubrir varias facturas, y
+    // corregirlo aquí tiene que mostrar el reparto completo, no solo esta.
+    $receiptEdit = [];
+    if ($canEditReceipts || $canVoidReceipts) {
+        foreach ($payments as $p) {
+            $g = receipt_group((int) $p['id']);
+            $receiptEdit[(int) $p['id']] = [
+                'id' => (int) $p['id'],
+                'receipt' => $g['receipt'],
+                'paid_at' => (string) $p['paid_at'],
+                'method' => (string) ($p['method'] ?? ''),
+                'reference' => (string) ($p['reference'] ?? ''),
+                'note' => (string) ($p['note'] ?? ''),
+                'lines' => array_map(static fn ($r) => [
+                    'id' => (int) $r['id'],
+                    'doc' => (string) ($r['ncf'] ?: $r['invoice_number']),
+                    'amount' => number_format((float) $r['amount'], 2, '.', ''),
+                    'currency' => (string) $r['currency'],
+                    'here' => (int) $r['invoice_id'] === (int) $inv['id'],
+                ], $g['rows']),
+            ];
+        }
+    }
+    $receiptHistory = $realInvoice ? receipt_history_for_invoice((int) $inv['id']) : [];
+
+    /* ---- Plan de cuotas ------------------------------------------------- */
+    $plan = $realInvoice ? installments_for((int) $inv['id']) : [];
+    $planStatus = $plan ? installments_status($inv, $plan) : null;
+    $canPlan = $realInvoice && current_can('facturas.edit') && installments_available() && invoice_can_have_plan($inv);
+    $planProposal = $canPlan ? installments_propose($balance, 3, date('Y-m-d', strtotime('+30 days')), 'mensual') : [];
+    /* Al REHACER un plan se parte de lo que falta de cada cuota, no de las cuotas
+       originales: si desde que se pactó se abonaron 15,000, precargar los
+       importes de antes abría el diálogo ya descuadrado en «Sobran 15,000».
+       Las cuotas ya cubiertas no se vuelven a proponer. Si queda menos de dos,
+       no es un plan: se ofrece un reparto nuevo. */
+    $planPrefill = $planProposal;
+    if ($planStatus) {
+        $quedan = array_values(array_filter($planStatus['rows'], static fn ($c) => $c['pending'] > 0.009));
+        if (count($quedan) >= 2) {
+            $planPrefill = array_map(static fn ($c) => ['due_date' => (string) $c['due_date'], 'amount' => $c['pending']], $quedan);
+        }
+    }
+
     $crmTitle = 'Factura ' . ($inv['invoice_number'] ?? '');
     require_once __DIR__ . '/../includes/crm_header.php';
     ?>
@@ -769,7 +919,8 @@ if ($action === 'view') {
                 <?php if ($status === 'Emitida' && $balance > 0.009): ?>
                     <button type="button" class="crm-secondary-btn" onclick="crmPdfPreviewOpen('<?= url('crm/recordatorio_pdf.php?id=' . (int) $inv['id']) ?>','<?= url('crm/recordatorio_pdf.php?id=' . (int) $inv['id'] . '&download=1') ?>','<?= e(addslashes((string) ($inv['invoice_number'] ?? ''))) ?>','Recordatorio de pago')"><i data-lucide="bell-ring" class="h-4 w-4"></i>Recordatorio de pago</button>
                     <?php if ((int) ($inv['client_id'] ?? 0) > 0): ?>
-                        <button type="button" class="crm-secondary-btn" onclick="crmPdfPreviewOpen('<?= url('crm/recordatorio_pdf.php?client=' . (int) $inv['client_id']) ?>','<?= url('crm/recordatorio_pdf.php?client=' . (int) $inv['client_id'] . '&download=1') ?>','<?= e(addslashes((string) ($inv['client_name'] ?? $inv['c_name'] ?? 'Cliente'))) ?>','Estado de cuenta')"><i data-lucide="file-clock" class="h-4 w-4"></i>Estado de cuenta</button>
+                        <button type="button" class="crm-secondary-btn" onclick="crmPdfPreviewOpen('<?= url('crm/recordatorio_pdf.php?client=' . (int) $inv['client_id']) ?>','<?= url('crm/recordatorio_pdf.php?client=' . (int) $inv['client_id'] . '&download=1') ?>','<?= e(addslashes((string) ($inv['client_name'] ?? $inv['c_name'] ?? 'Cliente'))) ?>','Estado de cuenta','<?= url('crm/estado_cuenta.php?client=' . (int) $inv['client_id']) ?>')"><i data-lucide="file-clock" class="h-4 w-4"></i>Estado de cuenta</button>
+                        <a class="crm-secondary-btn" href="<?= url('crm/estado_cuenta.php?client=' . (int) $inv['client_id']) ?>"><i data-lucide="file-pen-line" class="h-4 w-4"></i>Editar estado de cuenta</a>
                     <?php endif; ?>
                 <?php endif; ?>
                 <?php if ($canCredit && current_can('facturas.edit')): ?>
@@ -895,14 +1046,86 @@ if ($action === 'view') {
         </article>
         <?php endif; ?>
 
+        <?php if ($plan || $canPlan): ?>
+        <?php
+        /* Plan de cuotas. Las cuotas se cubren EN ORDEN con lo abonado desde que
+           se pactó: nadie tiene que decir a qué cuota iba cada recibo. */
+        ?>
+        <article class="crm-card cuotas" id="cuotas" style="margin-top:1rem">
+            <div class="crm-card__head">
+                <div>
+                    <h2><i data-lucide="calendar-range" class="cfg-ic"></i> Plan de pago en cuotas</h2>
+                    <?php if ($planStatus): ?>
+                        <p>
+                            <?= count($plan) ?> cuotas · <?= money_cur($planStatus['total'], $cur) ?>
+                            <?php if ($planStatus['closed'] === 'anulada'): ?>
+                                · <b>sin efecto</b>: la factura se anuló
+                            <?php elseif ($planStatus['closed'] === 'saldada'): ?>
+                                · <b>cerrado</b>: la factura quedó saldada
+                            <?php elseif ($planStatus['next']): ?>
+                                · próxima: <b><?= money_cur($planStatus['next']['pending'], $cur) ?></b> el <b><?= e(date_es($planStatus['next']['due_date'])) ?></b>
+                            <?php else: ?>
+                                · <b>todas cubiertas</b>
+                            <?php endif; ?>
+                        </p>
+                    <?php else: ?>
+                        <p>Si el cliente no puede pagar el saldo de una vez, pacta las fechas aquí. La cartera y el recordatorio de pago dejan de tratar como vencido lo que todavía no toca.</p>
+                    <?php endif; ?>
+                </div>
+                <?php if ($canPlan): ?>
+                    <div class="crm-row-actions">
+                        <button type="button" class="<?= $plan ? 'crm-secondary-btn' : 'crm-primary-btn' ?>" onclick="document.getElementById('inv-plan').showModal()">
+                            <i data-lucide="<?= $plan ? 'pencil' : 'calendar-plus' ?>" class="h-4 w-4"></i><?= $plan ? 'Rehacer plan' : 'Pactar cuotas' ?>
+                        </button>
+                    </div>
+                <?php endif; ?>
+            </div>
+
+            <?php if ($planStatus): ?>
+                <?php if ($planStatus['drift']): ?>
+                    <div class="gas-aviso" style="margin:0 0 .8rem">
+                        <i data-lucide="alert-triangle" style="width:16px;height:16px"></i>
+                        <span><b>El plan ya no cuadra con lo que se debe.</b> Las cuotas suman <?= money_cur($planStatus['total'], $cur) ?> y lo pendiente al pactarlo hoy sería <?= money_cur($planStatus['expected'], $cur) ?>: cambió el total exigible (una nota de crédito, o se anuló un recibo anterior al plan).<?= $canPlan ? ' Rehazlo para que las fechas vuelvan a cuadrar.' : '' ?></span>
+                    </div>
+                <?php endif; ?>
+                <?php if ($planStatus['overdue'] > 0): ?>
+                    <div class="gas-aviso gas-aviso--alarma" style="margin:0 0 .8rem">
+                        <i data-lucide="clock-alert" style="width:16px;height:16px"></i>
+                        <span><b><?= (int) $planStatus['overdue'] ?> cuota<?= $planStatus['overdue'] === 1 ? '' : 's' ?> vencida<?= $planStatus['overdue'] === 1 ? '' : 's' ?>.</b> La cartera cuenta la antigüedad desde la más antigua sin cubrir.</span>
+                    </div>
+                <?php endif; ?>
+                <div class="crm-table-wrap">
+                    <table class="crm-table cuotas__tabla">
+                        <thead><tr><th>Cuota</th><th>Vence</th><th class="text-right">Importe</th><th class="text-right">Abonado</th><th class="text-right">Pendiente</th><th>Estado</th></tr></thead>
+                        <tbody>
+                        <?php foreach ($planStatus['rows'] as $c): ?>
+                            <tr class="cuotas__fila--<?= e($c['state']) ?>">
+                                <td><strong><?= (int) $c['seq'] ?></strong> <span class="cuotas__de">de <?= count($plan) ?></span></td>
+                                <td class="ops-nowrap"><?= e(date_es($c['due_date'])) ?></td>
+                                <td class="text-right"><?= money_cur($c['amount'], $cur) ?></td>
+                                <td class="text-right"><?= $c['covered'] > 0.009 ? money_cur($c['covered'], $cur) : '<span class="cuotas__cero">—</span>' ?></td>
+                                <td class="text-right"><strong><?= $c['pending'] > 0.009 ? money_cur($c['pending'], $cur) : '<span class="cuotas__cero">—</span>' ?></strong></td>
+                                <td><span class="status-chip gas-estado--<?= e($c['tone']) ?>"><?= e($c['label']) ?></span></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </article>
+        <?php endif; ?>
+
         <?php if ($payments): ?>
-        <article class="crm-card" style="margin-top:1rem">
-            <div class="crm-card__head"><div><h2><i data-lucide="hand-coins" class="cfg-ic"></i> Pagos registrados</h2><p>Cada cobro tiene su recibo de ingreso para entregarle al cliente.</p></div></div>
+        <article class="crm-card" id="pagos" style="margin-top:1rem">
+            <div class="crm-card__head"><div><h2><i data-lucide="hand-coins" class="cfg-ic"></i> Pagos registrados</h2><p>Cada cobro tiene su recibo de ingreso para entregarle al cliente.<?= $canEditReceipts ? ' Si un recibo salió con un error, corrígelo: queda el motivo y cómo era antes.' : '' ?></p></div></div>
             <div class="crm-table-wrap">
                 <table class="crm-table"><thead><tr><th>Recibo</th><th>Fecha</th><th>Método</th><th>Referencia</th><th class="text-right">Monto</th><th class="text-right">Acción</th></tr></thead><tbody>
-                    <?php foreach ($payments as $p): $rec = trim((string) ($p['receipt_number'] ?? '')); ?>
+                    <?php foreach ($payments as $p): $rec = trim((string) ($p['receipt_number'] ?? '')); $lineas = $receiptEdit[(int) $p['id']]['lines'] ?? []; ?>
                         <tr>
-                            <td><?= $rec !== '' ? '<strong>' . e($rec) . '</strong>' : '<span style="color:var(--muted)" title="Cobro registrado antes de que existiera la numeración de recibos">sin número</span>' ?></td>
+                            <td>
+                                <?= $rec !== '' ? '<strong>' . e($rec) . '</strong>' : '<span style="color:var(--muted)" title="Cobro registrado antes de que existiera la numeración de recibos">sin número</span>' ?>
+                                <?php if (count($lineas) > 1): ?><span class="recibo-multi" title="Este recibo reparte un mismo cobro entre varias facturas">cubre <?= count($lineas) ?> facturas</span><?php endif; ?>
+                            </td>
                             <td><?= e(date_es($p['paid_at'])) ?></td>
                             <td><?= e($p['method'] ?: '—') ?></td>
                             <td><?= e($p['reference'] ?: '—') ?></td>
@@ -911,6 +1134,12 @@ if ($action === 'view') {
                                 <div class="crm-row-actions">
                                     <button type="button" class="crm-icon-action" title="Vista previa del recibo" onclick="crmPdfPreviewOpen('<?= url('crm/recibo_pdf.php?id=' . (int) $p['id']) ?>','<?= url('crm/recibo_pdf.php?id=' . (int) $p['id'] . '&download=1') ?>','<?= e(addslashes($rec !== '' ? $rec : 'Recibo')) ?>','Recibo de ingreso')"><i data-lucide="receipt-text"></i></button>
                                     <a class="crm-icon-action" href="<?= url('crm/recibo_pdf.php?id=' . (int) $p['id'] . '&download=1') ?>" title="Descargar recibo"><i data-lucide="download"></i></a>
+                                    <?php if ($canEditReceipts): ?>
+                                        <button type="button" class="crm-icon-action" title="Corregir recibo" aria-label="Corregir recibo <?= e($rec) ?>" @click="$dispatch('recibo-editar', <?= e(json_encode($receiptEdit[(int) $p['id']], JSON_UNESCAPED_UNICODE)) ?>)"><i data-lucide="pencil"></i></button>
+                                    <?php endif; ?>
+                                    <?php if ($canVoidReceipts): ?>
+                                        <button type="button" class="crm-icon-action crm-icon-action--peligro" title="Anular recibo" aria-label="Anular recibo <?= e($rec) ?>" @click="$dispatch('recibo-anular', <?= e(json_encode($receiptEdit[(int) $p['id']], JSON_UNESCAPED_UNICODE)) ?>)"><i data-lucide="ban"></i></button>
+                                    <?php endif; ?>
                                 </div>
                             </td>
                         </tr>
@@ -919,7 +1148,221 @@ if ($action === 'view') {
             </div>
         </article>
         <?php endif; ?>
+
+        <?php if ($receiptHistory): ?>
+        <?php /* Lo que se corrigió o anuló no desaparece: el cliente puede tener en
+                 la mano la copia anterior, y hay que poder explicar la diferencia. */ ?>
+        <article class="crm-card recibo-hist" style="margin-top:1rem">
+            <div class="crm-card__head"><div><h2><i data-lucide="history" class="cfg-ic"></i> Recibos corregidos y anulados</h2><p>Cómo eran antes del cambio, quién lo hizo y por qué.</p></div></div>
+            <div class="recibo-hist__lista">
+                <?php foreach ($receiptHistory as $h):
+                    $antes = json_decode((string) $h['before_json'], true) ?: [];
+                    $despues = $h['after_json'] ? (json_decode((string) $h['after_json'], true) ?: []) : null;
+                    $sumaAntes = array_sum(array_map(static fn ($r) => (float) $r['amount'], $antes));
+                    $sumaDesp = $despues !== null ? array_sum(array_map(static fn ($r) => (float) $r['amount'], $despues)) : null;
+                    $anulado = $h['action'] === 'anulado';
+                ?>
+                    <div class="recibo-hist__item">
+                        <span class="status-chip gas-estado--<?= $anulado ? 'alarma' : 'espera' ?>"><?= $anulado ? 'Anulado' : 'Corregido' ?></span>
+                        <div class="recibo-hist__cuerpo">
+                            <p><b><?= e($h['receipt_number'] ?: 'Cobro sin número') ?></b>
+                                <?php if ($anulado): ?>
+                                    · era de <?= money_cur($sumaAntes, $cur) ?>
+                                <?php elseif ($sumaDesp !== null && abs($sumaDesp - $sumaAntes) > 0.005): ?>
+                                    · <?= money_cur($sumaAntes, $cur) ?> → <b><?= money_cur($sumaDesp, $cur) ?></b>
+                                <?php else: ?>
+                                    · mismo importe, cambiaron otros datos
+                                <?php endif; ?>
+                            </p>
+                            <small>«<?= e((string) $h['reason']) ?>» · <?= e($h['user_name'] ?: 'Usuario') ?> · <?= e(date('d/m/Y H:i', strtotime((string) $h['created_at']))) ?></small>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </article>
+        <?php endif; ?>
     </section>
+
+    <?php if ($canEditReceipts): ?>
+    <?php /* Corregir recibo. Un solo diálogo para todos los recibos de la factura:
+             se llena con los datos del recibo que se pulsó. Muestra el reparto
+             COMPLETO, porque un recibo puede cubrir varias facturas. */ ?>
+    <dialog id="rec-edit" class="crm-modal" onclick="if(event.target===this)this.close()"
+            x-data="reciboEditor('<?= e($cur) ?>')" @recibo-editar.window="abrir($event.detail)">
+        <form method="post" class="crm-modal__form" @submit="enviando = true">
+            <?= csrf_field() ?>
+            <input type="hidden" name="form" value="receipt_edit">
+            <input type="hidden" name="id" value="<?= (int) ($inv['id'] ?? 0) ?>">
+            <input type="hidden" name="payment_id" :value="r.id">
+            <header class="crm-modal__head">
+                <span class="crm-modal__icon"><i data-lucide="pencil"></i></span>
+                <div class="crm-modal__titles">
+                    <h2>Corregir recibo <span x-text="r.receipt || ''"></span></h2>
+                    <p>El recibo anterior queda guardado en el historial con el motivo.</p>
+                </div>
+                <button type="button" class="crm-modal__close" onclick="document.getElementById('rec-edit').close()" aria-label="Cerrar"><i data-lucide="x"></i></button>
+            </header>
+            <div class="crm-modal__body">
+                <div class="crm-form-grid">
+                    <label class="crm-field"><span class="required">Fecha del cobro</span><input type="date" name="paid_at" x-model="r.paid_at" required class="crm-input"></label>
+                    <label class="crm-field"><span>Método</span>
+                        <select name="method" x-model="r.method" class="crm-select">
+                            <option value="">Sin indicar</option>
+                            <?php foreach (['Transferencia', 'Efectivo', 'Cheque', 'Tarjeta', 'Depósito'] as $m): ?>
+                                <option value="<?= e($m) ?>"><?= e($m) ?></option>
+                            <?php endforeach; ?>
+                            <template x-if="r.method && !['Transferencia','Efectivo','Cheque','Tarjeta','Depósito'].includes(r.method)">
+                                <option :value="r.method" x-text="r.method"></option>
+                            </template>
+                        </select>
+                    </label>
+                    <label class="crm-field"><span>Referencia</span><input name="reference" x-model="r.reference" maxlength="120" class="crm-input" placeholder="No. de transferencia o cheque"></label>
+                    <label class="crm-field"><span>Nota</span><input name="note" x-model="r.note" maxlength="255" class="crm-input"></label>
+                </div>
+
+                <p class="recibo-edit__rotulo">Importe aplicado</p>
+                <div class="recibo-edit__lineas">
+                    <template x-for="l in r.lines" :key="l.id">
+                        <label class="recibo-edit__linea" :class="l.here && 'is-aqui'">
+                            <span>
+                                <b x-text="l.doc"></b>
+                                <small x-show="l.here">esta factura</small>
+                            </span>
+                            <input type="text" inputmode="decimal" :name="'alloc[' + l.id + ']'" x-model="l.amount" class="crm-input text-right" autocomplete="off">
+                        </label>
+                    </template>
+                </div>
+                <p class="recibo-edit__total" x-show="r.lines.length > 1">Total del recibo: <b x-text="dinero(total())"></b></p>
+                <p class="recibo-edit__ayuda" x-show="r.lines.length > 1">Pon <b>0</b> en una factura para quitarla del recibo. Si el cobro no ocurrió, no lo dejes en cero: anúlalo.</p>
+
+                <label class="crm-field" style="margin-top:.9rem">
+                    <span class="required">Motivo de la corrección</span>
+                    <input name="reason" x-model="motivo" required maxlength="255" class="crm-input" placeholder="Ej. Se tecleó 5,000 y la transferencia fue de 50,000">
+                </label>
+            </div>
+            <footer class="crm-modal__foot">
+                <button type="button" class="crm-secondary-btn" onclick="document.getElementById('rec-edit').close()">Cancelar</button>
+                <button type="submit" class="crm-primary-btn" :disabled="enviando || !motivo.trim()"><i data-lucide="check" class="h-4 w-4"></i><span x-text="enviando ? 'Guardando…' : 'Guardar corrección'">Guardar corrección</span></button>
+            </footer>
+        </form>
+    </dialog>
+    <?php endif; ?>
+
+    <?php if ($canVoidReceipts): ?>
+    <dialog id="rec-void" class="crm-modal" onclick="if(event.target===this)this.close()"
+            x-data="reciboEditor('<?= e($cur) ?>')" @recibo-anular.window="abrir($event.detail, 'rec-void')">
+        <form method="post" class="crm-modal__form" @submit="enviando = true">
+            <?= csrf_field() ?>
+            <input type="hidden" name="form" value="receipt_void">
+            <input type="hidden" name="id" value="<?= (int) ($inv['id'] ?? 0) ?>">
+            <input type="hidden" name="payment_id" :value="r.id">
+            <header class="crm-modal__head">
+                <span class="crm-modal__icon crm-modal__icon--peligro"><i data-lucide="ban"></i></span>
+                <div class="crm-modal__titles">
+                    <h2>Anular recibo <span x-text="r.receipt || ''"></span></h2>
+                    <p>El importe vuelve al saldo de la factura y el recibo queda en el historial como anulado.</p>
+                </div>
+                <button type="button" class="crm-modal__close" onclick="document.getElementById('rec-void').close()" aria-label="Cerrar"><i data-lucide="x"></i></button>
+            </header>
+            <div class="crm-modal__body">
+                <div class="gas-aviso gas-aviso--alarma" x-show="r.lines.length > 1">
+                    <i data-lucide="alert-triangle" style="width:16px;height:16px"></i>
+                    <span>Este recibo cubre <b x-text="r.lines.length"></b> facturas. Anularlo devuelve su parte al saldo de <b>todas</b>, no solo de esta.</span>
+                </div>
+                <ul class="recibo-edit__resumen">
+                    <template x-for="l in r.lines" :key="l.id">
+                        <li><span x-text="l.doc"></span><b x-text="dinero(parseFloat(l.amount) || 0)"></b></li>
+                    </template>
+                </ul>
+                <label class="crm-field" style="margin-top:.9rem">
+                    <span class="required">Motivo de la anulación</span>
+                    <input name="reason" x-model="motivo" required maxlength="255" class="crm-input" placeholder="Ej. El cheque fue devuelto por fondos insuficientes">
+                </label>
+            </div>
+            <footer class="crm-modal__foot">
+                <button type="button" class="crm-secondary-btn" onclick="document.getElementById('rec-void').close()">Cancelar</button>
+                <button type="submit" class="crm-primary-btn crm-primary-btn--peligro" :disabled="enviando || !motivo.trim()"><i data-lucide="ban" class="h-4 w-4"></i><span x-text="enviando ? 'Anulando…' : 'Anular recibo'">Anular recibo</span></button>
+            </footer>
+        </form>
+    </dialog>
+    <?php endif; ?>
+
+    <?php if ($canPlan): ?>
+    <?php /* Pactar cuotas. Propone cuotas iguales sobre el saldo de HOY; todo se
+             puede ajustar a mano, y no se guarda hasta que la suma cuadre al
+             centavo con lo que se debe. */ ?>
+    <dialog id="inv-plan" class="crm-modal crm-modal--ancho" onclick="if(event.target===this)this.close()"
+            x-data="planCuotas(<?= e(json_encode([
+                'saldo' => round($balance, 2),
+                'moneda' => $cur,
+                'filas' => array_map(static fn ($c) => ['due' => (string) $c['due_date'], 'amt' => number_format((float) $c['amount'], 2, '.', '')], $planPrefill),
+                'hoy' => date('Y-m-d'),
+            ], JSON_UNESCAPED_UNICODE)) ?>)">
+        <form method="post" class="crm-modal__form" @submit="enviando = true">
+            <?= csrf_field() ?>
+            <input type="hidden" name="form" value="plan_save">
+            <input type="hidden" name="id" value="<?= (int) ($inv['id'] ?? 0) ?>">
+            <header class="crm-modal__head">
+                <span class="crm-modal__icon"><i data-lucide="calendar-range"></i></span>
+                <div class="crm-modal__titles">
+                    <h2><?= $plan ? 'Rehacer plan de cuotas' : 'Pactar pago en cuotas' ?></h2>
+                    <p>Se reparte lo que se debe hoy: <b><?= money_cur($balance, $cur) ?></b><?= (float) ($inv['amount_paid'] ?? 0) > 0.009 ? ' (lo ya abonado queda fuera del plan)' : '' ?>.</p>
+                </div>
+                <button type="button" class="crm-modal__close" onclick="document.getElementById('inv-plan').close()" aria-label="Cerrar"><i data-lucide="x"></i></button>
+            </header>
+            <div class="crm-modal__body">
+                <div class="plan-gen">
+                    <label class="crm-field"><span>Cuotas</span>
+                        <input type="number" min="2" max="36" x-model.number="n" class="crm-input" @change="generar()">
+                    </label>
+                    <label class="crm-field"><span>Primera cuota</span>
+                        <input type="date" x-model="primera" class="crm-input" @change="generar()">
+                    </label>
+                    <label class="crm-field"><span>Frecuencia</span>
+                        <select x-model="frecuencia" class="crm-select" @change="generar()">
+                            <?php foreach (installment_frequencies() as $k => $lbl): ?>
+                                <option value="<?= e($k) ?>"><?= e($lbl) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <button type="button" class="crm-secondary-btn plan-gen__btn" @click="generar()"><i data-lucide="refresh-cw" class="h-4 w-4"></i>Repartir en partes iguales</button>
+                </div>
+
+                <div class="plan-filas">
+                    <div class="plan-filas__cab"><span>#</span><span>Vence</span><span class="text-right">Importe</span></div>
+                    <template x-for="(f, i) in filas" :key="i">
+                        <div class="plan-filas__fila" :class="errorFila(i) && 'has-error'">
+                            <span class="plan-filas__n" x-text="i + 1"></span>
+                            <input type="date" name="due[]" x-model="f.due" class="crm-input" required :aria-label="'Vencimiento de la cuota ' + (i + 1)">
+                            <input type="text" inputmode="decimal" name="amt[]" x-model="f.amt" class="crm-input text-right" required :aria-label="'Importe de la cuota ' + (i + 1)">
+                        </div>
+                    </template>
+                </div>
+
+                <div class="plan-cuadre" :class="cuadra() ? 'is-ok' : 'is-mal'">
+                    <span>Suman <b x-text="dinero(suma())"></b> de <b x-text="dinero(saldo)"></b></span>
+                    <span x-show="cuadra()"><i data-lucide="check-circle-2" style="width:15px;height:15px"></i>Cuadra con el saldo</span>
+                    <span x-show="!cuadra()" x-text="diferencia()"></span>
+                </div>
+                <p class="plan-aviso" x-show="fechasDesordenadas()" x-cloak>Las fechas tienen que ir en orden: cada cuota vence después de la anterior.</p>
+            </div>
+            <footer class="crm-modal__foot">
+                <?php if ($plan): ?>
+                    <button type="submit" form="inv-plan-quitar" class="crm-secondary-btn" style="margin-right:auto">Quitar plan</button>
+                <?php endif; ?>
+                <button type="button" class="crm-secondary-btn" onclick="document.getElementById('inv-plan').close()">Cancelar</button>
+                <button type="submit" class="crm-primary-btn" :disabled="enviando || !cuadra() || fechasDesordenadas()"><i data-lucide="check" class="h-4 w-4"></i><span x-text="enviando ? 'Guardando…' : 'Guardar plan'">Guardar plan</span></button>
+            </footer>
+        </form>
+        <?php if ($plan): ?>
+            <form method="post" id="inv-plan-quitar" onsubmit="return confirm('¿Quitar el plan de cuotas? La factura vuelve a vencer en su fecha original.');">
+                <?= csrf_field() ?>
+                <input type="hidden" name="form" value="plan_delete">
+                <input type="hidden" name="id" value="<?= (int) ($inv['id'] ?? 0) ?>">
+            </form>
+        <?php endif; ?>
+    </dialog>
+    <?php endif; ?>
 
     <?php if ($hasInvoices && current_can('facturas.edit')): ?>
     <dialog id="inv-pay" class="crm-modal" onclick="if(event.target===this)this.close()">
@@ -1137,7 +1580,14 @@ $agingTone = ['por_vencer' => 'ok', '0-30' => 'warn', '31-60' => 'warn', '61-90'
 
 /* Bandeja de recordatorios de pago: un cliente por fila, deuda más antigua primero. */
 $reminderClients = ($hasInvoices && $canCartera) ? receivables_clients() : [];
-$reminderOverdue = array_values(array_filter($reminderClients, fn ($c) => $c['overdue_count'] > 0));
+/* Los lotes cuentan como el PDF, con el estado de cuenta ajustado de cada
+   cliente: si a uno se le excluyó todo, no sale en el lote y el botón no lo
+   cuenta. La tabla sí lo sigue mostrando: la cartera es la que es. */
+$statementCustoms = ($hasInvoices && $canCartera) ? statement_customs_all() : [];
+$reminderBatch = ($hasInvoices && $canCartera) ? statement_batch_clients(false, $reminderClients, $statementCustoms) : [];
+$reminderOverdue = array_values(array_filter($reminderBatch, fn ($c) => $c['overdue_count'] > 0));
+$reminderInBatch = array_column($reminderBatch, null, 'client_id');
+$canEditStatement = current_can('facturas.edit');
 
 /*
  * Rango NCF vigente por serie+tipo: el mismo criterio y el mismo orden que usa
@@ -1244,10 +1694,12 @@ require_once __DIR__ . '/../includes/crm_header.php';
         <div class="crm-card__head">
             <div>
                 <h2><i data-lucide="bell-ring" class="cfg-ic"></i> Recordatorios de pago</h2>
-                <p>Estado de cuenta en PDF con el logo, los datos fiscales de la empresa y el detalle de cada comprobante pendiente. El tono del aviso se ajusta solo al atraso del documento más antiguo; puedes forzarlo antes de imprimir.</p>
+                <p>Estado de cuenta en PDF con el logo, los datos fiscales de la empresa y el detalle de cada comprobante pendiente. El tono del aviso se ajusta solo al atraso del documento más antiguo; puedes forzarlo antes de imprimir<?= $canEditStatement ? ', o ajustar con el lápiz qué comprobantes incluye y qué le dice a cada cliente' : '' ?>.</p>
             </div>
             <div class="crm-toolbar" style="gap:.5rem;padding:0">
-                <button type="button" class="crm-secondary-btn" onclick="crmPdfPreviewOpen('<?= url('crm/recordatorio_pdf.php?scope=all') ?>','<?= url('crm/recordatorio_pdf.php?scope=all&download=1') ?>','de <?= e((string) count($reminderClients)) ?> clientes','Lote de recordatorios')"><i data-lucide="layers" class="h-4 w-4"></i>Lote · todos (<?= e((string) count($reminderClients)) ?>)</button>
+                <?php if ($reminderBatch): ?>
+                    <button type="button" class="crm-secondary-btn" onclick="crmPdfPreviewOpen('<?= url('crm/recordatorio_pdf.php?scope=all') ?>','<?= url('crm/recordatorio_pdf.php?scope=all&download=1') ?>','de <?= e((string) count($reminderBatch)) ?> clientes','Lote de recordatorios')"><i data-lucide="layers" class="h-4 w-4"></i>Lote · todos (<?= e((string) count($reminderBatch)) ?>)</button>
+                <?php endif; ?>
                 <?php if ($reminderOverdue): ?>
                     <button type="button" class="crm-secondary-btn" onclick="crmPdfPreviewOpen('<?= url('crm/recordatorio_pdf.php?scope=all&vencidas=1') ?>','<?= url('crm/recordatorio_pdf.php?scope=all&vencidas=1&download=1') ?>','de <?= e((string) count($reminderOverdue)) ?> clientes en mora','Lote de recordatorios')"><i data-lucide="alarm-clock" class="h-4 w-4"></i>Solo en mora (<?= e((string) count($reminderOverdue)) ?>)</button>
                 <?php endif; ?>
@@ -1260,10 +1712,16 @@ require_once __DIR__ . '/../includes/crm_header.php';
                 <?php foreach ($reminderClients as $rc):
                     $rcTone = $rc['max_days'] > 60 ? 'bad' : ($rc['max_days'] > 0 ? 'warn' : 'ok');
                     $rcName = addslashes((string) $rc['name']);
-                    $rcBase = 'crm/recordatorio_pdf.php?client=' . (int) $rc['client_id']; ?>
+                    $rcBase = 'crm/recordatorio_pdf.php?client=' . (int) $rc['client_id'];
+                    $rcEdit = $canEditStatement ? url('crm/estado_cuenta.php?client=' . (int) $rc['client_id']) : '';
+                    $rcJsEdit = $rcEdit !== '' ? ",'" . $rcEdit . "'" : '';
+                    $rcBatch = $reminderInBatch[(int) $rc['client_id']] ?? null;
+                    $rcAjustado = isset($statementCustoms[(int) $rc['client_id']]); ?>
                     <tr>
                         <td>
                             <a href="<?= url('crm/cliente.php?id=' . (int) $rc['client_id']) ?>"><strong><?= e($rc['name']) ?></strong></a>
+                            <?php if (!$rcBatch): ?><span class="edo-chip" title="Todos sus comprobantes están fuera de su estado de cuenta: no sale en el lote">Todo excluido</span>
+                            <?php elseif ($rcAjustado): ?><span class="edo-chip" title="Estado de cuenta ajustado<?= (int) $rcBatch['excluded_count'] > 0 ? ' · ' . (int) $rcBatch['excluded_count'] . ' comprobante' . ((int) $rcBatch['excluded_count'] === 1 ? '' : 's') . ' fuera' : '' ?>">Ajustado<?= (int) $rcBatch['excluded_count'] > 0 ? ' · ' . (int) $rcBatch['excluded_count'] . ' fuera' : '' ?></span><?php endif; ?>
                             <?php if ($rc['rnc'] !== '' || $rc['email'] !== ''): ?><br><span style="color:var(--muted);font-size:.78rem"><?= e(trim(implode(' · ', array_filter([$rc['rnc'], $rc['email']])))) ?></span><?php endif; ?>
                         </td>
                         <td class="text-right"><?= e((string) $rc['count']) ?></td>
@@ -1273,11 +1731,12 @@ require_once __DIR__ . '/../includes/crm_header.php';
                         <td class="text-right">
                             <div class="crm-row-actions">
                                 <?php if (current_can('facturas.edit')): ?><a class="crm-icon-action" href="<?= url('crm/cobro.php?client=' . (int) $rc['client_id']) ?>" title="Registrar un cobro y repartirlo entre sus comprobantes"><i data-lucide="hand-coins"></i></a><?php endif; ?>
-                                <button type="button" class="crm-icon-action" title="Vista previa del recordatorio" onclick="crmPdfPreviewOpen('<?= url($rcBase) ?>','<?= url($rcBase . '&download=1') ?>','<?= e($rcName) ?>','Recordatorio de pago')"><i data-lucide="eye"></i></button>
+                                <?php if ($rcEdit !== ''): ?><a class="crm-icon-action" href="<?= $rcEdit ?>" title="Editar estado de cuenta: comprobantes, tono y textos" aria-label="Editar estado de cuenta de <?= e((string) $rc['name']) ?>"><i data-lucide="file-pen-line"></i></a><?php endif; ?>
+                                <button type="button" class="crm-icon-action" title="Vista previa del recordatorio" onclick="crmPdfPreviewOpen('<?= url($rcBase) ?>','<?= url($rcBase . '&download=1') ?>','<?= e($rcName) ?>','Recordatorio de pago'<?= $rcJsEdit ?>)"><i data-lucide="eye"></i></button>
                                 <a class="crm-icon-action" href="<?= url($rcBase . '&download=1') ?>" title="Descargar PDF"><i data-lucide="download"></i></a>
-                                <button type="button" class="crm-icon-action" title="Tono cordial (aviso preventivo)" onclick="crmPdfPreviewOpen('<?= url($rcBase . '&tono=cordial') ?>','<?= url($rcBase . '&tono=cordial&download=1') ?>','<?= e($rcName) ?>','Recordatorio cordial')"><i data-lucide="smile"></i></button>
-                                <button type="button" class="crm-icon-action" title="Tono firme (saldo vencido)" onclick="crmPdfPreviewOpen('<?= url($rcBase . '&tono=firme') ?>','<?= url($rcBase . '&tono=firme&download=1') ?>','<?= e($rcName) ?>','Recordatorio firme')"><i data-lucide="alert-triangle"></i></button>
-                                <button type="button" class="crm-icon-action crm-icon-action--danger" title="Último aviso de cobro" onclick="crmPdfPreviewOpen('<?= url($rcBase . '&tono=final') ?>','<?= url($rcBase . '&tono=final&download=1') ?>','<?= e($rcName) ?>','Último aviso de cobro')"><i data-lucide="gavel"></i></button>
+                                <button type="button" class="crm-icon-action" title="Tono cordial (aviso preventivo)" onclick="crmPdfPreviewOpen('<?= url($rcBase . '&tono=cordial') ?>','<?= url($rcBase . '&tono=cordial&download=1') ?>','<?= e($rcName) ?>','Recordatorio cordial'<?= $rcJsEdit ?>)"><i data-lucide="smile"></i></button>
+                                <button type="button" class="crm-icon-action" title="Tono firme (saldo vencido)" onclick="crmPdfPreviewOpen('<?= url($rcBase . '&tono=firme') ?>','<?= url($rcBase . '&tono=firme&download=1') ?>','<?= e($rcName) ?>','Recordatorio firme'<?= $rcJsEdit ?>)"><i data-lucide="alert-triangle"></i></button>
+                                <button type="button" class="crm-icon-action crm-icon-action--danger" title="Último aviso de cobro" onclick="crmPdfPreviewOpen('<?= url($rcBase . '&tono=final') ?>','<?= url($rcBase . '&tono=final&download=1') ?>','<?= e($rcName) ?>','Último aviso de cobro'<?= $rcJsEdit ?>)"><i data-lucide="gavel"></i></button>
                                 <?php if ($rc['email'] !== ''): ?>
                                     <a class="crm-icon-action" href="mailto:<?= e($rc['email']) ?>?subject=<?= e(rawurlencode('Estado de cuenta ' . APP_NAME . ' — saldo pendiente al ' . date('d/m/Y'))) ?>&body=<?= e(rawurlencode("Estimados señores de " . $rc['name'] . ":\n\nAdjuntamos el estado de cuenta con los comprobantes pendientes de pago al " . date('d/m/Y') . ", por un total de RD$ " . number_format($rc['total_dop'], 2) . ".\n\nQuedamos atentos a cualquier aclaración.\n\n" . reminder_contact() . "\n" . APP_LEGAL)) ?>" title="Redactar correo al cliente (adjunta el PDF descargado)"><i data-lucide="mail"></i></a>
                                 <?php endif; ?>
@@ -1313,12 +1772,12 @@ require_once __DIR__ . '/../includes/crm_header.php';
                         <td><strong><?= e($inv['invoice_number'] ?? '') ?></strong><?php if (!empty($inv['ncf'])): ?><br><span class="inv-ncf-chip"><?= e($inv['ncf']) ?></span><?php else: ?><br><span style="color:var(--muted);font-size:.78rem"><?= $rowProforma ? 'Sin NCF · proforma' : 'Sin NCF' ?></span><?php endif; ?></td>
                         <td><?= e($inv['client_name'] ?? $inv['c_name'] ?? 'Cliente') ?><?php if (!empty($inv['title'])): ?><br><span style="color:var(--muted);font-size:.8rem"><?= e($inv['title']) ?></span><?php endif; ?></td>
                         <td><span class="inv-type-chip"><?= $rowProforma ? 'Factura Proforma' : e(($inv['ncf_type'] ?? '') . ' · ' . ncf_type_label((string) ($inv['ncf_type'] ?? ''))) ?></span></td>
-                        <td><span class="status-chip <?= e(status_class($inv['status'] ?? 'Borrador')) ?>"><?= e($inv['status'] ?? 'Borrador') ?></span><?php if ($rowProforma): ?> <span class="gas-aviso gas-aviso--chip" title="Documento sin validez fiscal">Proforma</span><?php endif; ?><?php if ($ov): ?> <span class="status-chip gas-estado--alarma" title="Vencida el <?= e(date_es($inv['due_date'])) ?>">Vencida</span><?php endif; ?></td>
+                        <td><span class="status-chip <?= e(status_class($inv['status'] ?? 'Borrador')) ?>"><?= e($inv['status'] ?? 'Borrador') ?></span><?php if ($rowProforma): ?> <span class="gas-aviso gas-aviso--chip" title="Documento sin validez fiscal">Proforma</span><?php endif; ?><?php if ($ov): ?> <span class="status-chip gas-estado--alarma" title="Vencida el <?= e(date_es(invoice_row_due($inv))) ?>">Vencida</span><?php endif; ?></td>
                         <?php if ($canCartera): ?>
                         <td>
                             <span class="inv-age-chip inv-age-chip--<?= e($age['tone']) ?>"><?= e($age['label']) ?></span>
                             <?php if ($age['days'] !== null): ?>
-                                <br><span style="color:var(--muted);font-size:.75rem"><?= $age['key'] === 'por_vencer' ? 'faltan ' . e((string) abs((int) $age['days'])) . ' d' : e((string) (int) $age['days']) . ' d de vencida' ?><?php if (!empty($inv['due_date'])): ?> · <?= e(date_es($inv['due_date'])) ?><?php endif; ?></span>
+                                <br><span style="color:var(--muted);font-size:.75rem"><?= $age['key'] === 'por_vencer' ? 'faltan ' . e((string) abs((int) $age['days'])) . ' d' : e((string) (int) $age['days']) . ' d de vencida' ?><?php if (invoice_row_due($inv) !== ''): ?> · <?= e(date_es(invoice_row_due($inv))) ?><?php if (!empty($inv['installment_base'])): ?> (cuota)<?php endif; ?><?php endif; ?></span>
                             <?php endif; ?>
                         </td>
                         <?php endif; ?>

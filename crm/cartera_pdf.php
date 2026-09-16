@@ -144,7 +144,7 @@ ob_start();
                         <td><?= $h($r['invoice_number']) ?></td>
                         <td><?= $h($r['ncf'] ?: '—') ?></td>
                         <td><?= $h(date_es($r['issue_date'] ?? null)) ?></td>
-                        <td><?= $h(date_es($r['due_date'] ?? null)) ?></td>
+                        <td><?= $h(date_es($r['due_effective'] ?? $r['due_date'] ?? null)) ?><?php if (!empty($r['installment_base'])): ?><br><span class="muted">cuota</span><?php endif; ?></td>
                         <td class="r"><?= (int) $r['aging']['days'] < 0 ? 'en ' . $h((string) abs((int) $r['aging']['days'])) : $h((string) (int) $r['aging']['days']) ?></td>
                         <td class="r"><?= $h(money_cur($r['total'], (string) ($r['currency'] ?? 'DOP'))) ?></td>
                         <td class="r"><b><?= $m($r['balance_dop']) ?></b></td>

@@ -10,12 +10,20 @@ $roleKeys = array_keys($roles);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
     $me = (int) (current_user()['id'] ?? 0);
+    /* Gestionar usuarios NO es ser administrador. Un rol con este permiso podía
+       borrar administradores, cambiarles el correo y la clave, darse a sí mismo
+       acceso a la cartera y forzar a los admins a cambiar su contraseña. Todo lo
+       que toca a un administrador —o a la lista nominal de cartera— queda para
+       administradores. */
+    $iAmAdmin = current_role() === 'admin';
 
     if (isset($_POST['delete_id'])) {
         $did = (int) $_POST['delete_id'];
         $target = $did > 0 ? fetch_one('SELECT role, status FROM users WHERE id=?', [$did]) : null;
         if ($did > 0 && $did === $me) {
             flash('warning', 'No puedes eliminar tu propio usuario.');
+        } elseif ($target && ($target['role'] ?? '') === 'admin' && !$iAmAdmin) {
+            flash('warning', 'Solo un administrador puede eliminar a otro administrador.');
         } elseif ($target && ($target['role'] ?? '') === 'admin' && ($target['status'] ?? '') === 'activo' && active_admin_count() <= 1) {
             flash('warning', 'No puedes eliminar al último administrador activo.');
         } elseif ($did > 0) {
@@ -27,6 +35,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
     }
 
     if (($_POST['form'] ?? '') === 'force_pw_all') {
+        if (!$iAmAdmin) {
+            flash('warning', 'Solo un administrador puede exigir el cambio de contraseña a todo el equipo.');
+            redirect('crm/usuarios.php');
+        }
         db()->prepare('UPDATE users SET must_change_password=1, updated_at=NOW() WHERE id <> ?')->execute([$me]);
         log_activity('user', null, 'exigir_cambio_password_equipo', null);
         flash('success', 'Listo: el equipo deberá crear una contraseña nueva al iniciar sesión.');
@@ -47,6 +59,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
         $losesAdmin = $wasAdmin && ($role !== 'admin' || $status !== 'activo');
         if ($uid <= 0 || $name === '' || $email === '') {
             flash('warning', 'Nombre y correo son obligatorios.');
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            flash('warning', 'El correo no es válido. Con él se inicia sesión y llega el código de acceso.');
+        } elseif ($wasAdmin && !$iAmAdmin) {
+            flash('warning', 'Solo un administrador puede modificar a otro administrador.');
         } elseif ($role === 'admin' && current_role() !== 'admin') {
             flash('warning', 'Solo un administrador puede asignar el rol Administrador.');
         } elseif ($uid === $me && $losesAdmin) {
@@ -65,7 +81,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
                     db()->prepare('UPDATE users SET name=?, email=?, role=?, status=?, updated_at=NOW() WHERE id=?')
                         ->execute([$name, $email, $role, $status, $uid]);
                 }
-                cartera_toggle_user($uid, (string) ($_POST['cartera'] ?? '') === '1');
+                // La cartera es una lista NOMINAL de contabilidad: solo un admin la cambia.
+                if ($iAmAdmin) {
+                    cartera_toggle_user($uid, (string) ($_POST['cartera'] ?? '') === '1');
+                }
                 log_activity('user', $uid, 'usuario_actualizado', $name);
                 flash('success', 'Usuario actualizado.');
             } catch (Throwable) {
@@ -84,6 +103,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
 
         if ($name === '' || $email === '' || strlen($password) < 8) {
             flash('warning', 'Nombre, correo y contraseña de 8 caracteres son obligatorios.');
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            flash('warning', 'El correo no es válido. Con él se inicia sesión y llega el código de acceso.');
         } elseif ($role === 'admin' && current_role() !== 'admin') {
             flash('warning', 'Solo un administrador puede crear usuarios con rol Administrador.');
             redirect('crm/usuarios.php');
@@ -92,7 +113,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
                 db()->prepare('INSERT INTO users (name, email, password_hash, role, status, must_change_password, created_at, updated_at) VALUES (?, ?, ?, ?, "activo", 1, NOW(), NOW())')
                     ->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $role]);
                 $newUserId = (int) db()->lastInsertId();
-                cartera_toggle_user($newUserId, (string) ($_POST['cartera'] ?? '') === '1');
+                if ($iAmAdmin) {
+                    cartera_toggle_user($newUserId, (string) ($_POST['cartera'] ?? '') === '1');
+                }
                 log_activity('user', $newUserId, 'usuario_creado', $name);
                 flash('success', 'Usuario creado.');
                 redirect('crm/usuarios.php');

@@ -59,6 +59,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     redirect('crm/index.php');
                 }
                 // OTP required: email the code, then move to the verify step (PRG).
+                // Con la cuenta bloqueada por códigos fallidos no se emite otro:
+                // cada código nuevo era otra ronda de intentos.
+                if (otp_account_locked((string) ($user['email'] ?? ''))) {
+                    flash('warning', 'Demasiados códigos incorrectos para esta cuenta. Espera 15 minutos antes de volver a intentar.');
+                    redirect('crm/login.php');
+                }
                 $start = otp_start($user);
                 if ($start['ok']) {
                     login_clear_failures($ipKey, $emailHash); // password was correct

@@ -17,6 +17,7 @@
     <div class="crm-pdf-frame-wrap"><iframe id="crm-pdf-frame" title="Vista previa del PDF" src="about:blank"></iframe></div>
     <div class="crm-modal__foot">
         <button type="button" class="crm-secondary-btn" onclick="crmPdfPreviewClose()">Cerrar</button>
+        <a id="crm-pdf-edit" href="#" class="crm-secondary-btn" style="display:none"><i data-lucide="file-pen-line" class="h-4 w-4"></i>Editar estado de cuenta</a>
         <a id="crm-pdf-download" href="#" class="crm-primary-btn"><i data-lucide="download" class="h-4 w-4"></i>Descargar PDF</a>
     </div>
 </dialog>

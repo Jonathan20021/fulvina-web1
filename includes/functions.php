@@ -1234,6 +1234,28 @@ function invoice_aging_buckets(): array
 }
 
 /**
+ * La fecha desde la que se cuenta el atraso de una factura: con plan de cuotas,
+ * la cuota más antigua sin cubrir; si no, su vencimiento, y si no tiene, la
+ * emisión. Es la regla de invoice_due_sql() en PHP.
+ *
+ * Toda pantalla que muestre «vence el…» junto a un atraso debe usar esta fecha
+ * y no due_date a secas: con un plan pactado, due_date es la fecha de la
+ * factura entera y el atraso se cuenta desde la cuota, así que la fila decía
+ * «vence el 15/08» y «faltan 10 días» a la vez.
+ */
+function invoice_effective_due(array $inv): ?string
+{
+    if (function_exists('installments_effective_due')) {
+        $cuota = installments_effective_due($inv);
+        if ($cuota !== null) {
+            return $cuota;
+        }
+    }
+    return valid_date((string) ($inv['due_date'] ?? ''))
+        ?? valid_date((string) ($inv['issue_date'] ?? ''));
+}
+
+/**
  * Periodo de vencimiento de una factura: tramo, días vencidos y saldo pendiente.
  * Solo aplica a comprobantes emitidos con saldo; borradores, anuladas y saldadas
  * devuelven su propio estado para que la UI no invente antigüedad.
@@ -1260,11 +1282,8 @@ function invoice_aging(array $inv): array
         return ['key' => 'saldada', 'label' => 'Saldada', 'days' => null, 'balance' => 0.0, 'tone' => 'ok'];
     }
 
-    $ref = (string) ($inv['due_date'] ?? '');
-    if ($ref === '' || $ref === '0000-00-00') {
-        $ref = (string) ($inv['issue_date'] ?? '');
-    }
-    if ($ref === '' || $ref === '0000-00-00') {
+    $ref = invoice_effective_due($inv);
+    if ($ref === null) {
         return ['key' => 'na', 'label' => 'Sin fecha', 'days' => null, 'balance' => $balance, 'tone' => 'muted'];
     }
 
@@ -1309,7 +1328,19 @@ function invoice_aging_text(array $inv): string
  */
 function invoice_due_sql(string $table = 'invoices'): string
 {
-    return "IF({$table}.due_date IS NULL OR YEAR({$table}.due_date) = 0, {$table}.issue_date, {$table}.due_date)";
+    $base = "IF({$table}.due_date IS NULL OR YEAR({$table}.due_date) = 0, {$table}.issue_date, {$table}.due_date)";
+    /* Con plan de cuotas manda la cuota más antigua sin cubrir, no el
+       vencimiento de la factura entera. Sin esto, pactar tres cuotas sobre una
+       factura vencida la dejaba «60 días vencida» en la cartera y en el
+       recordatorio, reclamándole al cliente dinero que aún no toca pagar.
+       Es la única fuente del vencimiento, así que cartera, vencidas,
+       recordatorios y analítica lo heredan sin tocarlos. */
+    if (!function_exists('installments_available') || !installments_available()) {
+        return $base;
+    }
+    return "COALESCE(CASE WHEN {$table}.installment_base IS NOT NULL THEN "
+        . "(SELECT MIN(ii.due_date) FROM invoice_installments ii WHERE ii.invoice_id = {$table}.id "
+        . "AND ii.cumulative > {$table}.amount_paid - {$table}.installment_base + 0.009) END, {$base})";
 }
 
 /**
@@ -1439,6 +1470,7 @@ function receivables_aging(): array
         $dop = round((float) $a['balance'] * $rate, 2);
         $r['aging'] = $a;
         $r['balance_dop'] = $dop;
+        $r['due_effective'] = invoice_effective_due($r);
         $buckets[$a['key']]['rows'][] = $r;
         $buckets[$a['key']]['count']++;
         $buckets[$a['key']]['amount'] += $dop;
@@ -1500,35 +1532,85 @@ function client_receivables(int $clientId, array $onlyIds = []): array
     $sql .= ' ORDER BY ' . invoice_due_sql() . ' ASC, invoices.id ASC';
 
     foreach (fetch_all($sql, $params) as $r) {
-        $age = invoice_aging($r);
-        $cur = strtoupper((string) ($r['currency'] ?? 'DOP')) === 'USD' ? 'USD' : 'DOP';
-        $rate = $cur === 'USD' ? max(1.0, (float) ($r['exchange_rate'] ?? 1)) : 1.0;
-        $dop = round((float) $age['balance'] * $rate, 2);
-        $days = $age['days'] === null ? 0 : (int) $age['days'];
+        $fig = receivable_figures($r);
+        $cur = $fig['currency'];
 
-        $r['aging'] = $age;
+        $r['aging'] = $fig['aging'];
         $r['currency'] = $cur;
-        $r['balance'] = (float) $age['balance'];
-        $r['balance_dop'] = $dop;
+        $r['balance'] = $fig['balance'];
+        $r['balance_dop'] = $fig['balance_dop'];
+        $r['overdue'] = $fig['overdue'];
+        $r['overdue_dop'] = $fig['overdue_dop'];
+        $r['due_effective'] = $fig['due'];
+        $r['plan'] = $fig['plan'];
         $out['rows'][] = $r;
 
         $out['count']++;
-        $out['total_dop'] += $dop;
-        $out['by_currency'][$cur] = ($out['by_currency'][$cur] ?? 0.0) + (float) $age['balance'];
-        if ($days > 0) {
+        $out['total_dop'] += $fig['balance_dop'];
+        $out['by_currency'][$cur] = ($out['by_currency'][$cur] ?? 0.0) + $fig['balance'];
+        if ($fig['overdue'] > 0.009) {
             $out['overdue_count']++;
-            $out['overdue_dop'] += $dop;
-            $out['max_days'] = max($out['max_days'], $days);
-        } else {
-            $out['upcoming_dop'] += $dop;
-            $due = invoice_valid_date((string) ($r['due_date'] ?? ''));
-            if ($due !== null && ($out['next_due'] === null || $due < $out['next_due'])) {
-                $out['next_due'] = $due;
-            }
+            $out['overdue_dop'] += $fig['overdue_dop'];
+            $out['max_days'] = max($out['max_days'], $fig['days']);
         }
+        $out['upcoming_dop'] += $fig['balance_dop'] - $fig['overdue_dop'];
+        if ($fig['next_due'] !== null && ($out['next_due'] === null || $fig['next_due'] < $out['next_due'])) {
+            $out['next_due'] = $fig['next_due'];
+        }
+    }
+    foreach (['total_dop', 'overdue_dop', 'upcoming_dop'] as $k) {
+        $out[$k] = round($out[$k], 2);
     }
 
     return $out;
+}
+
+/**
+ * Cifras de cobro de un comprobante con saldo: cuánto se debe, cuánto de eso ya
+ * venció y desde cuándo, en su moneda y en RD$.
+ *
+ * Lo VENCIDO no siempre es el saldo entero. Con plan de cuotas solo vence lo que
+ * falta de las cuotas cuya fecha ya pasó: pactar tres cuotas sobre una factura
+ * atrasada y seguir reclamándola completa como «vencida» en el estado de cuenta
+ * desdice el acuerdo que se le hizo al cliente.
+ */
+function receivable_figures(array $r): array
+{
+    $age = invoice_aging($r);
+    $cur = strtoupper((string) ($r['currency'] ?? 'DOP')) === 'USD' ? 'USD' : 'DOP';
+    $rate = $cur === 'USD' ? max(1.0, (float) ($r['exchange_rate'] ?? 1)) : 1.0;
+    $balance = (float) $age['balance'];
+    $days = $age['days'] === null ? 0 : (int) $age['days'];
+    $plan = function_exists('installments_summary') ? installments_summary($r) : null;
+
+    $overdue = 0.0;
+    if ($days > 0) {
+        $overdue = $plan !== null ? min($balance, (float) $plan['vencido']) : $balance;
+    }
+    $dop = round($balance * $rate, 2);
+    $overdueDop = min($dop, round($overdue * $rate, 2));
+
+    // Lo siguiente que toca pagar de lo que todavía no vence.
+    $next = null;
+    if ($plan !== null) {
+        $next = $plan['proxima']['due_date'] ?? null;
+    } elseif ($days <= 0) {
+        $next = invoice_effective_due($r);
+    }
+
+    return [
+        'aging' => $age,
+        'currency' => $cur,
+        'rate' => $rate,
+        'days' => $days,
+        'balance' => $balance,
+        'balance_dop' => $dop,
+        'overdue' => round($overdue, 2),
+        'overdue_dop' => $overdueDop,
+        'due' => invoice_effective_due($r),
+        'next_due' => $next,
+        'plan' => $plan,
+    ];
 }
 
 /**
@@ -1550,10 +1632,7 @@ function receivables_clients(bool $onlyOverdue = false): array
     $byClient = [];
     foreach ($rows as $r) {
         $cid = (int) $r['client_id'];
-        $age = invoice_aging($r);
-        $rate = strtoupper((string) ($r['currency'] ?? 'DOP')) === 'USD' ? max(1.0, (float) ($r['exchange_rate'] ?? 1)) : 1.0;
-        $dop = round((float) $age['balance'] * $rate, 2);
-        $days = $age['days'] === null ? 0 : (int) $age['days'];
+        $fig = receivable_figures($r);
 
         if (!isset($byClient[$cid])) {
             $byClient[$cid] = [
@@ -1566,13 +1645,18 @@ function receivables_clients(bool $onlyOverdue = false): array
             ];
         }
         $byClient[$cid]['count']++;
-        $byClient[$cid]['total_dop'] += $dop;
-        if ($days > 0) {
+        $byClient[$cid]['total_dop'] += $fig['balance_dop'];
+        if ($fig['overdue'] > 0.009) {
             $byClient[$cid]['overdue_count']++;
-            $byClient[$cid]['overdue_dop'] += $dop;
-            $byClient[$cid]['max_days'] = max($byClient[$cid]['max_days'], $days);
+            $byClient[$cid]['overdue_dop'] += $fig['overdue_dop'];
+            $byClient[$cid]['max_days'] = max($byClient[$cid]['max_days'], $fig['days']);
         }
     }
+    foreach ($byClient as &$c) {
+        $c['total_dop'] = round($c['total_dop'], 2);
+        $c['overdue_dop'] = round($c['overdue_dop'], 2);
+    }
+    unset($c);
 
     if ($onlyOverdue) {
         $byClient = array_filter($byClient, fn ($c) => $c['overdue_count'] > 0);
@@ -1586,7 +1670,11 @@ function receivables_clients(bool $onlyOverdue = false): array
  * Tonos del recordatorio de pago. Cada tono cambia el encabezado, el color y la
  * redacción del aviso: cordial (preventivo), firme (saldo vencido) y final
  * (última gestión antes de suspender crédito). Los textos aceptan las marcas
- * {empresa}, {cliente}, {fecha}, {total}, {dias} y {contacto}.
+ * {empresa}, {cliente}, {fecha}, {total}, {vencido}, {dias} y {contacto}.
+ *
+ * {total} es todo lo que se debe y {vencido} solo lo que ya pasó su fecha. Los
+ * tonos que hablan de «saldo vencido» usan {vencido}: con {total} el aviso le
+ * reclamaba como vencido al cliente lo que todavía no le tocaba pagar.
  */
 function reminder_tones(): array
 {
@@ -1609,8 +1697,8 @@ function reminder_tones(): array
             'color' => '#92660a',
             'soft' => '#fffaf0',
             'line' => '#f4d58a',
-            'subject' => 'Saldo vencido de {total} — {dias} día(s) de atraso',
-            'intro' => 'Reciba un cordial saludo de parte de {empresa}. Al {fecha} nuestros registros muestran comprobantes fiscales vencidos por un total de {total}, con hasta {dias} día(s) de atraso. Le solicitamos gestionar el pago a la mayor brevedad para mantener su cuenta al día.',
+            'subject' => 'Saldo vencido de {vencido} — {dias} día(s) de atraso',
+            'intro' => 'Reciba un cordial saludo de parte de {empresa}. Al {fecha} nuestros registros muestran comprobantes fiscales vencidos por {vencido}, con hasta {dias} día(s) de atraso, dentro de un saldo total de {total}. Le solicitamos gestionar el pago a la mayor brevedad para mantener su cuenta al día.',
             'close' => 'Le agradecemos confirmar la fecha estimada de pago o, si ya fue realizado, remitirnos el comprobante para aplicarlo a su cuenta. Si existe alguna diferencia en el detalle, con gusto la revisamos con usted.',
         ],
         'final' => [
@@ -1620,20 +1708,27 @@ function reminder_tones(): array
             'color' => '#b42318',
             'soft' => '#fef2f2',
             'line' => '#f3c4c4',
-            'subject' => 'Último aviso — saldo vencido de {total} con {dias} día(s) de atraso',
-            'intro' => 'Reciba un cordial saludo de parte de {empresa}. Pese a nuestras gestiones anteriores, al {fecha} continúa pendiente un saldo vencido de {total}, con hasta {dias} día(s) de atraso. Este documento constituye nuestra gestión final de cobro por la vía administrativa.',
+            'subject' => 'Último aviso — saldo vencido de {vencido} con {dias} día(s) de atraso',
+            'intro' => 'Reciba un cordial saludo de parte de {empresa}. Pese a nuestras gestiones anteriores, al {fecha} continúa pendiente un saldo vencido de {vencido}, con hasta {dias} día(s) de atraso. Este documento constituye nuestra gestión final de cobro por la vía administrativa.',
             'close' => 'Le solicitamos regularizar el saldo o comunicarse con nosotros dentro de los próximos cinco (5) días laborables para acordar un plan de pago. De no recibir respuesta, la cuenta será remitida al departamento legal y el crédito quedará suspendido, conforme a los términos aceptados en cada comprobante.',
         ],
     ];
 }
 
+/** Hasta cuántos días de atraso rige cada tono; pasado el de «firme», «final». */
+function reminder_tone_thresholds(): array
+{
+    return ['cordial' => 15, 'firme' => 60];
+}
+
 /** Tono sugerido según los días de atraso del comprobante más vencido. */
 function reminder_tone_for(int $maxOverdueDays): string
 {
-    if ($maxOverdueDays <= 15) {
+    $u = reminder_tone_thresholds();
+    if ($maxOverdueDays <= $u['cordial']) {
         return 'cordial';
     }
-    return $maxOverdueDays <= 60 ? 'firme' : 'final';
+    return $maxOverdueDays <= $u['firme'] ? 'firme' : 'final';
 }
 
 /** Instrucciones de pago del recordatorio (editables en Configuración). */
@@ -1666,7 +1761,7 @@ function reminder_contact(): string
     return implode(' · ', $parts);
 }
 
-/** Sustituye las marcas {empresa}, {cliente}, {fecha}, {total}, {dias}, {contacto}. */
+/** Sustituye las marcas {empresa}, {cliente}, {fecha}, {total}, {vencido}, {dias}, {contacto}. */
 function reminder_fill(string $text, array $vars): string
 {
     $map = [];
@@ -2232,7 +2327,6 @@ function ensure_invoice_schema(): void
          */
         foreach ([
             ['invoices', 'ncf', 'uniq_invoices_ncf'],
-            ['invoice_payments', 'receipt_number', 'uniq_payment_receipt'],
         ] as [$tabla, $col, $idx]) {
             if (!table_exists($tabla) || !column_exists($tabla, $col)) {
                 continue;
@@ -2249,16 +2343,54 @@ function ensure_invoice_schema(): void
                    desde database/migrate.php en vez de romper el arranque. */
             }
         }
+
+        /*
+         * Recibos: lo que no se repite es la PAREJA (recibo, factura).
+         *
+         * Aquí hubo un UNIQUE sobre receipt_number a secas, y estaba mal: la
+         * pantalla de Cobro reparte una transferencia entre varias facturas con
+         * UN solo número, una fila por factura. Con ese índice, cualquier cobro
+         * de dos o más facturas fallaba en la segunda línea. No llegó a romper
+         * nada solo porque el servidor aún no tenía la pantalla de Cobro.
+         *
+         * Que dos cobros distintos no se lleven el mismo número lo garantiza
+         * reserve_receipt_number(), que es atómico. Este índice impide lo otro:
+         * que un mismo recibo aplique dos veces a la misma factura.
+         */
+        if (table_exists('invoice_payments') && column_exists('invoice_payments', 'receipt_number')) {
+            if (index_exists('invoice_payments', 'uniq_payment_receipt')) {
+                try {
+                    $pdo->exec('ALTER TABLE invoice_payments DROP INDEX uniq_payment_receipt');
+                } catch (Throwable) { /* ignore */ }
+            }
+            if (!index_exists('invoice_payments', 'uniq_receipt_line')) {
+                try {
+                    $pdo->exec("UPDATE invoice_payments SET receipt_number=NULL WHERE receipt_number=''");
+                    $pdo->exec('ALTER TABLE invoice_payments ADD UNIQUE INDEX uniq_receipt_line (receipt_number, invoice_id)');
+                } catch (Throwable) { /* ignore */ }
+            }
+        }
     } catch (Throwable) {
         /* ignore: best-effort provisioning */
+    }
+
+    // Historial de recibos corregidos/anulados y planes de cuotas.
+    if (function_exists('ensure_cobros_schema')) {
+        ensure_cobros_schema();
     }
 }
 
 /** ¿Existe ya ese índice? Evita intentar crearlo dos veces en cada arranque. */
-function index_exists(string $table, string $index): bool
+function index_exists(string $table, string $index, bool $fresh = false): bool
 {
     static $cache = [];
     $k = $table . '.' . $index;
+    /* $fresh: leer de la base aunque haya respuesta guardada. Hace falta tras un
+       DROP INDEX — el de recibos se quita en la migración, y la comprobación
+       posterior no puede fiarse de un «sí» anterior al borrado. */
+    if ($fresh) {
+        unset($cache[$k]);
+    }
     if (array_key_exists($k, $cache)) {
         return $cache[$k];
     }
@@ -2271,7 +2403,8 @@ function index_exists(string $table, string $index): bool
         $hay = ((int) ($row['c'] ?? 0)) > 0;
         // Solo se recuerda el SÍ: un índice que falta puede crearse en esta
         // misma petición, y cachear el NO haría que la comprobación mintiera
-        // justo después de haberlo creado. Uno que existe no desaparece.
+        // justo después de haberlo creado. Si se BORRA uno, quien comprueba
+        // después pide $fresh.
         if ($hay) { $cache[$k] = true; }
         return $hay;
     } catch (Throwable) {

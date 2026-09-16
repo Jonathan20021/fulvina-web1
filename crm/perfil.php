@@ -29,6 +29,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         flash('warning', 'Nombre y correo son obligatorios.');
         redirect('crm/perfil.php');
     }
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        flash('warning', 'El correo no es válido. Con él inicias sesión y te llega el código de acceso.');
+        redirect('crm/perfil.php');
+    }
+    /* Cambiar el correo pide la contraseña actual. El código de acceso llega por
+       correo: quien tuviera un minuto frente a una sesión abierta podía poner el
+       suyo, dejar fuera al dueño en su siguiente inicio y quedarse con el segundo
+       factor de la cuenta. */
+    $changeEmail = strcasecmp($email, (string) $row['email']) !== 0;
+    if ($changeEmail && !password_verify($current, (string) $row['password_hash'])) {
+        flash('warning', 'Para cambiar tu correo escribe tu contraseña actual.');
+        redirect('crm/perfil.php');
+    }
 
     $changePass = $new !== '' || $confirm !== '';
     if ($changePass) {
@@ -93,7 +106,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
             <?= csrf_field() ?>
             <div class="crm-form-grid">
                 <label class="crm-field"><span class="required">Nombre</span><input name="name" required value="<?= e((string) ($me['name'] ?? '')) ?>" class="crm-input" <?= $isDemo ? 'disabled' : '' ?>></label>
-                <label class="crm-field"><span class="required">Correo</span><input type="email" name="email" required value="<?= e((string) ($me['email'] ?? '')) ?>" class="crm-input" <?= $isDemo ? 'disabled' : '' ?>></label>
+                <label class="crm-field"><span class="required">Correo</span><input type="email" name="email" required value="<?= e((string) ($me['email'] ?? '')) ?>" class="crm-input" <?= $isDemo ? 'disabled' : '' ?>><small style="color:var(--muted);font-size:.75rem">Para cambiarlo, escribe también tu contraseña actual abajo: a este correo llega tu código de acceso.</small></label>
             </div>
 
             <p class="dash-section-label" style="margin:.4rem 0 0">Cambiar contraseña <span style="font-weight:500;color:var(--muted)">(opcional)</span></p>

@@ -479,12 +479,19 @@ window.publicTicketWizard = function publicTicketWizard(config) {
 };
 
 /* PDF preview modal (iframe): quotes, invoices and payment reminders.
-   `kind` names the document in the modal header ('Cotización' by default). */
-window.crmPdfPreviewOpen = function crmPdfPreviewOpen(viewUrl, downloadUrl, title, kind) {
+   `kind` names the document in the modal header ('Cotización' by default).
+   `editUrl`, si viene, muestra «Editar estado de cuenta» junto a Descargar:
+   quien ve el PDF y encuentra algo que cambiar lo tiene a un clic. */
+window.crmPdfPreviewOpen = function crmPdfPreviewOpen(viewUrl, downloadUrl, title, kind, editUrl) {
   const dlg = document.getElementById('crm-pdf-modal');
   if (!dlg) { window.open(viewUrl, '_blank'); return; }
   const frame = dlg.querySelector('#crm-pdf-frame');
   const dl = dlg.querySelector('#crm-pdf-download');
+  const ed = dlg.querySelector('#crm-pdf-edit');
+  if (ed) {
+    ed.style.display = editUrl ? '' : 'none';
+    ed.href = editUrl || '#';
+  }
   const open = dlg.querySelector('#crm-pdf-open');
   const tl = dlg.querySelector('#crm-pdf-title');
   if (frame) frame.src = viewUrl;
@@ -892,3 +899,124 @@ window.schTema = function () {
   if (mq.addEventListener) { mq.addEventListener('change', alSistema); }
   else if (mq.addListener) { mq.addListener(alSistema); }
 })();
+
+/* =========================================================================
+   Recibos de ingreso: corregir y anular
+   ========================================================================= */
+
+/* Formato de dinero igual que money_cur() en PHP, para que lo que se ve en el
+   diálogo coincida con lo que luego imprime el recibo. */
+function schDinero(v, moneda) {
+  var sym = String(moneda).toUpperCase() === 'USD' ? 'US$' : 'RD$';
+  var n = Number(v) || 0;
+  return sym + ' ' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/* Lee un importe tecleado como lo lee amount_parse() en el servidor: acepta
+   «1,601.70» y no lo trunca en 1. */
+function schImporte(raw) {
+  var s = String(raw == null ? '' : raw).replace(/[^\d.,-]/g, '');
+  if (s.indexOf(',') !== -1 && s.indexOf('.') !== -1) { s = s.replace(/,/g, ''); }
+  else if (s.indexOf(',') !== -1) { s = s.replace(',', '.'); }
+  var n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+
+window.reciboEditor = function reciboEditor(moneda) {
+  return {
+    moneda: moneda || 'DOP',
+    r: { id: 0, receipt: '', paid_at: '', method: '', reference: '', note: '', lines: [] },
+    motivo: '',
+    enviando: false,
+
+    /* Copia profunda: si se editara el objeto del evento, cancelar el diálogo
+       dejaría los cambios pegados al botón y reaparecerían al reabrirlo. */
+    abrir(datos, id) {
+      this.r = JSON.parse(JSON.stringify(datos || {}));
+      this.r.lines = Array.isArray(this.r.lines) ? this.r.lines : [];
+      this.motivo = '';
+      this.enviando = false;
+      var dlg = document.getElementById(id || 'rec-edit');
+      if (dlg && !dlg.open) { dlg.showModal(); }
+      this.$nextTick(function () { if (window.schInitIcons) { schInitIcons(); } });
+    },
+    total() {
+      return this.r.lines.reduce(function (s, l) { return s + schImporte(l.amount); }, 0);
+    },
+    dinero(v) { return schDinero(v, this.moneda); }
+  };
+};
+
+/* =========================================================================
+   Plan de cuotas
+   ========================================================================= */
+
+window.planCuotas = function planCuotas(cfg) {
+  cfg = cfg || {};
+  return {
+    saldo: Number(cfg.saldo) || 0,
+    moneda: cfg.moneda || 'DOP',
+    filas: Array.isArray(cfg.filas) && cfg.filas.length ? cfg.filas : [],
+    n: Array.isArray(cfg.filas) && cfg.filas.length ? cfg.filas.length : 3,
+    primera: Array.isArray(cfg.filas) && cfg.filas.length ? cfg.filas[0].due : '',
+    frecuencia: 'mensual',
+    enviando: false,
+
+    /* Reparto en partes iguales, con el redondeo en la ÚLTIMA cuota para que la
+       suma dé exacta al centavo. Misma regla que installments_propose(). */
+    generar() {
+      var n = Math.max(2, Math.min(36, parseInt(this.n, 10) || 2));
+      this.n = n;
+      var cuota = Math.floor((this.saldo / n) * 100) / 100;
+      var fecha = this.primera || cfg.hoy || new Date().toISOString().slice(0, 10);
+      var filas = [];
+      for (var i = 1; i <= n; i++) {
+        var imp = i === n ? Math.round((this.saldo - cuota * (n - 1)) * 100) / 100 : cuota;
+        filas.push({ due: fecha, amt: imp.toFixed(2) });
+        fecha = this.siguiente(fecha);
+      }
+      this.filas = filas;
+    },
+
+    /* Un mes después sin saltarse meses: del 31 de enero al 28/29 de febrero. */
+    siguiente(fecha) {
+      var p = String(fecha).split('-').map(Number);
+      if (p.length !== 3 || !p[0]) { return fecha; }
+      var y = p[0], m = p[1], d = p[2];
+      var pad = function (x) { return (x < 10 ? '0' : '') + x; };
+      if (this.frecuencia === 'mensual') {
+        m += 1; if (m > 12) { m = 1; y += 1; }
+        var ultimo = new Date(y, m, 0).getDate();
+        return y + '-' + pad(m) + '-' + pad(Math.min(d, ultimo));
+      }
+      var dias = this.frecuencia === 'quincenal' ? 15 : 7;
+      var dt = new Date(Date.UTC(p[0], p[1] - 1, p[2] + dias));
+      return dt.getUTCFullYear() + '-' + pad(dt.getUTCMonth() + 1) + '-' + pad(dt.getUTCDate());
+    },
+
+    suma() {
+      return Math.round(this.filas.reduce(function (s, f) { return s + schImporte(f.amt); }, 0) * 100) / 100;
+    },
+    cuadra() {
+      return this.filas.length >= 2 && Math.abs(this.suma() - this.saldo) <= 0.01
+        && this.filas.every(function (f) { return schImporte(f.amt) > 0.009 && f.due; });
+    },
+    diferencia() {
+      var d = Math.round((this.saldo - this.suma()) * 100) / 100;
+      return d > 0 ? 'Faltan ' + schDinero(d, this.moneda) : 'Sobran ' + schDinero(-d, this.moneda);
+    },
+    fechasDesordenadas() {
+      for (var i = 1; i < this.filas.length; i++) {
+        if (this.filas[i].due && this.filas[i - 1].due && this.filas[i].due <= this.filas[i - 1].due) { return true; }
+      }
+      return false;
+    },
+    errorFila(i) {
+      var f = this.filas[i];
+      if (!f) { return false; }
+      if (schImporte(f.amt) <= 0.009) { return true; }
+      return i > 0 && f.due && this.filas[i - 1].due && f.due <= this.filas[i - 1].due;
+    },
+    dinero(v) { return schDinero(v, this.moneda); }
+  };
+};

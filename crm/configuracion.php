@@ -130,10 +130,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '')
         flash('warning', 'Escribe BORRAR (en mayúsculas) para confirmar la limpieza.');
         redirect('crm/configuracion.php');
     }
+
+    /* Este botón existe para quitar los datos de DEMOSTRACIÓN antes de empezar a
+       trabajar. Con comprobantes fiscales reales dentro ya no hace eso: borra
+       NCF que se declararon a la DGII en el 607, y esos registros hay que
+       conservarlos por ley. Una palabra escrita no basta para eso. */
+    $fiscales = table_exists('invoices')
+        ? (int) (fetch_one("SELECT COUNT(*) c FROM invoices WHERE ncf IS NOT NULL AND ncf <> '' AND status IN ('Emitida','Pagada','Anulada')")['c'] ?? 0)
+        : 0;
+    if ($fiscales > 0) {
+        flash('warning', 'La limpieza está bloqueada: hay ' . $fiscales . ' comprobante(s) con NCF emitido. Son registros fiscales declarados a la DGII y deben conservarse. Si de verdad hay que empezar de cero, hazlo con una copia de seguridad y directamente en la base de datos.');
+        redirect('crm/configuracion.php');
+    }
+
+    /* Las fotos del anexo son archivos en disco: vaciar la tabla sin borrarlos
+       dejaba imágenes huérfanas en /uploads. */
+    if (table_exists('quote_attachments')) {
+        foreach (fetch_all('SELECT * FROM quote_attachments') as $att) {
+            quote_delete_photo_file($att);
+        }
+    }
+
     // Child → parent order; FK checks are also disabled as a safety net.
+    /* TRUNCATE reinicia los contadores de id y NO dispara los ON DELETE CASCADE.
+       Cualquier tabla hija que falte aquí sobrevive con ids viejos, y la primera
+       factura o cotización nueva con ese número HEREDA sus filas: el plan de
+       cuotas, el historial de recibos o las fotos de otra. Toda tabla que cuelgue
+       de facturas, cotizaciones o clientes tiene que estar en esta lista. */
     $wipeTables = [
+        'client_statements', 'invoice_installments', 'invoice_payment_log',
         'invoice_payments', 'invoice_items', 'invoices',
-        'quote_items', 'quotes',
+        'quote_attachments', 'quote_items', 'quotes',
         'ticket_comments', 'tickets',
         'equipment', 'contacts', 'leads', 'clients',
         'activity_log', 'login_attempts',

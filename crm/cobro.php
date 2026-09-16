@@ -320,7 +320,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
                                     <a href="<?= url('crm/facturas.php?action=view&id=' . (int) $r['id']) ?>"><strong><?= e((string) ($r['ncf'] ?: $r['invoice_number'])) ?></strong></a>
                                     <?php if (!empty($r['title'])): ?><p class="text-xs text-slate-500"><?= e(mb_strimwidth((string) $r['title'], 0, 48, '…')) ?></p><?php endif; ?>
                                 </td>
-                                <td><?= e(date_es((string) ($r['due_date'] ?: $r['issue_date']))) ?></td>
+                                <td><?= e(date_es($r['due_effective'] ?? null)) ?><?php if (!empty($r['plan']['actual'])): ?><p class="text-xs text-slate-500">cuota <?= (int) $r['plan']['actual']['seq'] ?> de <?= (int) $r['plan']['cuotas'] ?></p><?php endif; ?></td>
                                 <td><span class="inv-age-chip inv-age-chip--<?= e((string) $age['tone']) ?>"><?= e((string) $age['label']) ?></span></td>
                                 <td class="text-right"><strong><?= e(money_cur($r['balance'], $currency)) ?></strong></td>
                                 <td class="text-right">
