@@ -458,7 +458,7 @@ ob_start();
                 <td style="width:58%; vertical-align: bottom; padding-left: 18px;">
                     <p class="note">
                         Documento informativo de cobranza generado el <?= $h(date('d/m/Y')) ?><?= $issuer !== '' ? ' por ' . $h($issuer) : '' ?>; no es un comprobante fiscal.
-                        Los saldos descuentan abonos y retenciones (ITBIS/ISR); notifique cualquier diferencia dentro de los 5 días siguientes.
+                        Los saldos descuentan abonos, retenciones (ITBIS/ISR) y ajustes; notifique cualquier diferencia dentro de los 5 días siguientes.
                     </p>
                 </td>
             </tr>

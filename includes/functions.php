@@ -1354,7 +1354,8 @@ function invoice_due_sql(string $table = 'invoices'): string
 function invoice_net_sql(string $table = 'invoices'): string
 {
     $credited = column_exists('invoices', 'credited_amount') ? " - {$table}.credited_amount" : '';
-    return "({$table}.total - {$table}.itbis_retained - {$table}.isr_retained{$credited})";
+    $adjusted = column_exists('invoices', 'balance_adjustment') ? " - {$table}.balance_adjustment" : '';
+    return "({$table}.total - {$table}.itbis_retained - {$table}.isr_retained{$credited}{$adjusted})";
 }
 
 /** Saldo vivo: lo exigible menos lo ya abonado. */
@@ -1370,7 +1371,8 @@ function invoice_net(array $inv): float
         (float) ($inv['total'] ?? 0)
         - (float) ($inv['itbis_retained'] ?? 0)
         - (float) ($inv['isr_retained'] ?? 0)
-        - (float) ($inv['credited_amount'] ?? 0),
+        - (float) ($inv['credited_amount'] ?? 0)
+        - (float) ($inv['balance_adjustment'] ?? 0),
         2
     );
 }
@@ -1871,7 +1873,7 @@ function invoice_recalc_credited(int $invoiceId): float
         || !column_exists('invoices', 'credited_amount') || !column_exists('invoices', 'modifies_invoice_id')) {
         return 0.0;
     }
-    $inv = fetch_one('SELECT total, itbis_retained, isr_retained FROM invoices WHERE id=?', [$invoiceId]);
+    $inv = fetch_one('SELECT * FROM invoices WHERE id=?', [$invoiceId]);
     if (!$inv) {
         return 0.0;
     }
@@ -1883,7 +1885,9 @@ function invoice_recalc_credited(int $invoiceId): float
         [$invoiceId]
     )['v'] ?? 0);
 
-    $ceiling = round((float) $inv['total'] - (float) $inv['itbis_retained'] - (float) $inv['isr_retained'], 2);
+    // El ajuste de cartera también descuenta: acreditar encima de él dejaría la
+    // factura debiendo menos que cero.
+    $ceiling = round((float) $inv['total'] - (float) $inv['itbis_retained'] - (float) $inv['isr_retained'] - (float) ($inv['balance_adjustment'] ?? 0), 2);
     $credited = round(max(0.0, min($sum, $ceiling)), 2);
 
     db()->prepare('UPDATE invoices SET credited_amount=?, updated_at=NOW() WHERE id=?')->execute([$credited, $invoiceId]);

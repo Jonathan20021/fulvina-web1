@@ -99,7 +99,8 @@ foreach ($payments as $p) {
         (float) $inv['total']
         - (float) $inv['itbis_retained']
         - (float) $inv['isr_retained']
-        - invoice_credited_as_of((int) $inv['id'], (string) $p['paid_at']),
+        - invoice_credited_as_of((int) $inv['id'], (string) $p['paid_at'])
+        - (float) ($inv['balance_adjustment'] ?? 0),
         2
     );
     $paidUpTo = 0.0;
@@ -268,7 +269,7 @@ ob_start();
             </table>
             <table class="bal" style="margin-top:8px">
                 <tr><th>Concepto</th><th>Importe</th></tr>
-                <tr><td>Neto del comprobante<?= $l['net'] < (float) $l['inv']['total'] - 0.009 ? ' <span class="muted">(ya descontadas retenciones y notas de crédito)</span>' : '' ?></td><td><?= $h($mc($l['net'], $l['currency'])) ?></td></tr>
+                <tr><td>Neto del comprobante<?= $l['net'] < (float) $l['inv']['total'] - 0.009 ? ' <span class="muted">(ya descontadas retenciones, ajustes y notas de crédito)</span>' : '' ?></td><td><?= $h($mc($l['net'], $l['currency'])) ?></td></tr>
                 <tr><td>Saldo antes de este pago</td><td><?= $h($mc($l['before'], $l['currency'])) ?></td></tr>
                 <tr><td>Este pago</td><td class="applied">− <?= $h($mc($l['applied'], $l['currency'])) ?></td></tr>
                 <tr><td><b>Saldo pendiente</b></td><td class="total"><?= $h($mc(max(0.0, $l['after']), $l['currency'])) ?></td></tr>

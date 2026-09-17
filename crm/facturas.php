@@ -268,7 +268,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
         $iid = (int) ($_POST['id'] ?? 0);
         $inv = $iid > 0 ? fetch_one('SELECT * FROM invoices WHERE id=?', [$iid]) : null;
         if ($inv && in_array((string) $inv['status'], ['Emitida', 'Pagada'], true)) {
-            $amount = round((float) ($_POST['amount'] ?? 0), 2);
+            $amount = round(amount_parse($_POST['amount'] ?? 0), 2);
             $method = trim((string) ($_POST['method'] ?? ''));
             $reference = trim((string) ($_POST['reference'] ?? ''));
             $note = trim((string) ($_POST['note'] ?? ''));
@@ -329,6 +329,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
             'note' => $_POST['note'] ?? '',
             'reason' => $_POST['reason'] ?? '',
             'alloc' => (array) ($_POST['alloc'] ?? []),
+            'cifras' => (array) ($_POST['cifras'] ?? []),
         ]);
         flash($ok ? 'success' : 'warning', $msg);
         redirect('crm/facturas.php?action=view&id=' . $iid . '#pagos');
@@ -833,13 +834,7 @@ if ($action === 'view') {
                 'method' => (string) ($p['method'] ?? ''),
                 'reference' => (string) ($p['reference'] ?? ''),
                 'note' => (string) ($p['note'] ?? ''),
-                'lines' => array_map(static fn ($r) => [
-                    'id' => (int) $r['id'],
-                    'doc' => (string) ($r['ncf'] ?: $r['invoice_number']),
-                    'amount' => number_format((float) $r['amount'], 2, '.', ''),
-                    'currency' => (string) $r['currency'],
-                    'here' => (int) $r['invoice_id'] === (int) $inv['id'],
-                ], $g['rows']),
+                'lines' => array_map(static fn ($r) => receipt_line_figures($r, (int) $inv['id']), $g['rows']),
             ];
         }
     }
@@ -1012,7 +1007,8 @@ if ($action === 'view') {
                 <?php if ((float) $inv['itbis_retained'] > 0): ?><div class="quote-doc__equiv"><span>Retención ITBIS</span><strong>− <?= money_cur($inv['itbis_retained'], $cur) ?></strong></div><?php endif; ?>
                 <?php if ((float) $inv['isr_retained'] > 0): ?><div class="quote-doc__equiv"><span>Retención ISR</span><strong>− <?= money_cur($inv['isr_retained'], $cur) ?></strong></div><?php endif; ?>
                 <?php if ((float) ($inv['credited_amount'] ?? 0) > 0): ?><div class="quote-doc__equiv"><span>Acreditado por notas de crédito</span><strong>− <?= money_cur($inv['credited_amount'], $cur) ?></strong></div><?php endif; ?>
-                <?php if ((float) $inv['itbis_retained'] > 0 || (float) $inv['isr_retained'] > 0 || (float) ($inv['credited_amount'] ?? 0) > 0): ?><div><span>Neto a pagar</span><strong><?= money_cur($net, $cur) ?></strong></div><?php endif; ?>
+                <?php if ((float) ($inv['balance_adjustment'] ?? 0) > 0): ?><div class="quote-doc__equiv"><span>Ajuste de cartera (no fiscal)</span><strong>− <?= money_cur($inv['balance_adjustment'], $cur) ?></strong></div><?php endif; ?>
+                <?php if ((float) $inv['itbis_retained'] > 0 || (float) $inv['isr_retained'] > 0 || (float) ($inv['credited_amount'] ?? 0) > 0 || (float) ($inv['balance_adjustment'] ?? 0) > 0): ?><div><span>Neto a pagar</span><strong><?= money_cur($net, $cur) ?></strong></div><?php endif; ?>
             </div>
 
             <div class="inv-words"><span>Son:</span> <?= e(money_in_words((float) $inv['total'], $cur)) ?></div>
@@ -1187,7 +1183,7 @@ if ($action === 'view') {
     <?php /* Corregir recibo. Un solo diálogo para todos los recibos de la factura:
              se llena con los datos del recibo que se pulsó. Muestra el reparto
              COMPLETO, porque un recibo puede cubrir varias facturas. */ ?>
-    <dialog id="rec-edit" class="crm-modal" onclick="if(event.target===this)this.close()"
+    <dialog id="rec-edit" class="crm-modal crm-modal--ancho" onclick="if(event.target===this)this.close()"
             x-data="reciboEditor('<?= e($cur) ?>')" @recibo-editar.window="abrir($event.detail)">
         <form method="post" class="crm-modal__form" @submit="enviando = true">
             <?= csrf_field() ?>
@@ -1220,20 +1216,70 @@ if ($action === 'view') {
                     <label class="crm-field"><span>Nota</span><input name="note" x-model="r.note" maxlength="255" class="crm-input"></label>
                 </div>
 
-                <p class="recibo-edit__rotulo">Importe aplicado</p>
-                <div class="recibo-edit__lineas">
+                <p class="recibo-edit__rotulo">Cifras del recibo</p>
+                <p class="recibo-edit__ayuda" style="margin:-.2rem 0 .6rem">Todas se pueden cambiar. Cada cambio se guarda como lo que es —una retención, un ajuste o un abono que faltaba registrar— para que la cartera, el estado de cuenta y los reportes digan lo mismo que el recibo.</p>
+                <div class="recibo-cifras__lista">
                     <template x-for="l in r.lines" :key="l.id">
-                        <label class="recibo-edit__linea" :class="l.here && 'is-aqui'">
-                            <span>
+                        <section class="recibo-cifras" :class="l.here && 'is-aqui'">
+                            <header class="recibo-cifras__cab">
                                 <b x-text="l.doc"></b>
-                                <small x-show="l.here">esta factura</small>
-                            </span>
-                            <input type="text" inputmode="decimal" :name="'alloc[' + l.id + ']'" x-model="l.amount" class="crm-input text-right" autocomplete="off">
-                        </label>
+                                <small x-show="l.here && r.lines.length > 1">esta factura</small>
+                            </header>
+
+                            <div class="recibo-cifras__fila recibo-cifras__fila--neto">
+                                <button type="button" class="recibo-cifras__plegar" @click="l.c.detalle = !l.c.detalle" :aria-expanded="l.c.detalle ? 'true' : 'false'">
+                                    <i data-lucide="chevron-right" :class="l.c.detalle && 'is-abierto'"></i>Neto del comprobante
+                                </button>
+                                <strong class="recibo-cifras__valor" x-text="dinero(neto(l))"></strong>
+                            </div>
+                            <div class="recibo-cifras__detalle" x-show="l.c.detalle" x-cloak>
+                                <div class="recibo-cifras__fila"><span>Total facturado</span><span class="recibo-cifras__valor" x-text="dinero(l.total)"></span></div>
+                                <label class="recibo-cifras__fila"><span>− Retención de ITBIS</span><input type="text" inputmode="decimal" x-model="l.c.retI" @input="alDeducir(l)" class="crm-input text-right" autocomplete="off"></label>
+                                <label class="recibo-cifras__fila"><span>− Retención de ISR</span><input type="text" inputmode="decimal" x-model="l.c.retS" @input="alDeducir(l)" class="crm-input text-right" autocomplete="off"></label>
+                                <label class="recibo-cifras__fila" x-show="l.ajuste_ok"><span>− Ajuste de cartera <small>descuento, redondeo o incobrable, sin nota de crédito</small></span><input type="text" inputmode="decimal" x-model="l.c.adj" @input="alDeducir(l)" class="crm-input text-right" autocomplete="off"></label>
+                                <div class="recibo-cifras__fila" x-show="l.credito > 0.004"><span>− Notas de crédito</span><span class="recibo-cifras__valor" x-text="dinero(l.credito)"></span></div>
+                            </div>
+
+                            <label class="recibo-cifras__fila"><span>Saldo antes de este pago</span><input type="text" inputmode="decimal" x-model="l.c.antes" @input="alAntes(l)" class="crm-input text-right" autocomplete="off"></label>
+                            <label class="recibo-cifras__fila"><span>Este pago</span><input type="text" inputmode="decimal" :name="'alloc[' + l.id + ']'" x-model="l.amount" @input="alMonto(l)" class="crm-input text-right" autocomplete="off"></label>
+                            <label class="recibo-cifras__fila recibo-cifras__fila--total"><span>Saldo pendiente</span><input type="text" inputmode="decimal" x-model="l.c.pend" @input="alPendiente(l)" class="crm-input text-right" autocomplete="off"></label>
+
+                            <div class="recibo-cifras__abono" x-show="abono(l) > 0.004" x-cloak>
+                                <p><i data-lucide="hand-coins"></i><span>El saldo antes de este pago baja <b x-text="dinero(abono(l))"></b>: se registra como un <b>abono anterior</b> del cliente, con su fecha y su propio recibo, para que salga en los cobros de ese día.</span></p>
+                                <div class="crm-form-grid">
+                                    <label class="crm-field"><span class="required">Fecha del abono</span><input type="date" x-model="l.c.abonoFecha" :max="diaAntes(r.paid_at)" class="crm-input"></label>
+                                    <label class="crm-field"><span>Forma de pago</span>
+                                        <select x-model="l.c.abonoMetodo" class="crm-select">
+                                            <?php foreach (['Transferencia', 'Efectivo', 'Cheque', 'Tarjeta', 'Depósito'] as $m): ?>
+                                                <option value="<?= e($m) ?>"><?= e($m) ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </label>
+                                </div>
+                                <label class="crm-field"><span>Referencia del abono</span><input x-model="l.c.abonoRef" maxlength="120" class="crm-input" placeholder="No. de transferencia, cheque o recibo manual"></label>
+                            </div>
+
+                            <p class="recibo-cifras__error" x-show="errores(l).length" x-cloak x-text="errores(l)[0]" role="alert"></p>
+
+                            <input type="hidden" :name="'cifras[' + l.id + '][ret_itbis]'" :value="importe(l.c.retI)">
+                            <input type="hidden" :name="'cifras[' + l.id + '][ret_isr]'" :value="importe(l.c.retS)">
+                            <input type="hidden" :name="'cifras[' + l.id + '][orig_ret_itbis]'" :value="l.ret_itbis.toFixed(2)">
+                            <input type="hidden" :name="'cifras[' + l.id + '][orig_ret_isr]'" :value="l.ret_isr.toFixed(2)">
+                            <template x-if="l.ajuste_ok">
+                                <span>
+                                    <input type="hidden" :name="'cifras[' + l.id + '][ajuste]'" :value="importe(l.c.adj)">
+                                    <input type="hidden" :name="'cifras[' + l.id + '][orig_ajuste]'" :value="l.ajuste.toFixed(2)">
+                                </span>
+                            </template>
+                            <input type="hidden" :name="'cifras[' + l.id + '][abono]'" :value="abono(l) > 0.004 ? abono(l).toFixed(2) : '0'">
+                            <input type="hidden" :name="'cifras[' + l.id + '][abono_fecha]'" :value="l.c.abonoFecha">
+                            <input type="hidden" :name="'cifras[' + l.id + '][abono_metodo]'" :value="l.c.abonoMetodo">
+                            <input type="hidden" :name="'cifras[' + l.id + '][abono_ref]'" :value="l.c.abonoRef">
+                        </section>
                     </template>
                 </div>
                 <p class="recibo-edit__total" x-show="r.lines.length > 1">Total del recibo: <b x-text="dinero(total())"></b></p>
-                <p class="recibo-edit__ayuda" x-show="r.lines.length > 1">Pon <b>0</b> en una factura para quitarla del recibo. Si el cobro no ocurrió, no lo dejes en cero: anúlalo.</p>
+                <p class="recibo-edit__ayuda" x-show="r.lines.length > 1">Pon <b>0</b> en «Este pago» de una factura para quitarla del recibo. Si el cobro no ocurrió, no lo dejes en cero: anúlalo.</p>
 
                 <label class="crm-field" style="margin-top:.9rem">
                     <span class="required">Motivo de la corrección</span>
@@ -1242,7 +1288,7 @@ if ($action === 'view') {
             </div>
             <footer class="crm-modal__foot">
                 <button type="button" class="crm-secondary-btn" onclick="document.getElementById('rec-edit').close()">Cancelar</button>
-                <button type="submit" class="crm-primary-btn" :disabled="enviando || !motivo.trim()"><i data-lucide="check" class="h-4 w-4"></i><span x-text="enviando ? 'Guardando…' : 'Guardar corrección'">Guardar corrección</span></button>
+                <button type="submit" class="crm-primary-btn" :disabled="enviando || !motivo.trim() || bloqueado()"><i data-lucide="check" class="h-4 w-4"></i><span x-text="enviando ? 'Guardando…' : 'Guardar corrección'">Guardar corrección</span></button>
             </footer>
         </form>
     </dialog>

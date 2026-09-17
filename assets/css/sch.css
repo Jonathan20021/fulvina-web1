@@ -3305,3 +3305,85 @@ body.crm-sch .edo-barra__btns button:disabled { cursor: not-allowed; opacity: .5
   body.crm-sch .edo-barra__btns { width: 100%; }
   body.crm-sch .edo-barra__btns > * { flex: 1 1 auto; justify-content: center; }
 }
+
+/* =========================================================================
+   46 · CIFRAS DEL RECIBO, EDITABLES
+   ------------------------------------------------------------------------
+   El diálogo de corregir un recibo reproduce la tabla que imprime el recibo
+   (neto, saldo antes, este pago, saldo pendiente) y deja tocar cada cifra.
+   Se lee como el documento: concepto a la izquierda, importe alineado a la
+   derecha en cifras tabulares.
+   ========================================================================= */
+body.crm-sch .recibo-cifras__lista { display: grid; gap: .7rem; }
+body.crm-sch .recibo-cifras {
+  border: 1px solid var(--linea-2);
+  border-radius: 14px;
+  background: var(--papel);
+  padding: .35rem .8rem .7rem;
+}
+body.crm-sch .recibo-cifras.is-aqui { border-color: var(--verde); }
+body.crm-sch .recibo-cifras__cab { display: flex; align-items: baseline; gap: .5rem; padding: .35rem 0 .2rem; }
+body.crm-sch .recibo-cifras__cab b { color: var(--tinta); font-family: var(--font-mono, monospace); font-size: .86rem; }
+body.crm-sch .recibo-cifras__cab small { color: var(--verde-tinta); font-size: .7rem; font-weight: 600; }
+
+body.crm-sch .recibo-cifras__fila {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 10.5rem;
+  align-items: center;
+  gap: .75rem;
+  min-height: 2.6rem;
+  border-top: 1px solid var(--linea);
+  padding: .3rem 0;
+  color: var(--tinta-2);
+  font-size: .86rem;
+}
+body.crm-sch .recibo-cifras__fila > span small { display: block; color: var(--tinta-3); font-size: .72rem; line-height: 1.3; }
+body.crm-sch .recibo-cifras__fila .crm-input { width: 100%; padding-block: .45rem; font-variant-numeric: tabular-nums; }
+body.crm-sch .recibo-cifras__valor { color: var(--tinta); font-variant-numeric: tabular-nums; text-align: right; padding-right: .8rem; }
+body.crm-sch .recibo-cifras__fila--neto .recibo-cifras__valor { font-weight: 700; }
+body.crm-sch .recibo-cifras__fila--total > span { color: var(--tinta); font-weight: 700; }
+body.crm-sch .recibo-cifras__fila--total .crm-input { font-weight: 700; }
+
+body.crm-sch .recibo-cifras__plegar {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  min-height: 32px;
+  border-radius: 8px;
+  padding: 0 .35rem 0 0;
+  color: var(--tinta);
+  font-size: .86rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+body.crm-sch .recibo-cifras__plegar svg { width: 16px; height: 16px; color: var(--tinta-3); transition: transform .15s var(--curva); }
+body.crm-sch .recibo-cifras__plegar svg.is-abierto { transform: rotate(90deg); }
+body.crm-sch .recibo-cifras__plegar:hover { color: var(--verde-tinta); }
+
+/* El desglose del neto va sangrado: es el detalle de la fila de arriba. */
+body.crm-sch .recibo-cifras__detalle { margin: 0 0 .1rem 1.3rem; }
+body.crm-sch .recibo-cifras__detalle .recibo-cifras__fila { min-height: 2.35rem; font-size: .82rem; }
+
+body.crm-sch .recibo-cifras__abono {
+  margin-top: .55rem;
+  border-radius: 12px;
+  background: var(--bronce-suave);
+  padding: .65rem .75rem .75rem;
+  color: var(--bronce-tinta);
+}
+body.crm-sch .recibo-cifras__abono > p { display: flex; align-items: flex-start; gap: .5rem; margin-bottom: .55rem; font-size: .82rem; line-height: 1.45; }
+body.crm-sch .recibo-cifras__abono > p svg { flex: none; width: 16px; height: 16px; margin-top: .1rem; }
+body.crm-sch .recibo-cifras__abono b { color: inherit; }
+body.crm-sch .recibo-cifras__abono .crm-field > span { color: var(--tinta-2); }
+body.crm-sch .recibo-cifras__abono .crm-form-grid { margin-bottom: .5rem; }
+
+body.crm-sch .recibo-cifras__error { margin-top: .5rem; color: var(--baja); font-size: .8rem; font-weight: 600; line-height: 1.45; }
+
+@media (max-width: 560px) {
+  body.crm-sch .recibo-cifras { padding-inline: .6rem; }
+  body.crm-sch .recibo-cifras__fila { grid-template-columns: minmax(0, 1fr) 8.5rem; gap: .5rem; }
+  body.crm-sch .recibo-cifras__detalle { margin-left: .6rem; }
+  body.crm-sch .recibo-cifras__abono .crm-form-grid { grid-template-columns: 1fr; }
+}
+:root[data-tema="oscuro"] body.crm-sch .recibo-cifras__error { color: #F28B92; }

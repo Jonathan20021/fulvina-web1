@@ -912,14 +912,12 @@ function schDinero(v, moneda) {
   return sym + ' ' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/* Lee un importe tecleado como lo lee amount_parse() en el servidor: acepta
-   «1,601.70» y no lo trunca en 1. */
+/* Lee un importe tecleado como lo lee amount_parse() en el servidor. Delega en
+   crmParseAmount, que sigue sus mismas reglas: antes esta función tomaba la coma
+   sola como decimal y leía «60,000» como 60, mientras el servidor guardaba
+   60,000 — el diálogo mostraba una cifra y se grababa otra. */
 function schImporte(raw) {
-  var s = String(raw == null ? '' : raw).replace(/[^\d.,-]/g, '');
-  if (s.indexOf(',') !== -1 && s.indexOf('.') !== -1) { s = s.replace(/,/g, ''); }
-  else if (s.indexOf(',') !== -1) { s = s.replace(',', '.'); }
-  var n = parseFloat(s);
-  return isNaN(n) ? 0 : n;
+  return window.crmParseAmount(raw);
 }
 
 window.reciboEditor = function reciboEditor(moneda) {
@@ -934,6 +932,8 @@ window.reciboEditor = function reciboEditor(moneda) {
     abrir(datos, id) {
       this.r = JSON.parse(JSON.stringify(datos || {}));
       this.r.lines = Array.isArray(this.r.lines) ? this.r.lines : [];
+      var self = this;
+      this.r.lines.forEach(function (l) { self.prepararCifras(l); });
       this.motivo = '';
       this.enviando = false;
       var dlg = document.getElementById(id || 'rec-edit');
@@ -943,7 +943,96 @@ window.reciboEditor = function reciboEditor(moneda) {
     total() {
       return this.r.lines.reduce(function (s, l) { return s + schImporte(l.amount); }, 0);
     },
-    dinero(v) { return schDinero(v, this.moneda); }
+    dinero(v) { return schDinero(v, this.moneda); },
+
+    /* ---- Cifras del recibo ------------------------------------------------
+       Neto = total − retenciones − ajuste − notas de crédito.
+       Saldo antes = neto − lo cobrado antes − abono anterior (el que falta
+       registrar). Saldo pendiente = saldo antes − este pago.
+       Se guarda el abono y no el saldo: así, cambiar una retención no mueve
+       el abono que la persona ya había indicado. Mismo cálculo que el PDF. */
+    redondo(n) { return Math.round((Number(n) || 0) * 100) / 100; },
+    // Lo que se ve lleva separador de miles, como el recibo impreso; lo que se
+    // envía va plano. amount_parse() lee los dos igual.
+    fijo(n) { return this.redondo(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
+    importe(v) { return this.redondo(schImporte(v)).toFixed(2); },
+    prepararCifras(l) {
+      ['total', 'itbis', 'base', 'credito', 'ret_itbis', 'ret_isr', 'ajuste', 'previo'].forEach(function (k) {
+        l[k] = Number(l[k]) || 0;
+      });
+      var c = {
+        retI: this.fijo(l.ret_itbis),
+        retS: this.fijo(l.ret_isr),
+        adj: this.fijo(l.ajuste),
+        abonoN: 0,
+        abonoFecha: this.diaAntes(this.r.paid_at),
+        abonoMetodo: 'Transferencia',
+        abonoRef: '',
+        // El detalle del neto se abre solo si ya tiene algo que explicar.
+        detalle: l.ret_itbis > 0 || l.ret_isr > 0 || l.ajuste > 0 || l.credito > 0
+      };
+      l.c = c;
+      l.amount = this.fijo(schImporte(l.amount));
+      this.recalcularDesdeAbono(l);
+    },
+    neto(l) {
+      return this.redondo(l.total - schImporte(l.c.retI) - schImporte(l.c.retS)
+        - (l.ajuste_ok ? schImporte(l.c.adj) : 0) - l.credito);
+    },
+    abono(l) { return this.redondo(l.c.abonoN); },
+    recalcularDesdeAbono(l) {
+      var antes = this.neto(l) - l.previo - l.c.abonoN;
+      l.c.antes = this.fijo(antes);
+      l.c.pend = this.fijo(antes - schImporte(l.amount));
+    },
+    alDeducir(l) { this.recalcularDesdeAbono(l); },
+    alAntes(l) {
+      l.c.abonoN = this.redondo(this.neto(l) - l.previo - schImporte(l.c.antes));
+      l.c.pend = this.fijo(schImporte(l.c.antes) - schImporte(l.amount));
+    },
+    alMonto(l) {
+      l.c.pend = this.fijo(schImporte(l.c.antes) - schImporte(l.amount));
+    },
+    // Tocar el pendiente mueve el saldo anterior, no el pago: lo que entró en
+    // este recibo es un hecho; lo que se debía antes es lo que se corrige.
+    alPendiente(l) {
+      var antes = schImporte(l.c.pend) + schImporte(l.amount);
+      l.c.antes = this.fijo(antes);
+      l.c.abonoN = this.redondo(this.neto(l) - l.previo - antes);
+    },
+    diaAntes(fecha) {
+      var p = String(fecha || '').split('-').map(Number);
+      if (p.length !== 3 || !p[0]) { return ''; }
+      var d = new Date(Date.UTC(p[0], p[1] - 1, p[2] - 1));
+      return d.toISOString().slice(0, 10);
+    },
+    errores(l) {
+      var e = [];
+      var retI = schImporte(l.c.retI), retS = schImporte(l.c.retS), adj = l.ajuste_ok ? schImporte(l.c.adj) : 0;
+      if (retI < 0 || retS < 0 || adj < 0) { e.push('Las retenciones y el ajuste no pueden ser negativos.'); }
+      if (retI > l.itbis + 0.004) { e.push('La retención de ITBIS no puede pasar del ITBIS facturado (' + this.dinero(l.itbis) + ').'); }
+      if (retS > l.base + 0.004) { e.push('La retención de ISR no puede pasar del monto sin ITBIS (' + this.dinero(l.base) + ').'); }
+      if (this.neto(l) < -0.004) { e.push('Con esas retenciones y ese ajuste la factura valdría menos de cero.'); }
+      if (this.abono(l) < -0.004) {
+        e.push(l.previo > 0.004
+          ? 'El saldo antes de este pago no puede subir por encima de ' + this.dinero(this.neto(l) - l.previo) + ': para subirlo, corrige o anula los recibos anteriores de esta factura.'
+          : 'El saldo antes de este pago no puede pasar del neto del comprobante (' + this.dinero(this.neto(l)) + ').');
+      }
+      if (schImporte(l.amount) < 0) { e.push('Este pago no puede ser negativo.'); }
+      if (schImporte(l.c.pend) < -0.004) { e.push('Este pago supera el saldo antes de este pago: baja el pago o sube el saldo anterior.'); }
+      if (this.abono(l) > 0.004) {
+        if (!l.c.abonoFecha) {
+          e.push('Indica la fecha en que el cliente hizo el abono anterior.');
+        } else if (this.r.paid_at && l.c.abonoFecha >= this.r.paid_at) {
+          e.push('El abono anterior tiene que ser de antes de la fecha de este recibo.');
+        }
+      }
+      return e;
+    },
+    bloqueado() {
+      var self = this;
+      return this.r.lines.some(function (l) { return l.c && self.errores(l).length > 0; });
+    }
   };
 };
 

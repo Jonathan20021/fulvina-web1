@@ -75,6 +75,21 @@ function ensure_cobros_schema(): void
             $pdo->exec('ALTER TABLE invoices ADD COLUMN installment_base DECIMAL(12,2) NULL DEFAULT NULL');
         } catch (Throwable) { /* ignore */ }
     }
+
+    /* Ajuste de cartera: lo que se deja de cobrar SIN nota de crédito —un
+       descuento acordado, un redondeo, una parte incobrable—. Baja lo que el
+       cliente debe, no el comprobante fiscal: el 607 sigue declarando lo
+       facturado y lo no cobrado queda como venta a crédito, que es la verdad. */
+    if (!column_exists('invoices', 'balance_adjustment')) {
+        try {
+            $pdo->exec('ALTER TABLE invoices ADD COLUMN balance_adjustment DECIMAL(12,2) NOT NULL DEFAULT 0.00');
+        } catch (Throwable) { /* ignore */ }
+    }
+}
+
+function balance_adjustment_available(): bool
+{
+    return db(false) !== null && column_exists('invoices', 'balance_adjustment');
 }
 
 function installments_available(): bool
@@ -220,7 +235,8 @@ function payment_log_write(PDO $pdo, string $action, string $receipt, array $bef
  * Corrige un recibo: datos comunes (fecha, método, referencia, nota) y el
  * importe aplicado a cada factura.
  *
- * $in = ['paid_at','method','reference','note','reason', 'alloc' => [paymentId => importe]]
+ * $in = ['paid_at','method','reference','note','reason', 'alloc' => [paymentId => importe],
+ *        'cifras' => [paymentId => [...]]]   (opcional, ver receipt_apply_figures())
  *
  * Un importe en 0 quita esa factura del recibo. Quitarlas todas no se permite:
  * eso es anular, y anular pide su propio motivo y deja su propio rastro.
@@ -240,10 +256,11 @@ function receipt_update(int $paymentId, array $in): array
     $reference = mb_substr(trim((string) ($in['reference'] ?? '')), 0, 120);
     $note = mb_substr(trim((string) ($in['note'] ?? '')), 0, 255);
     $alloc = (array) ($in['alloc'] ?? []);
+    $cifras = array_filter((array) ($in['cifras'] ?? []), 'is_array');
 
     $pdo = db();
     try {
-        $res = cobros_con_reintento(static function () use ($pdo, $paymentId, $paidAt, $method, $reference, $note, $alloc, $reason) {
+        $res = cobros_con_reintento(static function () use ($pdo, $paymentId, $paidAt, $method, $reference, $note, $alloc, $reason, $cifras) {
             $pdo->beginTransaction();
             try {
                 [$group, $invoices] = receipt_lock_group($pdo, $paymentId);
@@ -252,6 +269,27 @@ function receipt_update(int $paymentId, array $in): array
                     return ['estado' => 'no_existe'];
                 }
                 $before = $group['rows'];
+
+                /* Lo cobrado de más que cada factura YA tenía (p. ej. una nota de
+                   crédito posterior al pago). Sirve para no bloquear una corrección
+                   por un exceso que no causa ella; solo se impide empeorarlo. */
+                $excesoAntes = [];
+                foreach ($invoices as $iid => $invRow) {
+                    $excesoAntes[$iid] = max(0.0, round((float) $invRow['amount_paid'] - invoice_net($invRow), 2));
+                }
+
+                /* Retenciones, ajuste y abono anterior van ANTES de revisar los
+                   importes: cambian cuánto admite cada factura. */
+                $hechos = $cifras ? receipt_apply_figures($pdo, $group, $invoices, $cifras, $paidAt) : [];
+                $lineasConAbono = [];
+                $lineasConCifras = [];
+                foreach ($hechos as $h) {
+                    if ($h['tipo'] === 'abono') {
+                        $lineasConAbono[$h['linea']] = $h;
+                    } else {
+                        $lineasConCifras[$h['linea']] = $h;
+                    }
+                }
 
                 $nuevos = [];
                 $quedan = 0;
@@ -269,6 +307,24 @@ function receipt_update(int $paymentId, array $in): array
                        8,000. Comparar contra el saldo a secas impediría hasta dejarla
                        igual. Ambos valores salen de lecturas con bloqueo. */
                     $tope = round(invoice_balance($inv) + (float) $row['amount'], 2);
+                    if ($amt > $tope + 0.009 && isset($lineasConAbono[$pid])) {
+                        throw new RuntimeException(sprintf(
+                            'Con el abono anterior de %s, a %s le quedaban %s antes de este recibo, y el recibo aplica %s. Baja el abono anterior o el importe de este pago.',
+                            money_cur($lineasConAbono[$pid]['amount'], (string) $inv['currency']),
+                            (string) ($inv['ncf'] ?: $inv['invoice_number']),
+                            money_cur(max(0.0, $tope), (string) $inv['currency']),
+                            money_cur($amt, (string) $inv['currency'])
+                        ));
+                    }
+                    if ($amt > $tope + 0.009 && isset($lineasConCifras[$pid])) {
+                        throw new RuntimeException(sprintf(
+                            'Con las retenciones y el ajuste nuevos, %s vale %s y ya tiene cobrado más de eso: contando este recibo solo admite %s, y el recibo aplica %s. Baja las retenciones o el ajuste, o el importe de este pago.',
+                            (string) ($inv['ncf'] ?: $inv['invoice_number']),
+                            money_cur(invoice_net($inv), (string) $inv['currency']),
+                            money_cur(max(0.0, $tope), (string) $inv['currency']),
+                            money_cur($amt, (string) $inv['currency'])
+                        ));
+                    }
                     if ($amt > $tope + 0.009) {
                         throw new RuntimeException(sprintf(
                             'A %s no se le pueden aplicar %s: con este recibo incluido, lo que debe es %s.',
@@ -286,7 +342,7 @@ function receipt_update(int $paymentId, array $in): array
                     throw new RuntimeException('Dejaste el recibo sin importe. Si el cobro no ocurrió, usa «Anular recibo» en lugar de corregirlo.');
                 }
 
-                $cambios = false;
+                $cambios = (bool) $hechos;
                 foreach ($before as $row) {
                     $pid = (int) $row['id'];
                     $amt = $nuevos[$pid];
@@ -314,14 +370,28 @@ function receipt_update(int $paymentId, array $in): array
                 }
 
                 foreach (array_keys($invoices) as $iid) {
-                    invoice_recalc_paid($pdo, (int) $iid);
+                    $fresca = invoice_recalc_paid($pdo, (int) $iid);
+                    if (!$fresca) {
+                        continue;
+                    }
+                    // Nunca dejar una factura cobrada por encima de lo que vale.
+                    $exceso = round((float) $fresca['amount_paid'] - invoice_net($fresca), 2);
+                    if ($exceso > ($excesoAntes[$iid] ?? 0.0) + 0.009) {
+                        throw new RuntimeException(sprintf(
+                            'Con esos cambios %s quedaría cobrada de más: sus cobros suman %s y lo que vale ahora es %s. Revisa las retenciones, el ajuste, el abono anterior o los importes.',
+                            (string) ($fresca['ncf'] ?: $fresca['invoice_number']),
+                            money_cur($fresca['amount_paid'], (string) $fresca['currency']),
+                            money_cur(invoice_net($fresca), (string) $fresca['currency'])
+                        ));
+                    }
                 }
                 $after = $group['receipt'] !== ''
                     ? $pdo->query('SELECT * FROM invoice_payments WHERE receipt_number=' . $pdo->quote($group['receipt']) . ' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)
                     : $pdo->query('SELECT * FROM invoice_payments WHERE id=' . $paymentId)->fetchAll(PDO::FETCH_ASSOC);
-                payment_log_write($pdo, 'editado', $group['receipt'], $before, $after, $reason);
+                $detalle = implode(' · ', array_column($hechos, 'texto'));
+                payment_log_write($pdo, 'editado', $group['receipt'], $before, $after, $reason . ($detalle !== '' ? ' · ' . $detalle : ''));
                 $pdo->commit();
-                return ['estado' => 'ok', 'group' => $group, 'before' => $before];
+                return ['estado' => 'ok', 'group' => $group, 'before' => $before, 'hechos' => $hechos];
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) { $pdo->rollBack(); }
                 throw $e;
@@ -340,10 +410,206 @@ function receipt_update(int $paymentId, array $in): array
     if ($res['estado'] === 'sin_cambios') {
         return [true, 'No había nada que cambiar.'];
     }
+    $numero = $res['group']['receipt'] ?: 'cobro #' . $paymentId;
     foreach ($res['before'] as $row) {
-        log_activity('invoice', (int) $row['invoice_id'], 'recibo_corregido', ($res['group']['receipt'] ?: 'cobro #' . $paymentId) . ' · ' . $reason);
+        log_activity('invoice', (int) $row['invoice_id'], 'recibo_corregido', $numero . ' · ' . $reason);
     }
-    return [true, 'Recibo ' . ($res['group']['receipt'] ?: '') . ' corregido.'];
+    $abonos = [];
+    foreach ($res['hechos'] as $h) {
+        log_activity('invoice', (int) $h['invoice_id'], $h['tipo'] === 'abono' ? 'abono_anterior_registrado' : 'cifras_factura_ajustadas', $h['texto'] . ' · al corregir ' . $numero);
+        if ($h['tipo'] === 'abono' && $h['receipt'] !== '') {
+            $abonos[] = $h['receipt'];
+        }
+    }
+    return [true, 'Recibo ' . ($res['group']['receipt'] ?: '') . ' corregido.'
+        . ($abonos ? ' El abono anterior quedó registrado con su propio recibo: ' . implode(', ', $abonos) . '.' : '')];
+}
+
+/**
+ * Una línea del recibo con las cifras que imprime, para el diálogo de corregir.
+ * Mismo cálculo que crm/recibo_pdf.php: el saldo es el del DÍA del cobro, así
+ * que lo cobrado antes se cuenta por fecha (y por orden de registro si es el
+ * mismo día), y el crédito por notas es el acumulado hasta esa fecha.
+ */
+function receipt_line_figures(array $row, int $currentInvoiceId): array
+{
+    static $facturas = [];
+    $iid = (int) $row['invoice_id'];
+    $facturas[$iid] ??= fetch_one('SELECT * FROM invoices WHERE id = ?', [$iid]) ?? [];
+    $inv = $facturas[$iid];
+    $paidAt = (string) $row['paid_at'];
+
+    $previo = (float) (fetch_one(
+        'SELECT COALESCE(SUM(amount), 0) v FROM invoice_payments
+          WHERE invoice_id = ? AND id <> ? AND (paid_at < ? OR (paid_at = ? AND id < ?))',
+        [$iid, (int) $row['id'], $paidAt, $paidAt, (int) $row['id']]
+    )['v'] ?? 0);
+
+    $n = static fn ($v) => round((float) $v, 2);
+    return [
+        'id' => (int) $row['id'],
+        'invoice_id' => $iid,
+        'doc' => (string) ($row['ncf'] ?: $row['invoice_number']),
+        'amount' => number_format((float) $row['amount'], 2, '.', ''),
+        'currency' => (string) $row['currency'],
+        'here' => $iid === $currentInvoiceId,
+        'total' => $n($inv['total'] ?? 0),
+        'itbis' => $n($inv['tax_amount'] ?? 0),
+        'base' => $n(max((float) ($inv['subtotal'] ?? 0), (float) ($inv['taxed_base'] ?? 0) + (float) ($inv['exempt_base'] ?? 0))),
+        'credito' => $n(invoice_credited_as_of($iid, $paidAt)),
+        'ret_itbis' => $n($inv['itbis_retained'] ?? 0),
+        'ret_isr' => $n($inv['isr_retained'] ?? 0),
+        'ajuste' => $n($inv['balance_adjustment'] ?? 0),
+        'ajuste_ok' => balance_adjustment_available(),
+        'previo' => $n($previo),
+    ];
+}
+
+/**
+ * Las cifras de la factura que el recibo muestra, corregidas desde el recibo.
+ *
+ * El recibo dice «neto del comprobante», «saldo antes de este pago» y «saldo
+ * pendiente». Ninguna se guarda tal cual: todas se derivan. Por eso editarlas
+ * no escribe un número suelto en el PDF —el recibo diría una cosa y la cartera,
+ * el estado de cuenta y el 607 otra— sino el dato que las explica:
+ *
+ *   · el NETO baja con retenciones de ITBIS e ISR (fiscales, van al 607) o con
+ *     un ajuste de cartera (lo que se deja de cobrar sin nota de crédito);
+ *   · el SALDO ANTES baja porque el cliente ya había abonado algo que no estaba
+ *     registrado: se registra ese abono como un cobro de verdad, con su fecha,
+ *     su forma de pago y su propio recibo, y así entra en los reportes de cobro;
+ *   · el SALDO PENDIENTE es la resta de los dos: la pantalla lo traduce a uno de
+ *     los anteriores.
+ *
+ * $cifras[paymentId] = [ret_itbis, ret_isr, ajuste, orig_ret_itbis, orig_ret_isr,
+ *                       orig_ajuste, abono, abono_fecha, abono_metodo, abono_ref]
+ *
+ * Corre dentro de la transacción de receipt_update(), con las facturas ya
+ * bloqueadas; actualiza $invoices con lo que queda en la base. Devuelve lo que
+ * hizo, para el historial.
+ */
+function receipt_apply_figures(PDO $pdo, array $group, array &$invoices, array $cifras, string $paidAt): array
+{
+    $hechos = [];
+    $ajusteOk = balance_adjustment_available();
+    $etiquetas = ['itbis_retained' => 'la retención de ITBIS', 'isr_retained' => 'la retención de ISR', 'balance_adjustment' => 'el ajuste de cartera'];
+
+    foreach ($group['rows'] as $row) {
+        $pid = (int) $row['id'];
+        $c = $cifras[$pid] ?? ($cifras[(string) $pid] ?? null);
+        if (!is_array($c)) {
+            continue;
+        }
+        $iid = (int) $row['invoice_id'];
+        $inv = $invoices[$iid];
+        $doc = (string) ($inv['ncf'] ?: $inv['invoice_number']);
+        $cur = (string) $inv['currency'];
+        $tocada = false;
+
+        /* ---- Retenciones y ajuste ------------------------------------------ */
+        $campos = ['ret_itbis' => 'itbis_retained', 'ret_isr' => 'isr_retained'];
+        if ($ajusteOk) {
+            $campos['ajuste'] = 'balance_adjustment';
+        }
+        $set = [];
+        foreach ($campos as $k => $col) {
+            if (!array_key_exists($k, $c)) {
+                continue;
+            }
+            $nuevo = round(amount_parse($c[$k]), 2);
+            if ($nuevo < 0) {
+                throw new RuntimeException(sprintf('En %s, %s no puede ser negativo.', $doc, $etiquetas[$col]));
+            }
+            $actual = round((float) ($inv[$col] ?? 0), 2);
+            $orig = array_key_exists('orig_' . $k, $c) ? round(amount_parse($c['orig_' . $k]), 2) : $actual;
+            if (abs($nuevo - $orig) < 0.005) {
+                continue; // no lo tocó
+            }
+            // Si la base ya no tiene lo que la pantalla mostraba, otra persona lo
+            // cambió: aplicar encima borraría su corrección sin que nadie lo vea.
+            if (abs($actual - $orig) >= 0.005) {
+                throw new RuntimeException(sprintf('Otra persona cambió %s de %s mientras corregías. Cierra y vuelve a abrir el recibo.', $etiquetas[$col], $doc));
+            }
+            $set[$col] = $nuevo;
+        }
+
+        if ($set) {
+            $retI = $set['itbis_retained'] ?? (float) $inv['itbis_retained'];
+            $retS = $set['isr_retained'] ?? (float) $inv['isr_retained'];
+            $adj = $set['balance_adjustment'] ?? (float) ($inv['balance_adjustment'] ?? 0);
+            $itbis = (float) $inv['tax_amount'];
+            $base = max((float) ($inv['subtotal'] ?? 0), (float) ($inv['taxed_base'] ?? 0) + (float) ($inv['exempt_base'] ?? 0));
+            if ($retI > $itbis + 0.009) {
+                throw new RuntimeException(sprintf('La retención de ITBIS de %s (%s) no puede pasar del ITBIS facturado (%s).', $doc, money_cur($retI, $cur), money_cur($itbis, $cur)));
+            }
+            if ($retS > $base + 0.009) {
+                throw new RuntimeException(sprintf('La retención de ISR de %s (%s) no puede pasar del monto sin ITBIS (%s).', $doc, money_cur($retS, $cur), money_cur($base, $cur)));
+            }
+            $neto = round((float) $inv['total'] - $retI - $retS - $adj - (float) ($inv['credited_amount'] ?? 0), 2);
+            if ($neto < -0.009) {
+                throw new RuntimeException(sprintf('Con esas retenciones y ese ajuste, %s valdría menos de cero.', $doc));
+            }
+
+            $pdo->prepare('UPDATE invoices SET ' . implode(', ', array_map(static fn ($col) => $col . ' = ?', array_keys($set))) . ', updated_at = NOW() WHERE id = ?')
+                ->execute(array_merge(array_values($set), [$iid]));
+
+            $partes = [];
+            foreach ($set as $col => $v) {
+                $partes[] = sprintf('%s %s → %s', $etiquetas[$col], money_cur((float) ($inv[$col] ?? 0), $cur), money_cur($v, $cur));
+            }
+            $hechos[] = ['tipo' => 'cifras', 'linea' => $pid, 'invoice_id' => $iid, 'receipt' => '', 'amount' => 0.0,
+                         'texto' => $doc . ': ' . implode(', ', $partes)];
+            $tocada = true;
+        }
+
+        /* ---- Abono anterior ------------------------------------------------- */
+        $abono = round(amount_parse($c['abono'] ?? 0), 2);
+        if ($abono < 0) {
+            throw new RuntimeException(sprintf('En %s el abono anterior no puede ser negativo. Para subir el saldo antes de este pago, corrige o anula los recibos anteriores de esa factura.', $doc));
+        }
+        if ($abono > 0.009) {
+            $fecha = valid_date(is_string($c['abono_fecha'] ?? null) ? $c['abono_fecha'] : null);
+            if ($fecha === null) {
+                throw new RuntimeException(sprintf('Indica la fecha en que el cliente hizo el abono anterior de %s.', $doc));
+            }
+            // «Anterior» de verdad: el recibo calcula su saldo por fecha, y un
+            // abono del mismo día o posterior no bajaría lo que muestra.
+            if ($fecha >= $paidAt) {
+                throw new RuntimeException(sprintf(
+                    'El abono anterior tiene que ser de antes de este recibo (%s). Si el cliente pagó ese mismo día o después, regístralo con «Registrar pago».',
+                    date_es($paidAt)
+                ));
+            }
+            $metodo = mb_substr(trim((string) (is_scalar($c['abono_metodo'] ?? null) ? $c['abono_metodo'] : '')), 0, 40);
+            $ref = mb_substr(trim((string) (is_scalar($c['abono_ref'] ?? null) ? $c['abono_ref'] : '')), 0, 120);
+            $nota = mb_substr('Abono anterior, registrado al corregir ' . ($group['receipt'] ?: 'el cobro #' . $pid), 0, 255);
+            $user = current_user() ?? [];
+
+            $numero = '';
+            if (column_exists('invoice_payments', 'receipt_number')) {
+                $numero = reserve_receipt_number($pdo);
+                $pdo->prepare('INSERT INTO invoice_payments (receipt_number, invoice_id, amount, method, reference, paid_at, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())')
+                    ->execute([$numero, $iid, $abono, $metodo, $ref, $fecha, $nota, ($user['id'] ?? 0) ?: null]);
+            } else {
+                $pdo->prepare('INSERT INTO invoice_payments (invoice_id, amount, method, reference, paid_at, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())')
+                    ->execute([$iid, $abono, $metodo, $ref, $fecha, $nota, ($user['id'] ?? 0) ?: null]);
+            }
+            $hechos[] = ['tipo' => 'abono', 'linea' => $pid, 'invoice_id' => $iid, 'receipt' => $numero, 'amount' => $abono,
+                         'texto' => sprintf('%s: abono anterior de %s del %s%s', $doc, money_cur($abono, $cur), date_es($fecha), $numero !== '' ? ' (' . $numero . ')' : '')];
+            $tocada = true;
+        }
+
+        if ($tocada) {
+            if ($set && column_exists('invoices', 'credited_amount') && column_exists('invoices', 'modifies_invoice_id')) {
+                invoice_recalc_credited($iid);
+            }
+            $fresca = invoice_recalc_paid($pdo, $iid);
+            if ($fresca) {
+                $invoices[$iid] = $fresca;
+            }
+        }
+    }
+    return $hechos;
 }
 
 /**
