@@ -413,6 +413,19 @@ ob_start();
             </tbody>
         </table>
 
+        <?php
+        /* Anticipos que el cliente ya pagó sobre cotizaciones y que todavía no se
+           aplicaron a una factura: son dinero a su favor y el estado de cuenta no
+           puede callarlos. Solo en el estado de cuenta del cliente, no en el
+           recordatorio de una sola factura. */
+        $antCli = (!$onlyInvoice && function_exists('anticipos_pending_for_client') && (int) ($client['id'] ?? 0) > 0) ? anticipos_pending_for_client((int) $client['id']) : [];
+        if ($antCli): ?>
+            <div class="note-box">
+                <div class="k">Anticipos recibidos, pendientes de facturar</div>
+                <p><?= $h(implode(' · ', array_map(fn ($x) => $x['receipt_number'] . ' (' . ($x['quote_number'] ?? '') . ', ' . date_es((string) $x['paid_at']) . '): ' . $mc($x['pending'], (string) $x['currency']), $antCli))) ?><br>Se descontarán de la factura cuando se emita; no están restados del saldo de arriba.</p>
+            </div>
+        <?php endif; ?>
+
         <?php if (trim($tx['note']) !== ''): ?>
             <div class="note-box" style="background: <?= $t['soft'] ?>; border-color: <?= $t['line'] ?>;">
                 <div class="k">Nota</div>

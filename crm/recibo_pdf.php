@@ -62,6 +62,15 @@ if ($receiptAsked !== '' && $hasReceiptCol) {
     }
 }
 
+/* Un número que es de un ANTICIPO se imprime como recibo de anticipo, aunque ya
+   se haya aplicado a facturas: el cliente recibió ese recibo el día que pagó, y
+   reimprimirlo tiene que dar el mismo documento, ahora con dónde se aplicó. */
+$numeroPedido = $receiptAsked !== '' ? $receiptAsked : trim((string) ($payments[0]['receipt_number'] ?? ''));
+if ($numeroPedido !== '' && function_exists('anticipo_by_receipt') && ($ant = anticipo_by_receipt($numeroPedido))) {
+    require __DIR__ . '/../includes/recibo_anticipo_pdf.php';
+    exit;
+}
+
 if (!$payments) {
     http_response_code(404);
     header('Content-Type: text/plain; charset=utf-8');

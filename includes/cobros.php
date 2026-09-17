@@ -85,6 +85,11 @@ function ensure_cobros_schema(): void
             $pdo->exec('ALTER TABLE invoices ADD COLUMN balance_adjustment DECIMAL(12,2) NOT NULL DEFAULT 0.00');
         } catch (Throwable) { /* ignore */ }
     }
+
+    // Anticipos sobre cotizaciones: se aplican como cobros de estas facturas.
+    if (function_exists('ensure_anticipos_schema')) {
+        ensure_anticipos_schema();
+    }
 }
 
 function balance_adjustment_available(): bool
@@ -388,6 +393,28 @@ function receipt_update(int $paymentId, array $in): array
                 $after = $group['receipt'] !== ''
                     ? $pdo->query('SELECT * FROM invoice_payments WHERE receipt_number=' . $pdo->quote($group['receipt']) . ' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)
                     : $pdo->query('SELECT * FROM invoice_payments WHERE id=' . $paymentId)->fetchAll(PDO::FETCH_ASSOC);
+                /* Recibo de un anticipo: sus facturas no pueden aplicar más de lo que
+                   se recibió, y la fecha y la forma de pago son las del dinero que
+                   entró, así que se corrigen también en el anticipo. */
+                if ($group['receipt'] !== '' && function_exists('anticipos_available') && anticipos_available()) {
+                    $st = $pdo->prepare('SELECT * FROM quote_payments WHERE receipt_number = ? FOR UPDATE');
+                    $st->execute([$group['receipt']]);
+                    $anticipo = $st->fetch(PDO::FETCH_ASSOC);
+                    if ($anticipo) {
+                        $st = $pdo->prepare('SELECT COALESCE(SUM(amount), 0) FROM invoice_payments WHERE receipt_number = ? FOR UPDATE');
+                        $st->execute([$group['receipt']]);
+                        $aplicado = round((float) $st->fetchColumn(), 2);
+                        if ($aplicado > (float) $anticipo['amount'] + 0.009) {
+                            throw new RuntimeException(sprintf(
+                                '%s es un anticipo de %s: sus facturas no pueden sumar %s. Si el cliente pagó más, registra la diferencia como otro cobro.',
+                                $group['receipt'], money_cur((float) $anticipo['amount'], (string) $anticipo['currency']), money_cur($aplicado, (string) $anticipo['currency'])
+                            ));
+                        }
+                        $pdo->prepare('UPDATE quote_payments SET paid_at = ?, method = ?, reference = ?, updated_at = NOW() WHERE id = ?')
+                            ->execute([$paidAt, $method, $reference, (int) $anticipo['id']]);
+                    }
+                }
+
                 $detalle = implode(' · ', array_column($hechos, 'texto'));
                 payment_log_write($pdo, 'editado', $group['receipt'], $before, $after, $reason . ($detalle !== '' ? ' · ' . $detalle : ''));
                 $pdo->commit();
@@ -665,7 +692,9 @@ function receipt_void(int $paymentId, string $reason): array
         log_activity('invoice', (int) $row['invoice_id'], 'recibo_anulado', ($res['group']['receipt'] ?: 'cobro #' . $paymentId) . ' · ' . $reason);
     }
     $n = (int) $res['facturas'];
-    return [true, 'Recibo ' . ($res['group']['receipt'] ?: '') . ' anulado. Se devolvieron ' . money_cur($total, $cur) . ' al saldo de ' . $n . ' factura' . ($n === 1 ? '' : 's') . '.'];
+    $esAnticipo = function_exists('anticipo_by_receipt') && ($res['group']['receipt'] ?? '') !== '' && anticipo_by_receipt((string) $res['group']['receipt']);
+    return [true, 'Recibo ' . ($res['group']['receipt'] ?: '') . ' anulado. Se devolvieron ' . money_cur($total, $cur) . ' al saldo de ' . $n . ' factura' . ($n === 1 ? '' : 's') . '.'
+        . ($esAnticipo ? ' Era un anticipo: el dinero vuelve a quedar pendiente de aplicar en su cotización. Si el cobro no ocurrió, anula también el anticipo allá.' : '')];
 }
 
 /**

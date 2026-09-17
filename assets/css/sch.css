@@ -3387,3 +3387,40 @@ body.crm-sch .recibo-cifras__error { margin-top: .5rem; color: var(--baja); font
   body.crm-sch .recibo-cifras__abono .crm-form-grid { grid-template-columns: 1fr; }
 }
 :root[data-tema="oscuro"] body.crm-sch .recibo-cifras__error { color: #F28B92; }
+
+/* =========================================================================
+   47 · ANTICIPOS EN LA COTIZACIÓN
+   ------------------------------------------------------------------------
+   Cuatro cifras arriba (cotizado, recibido, aplicado, por cubrir) y la lista
+   de recibos. «Por cubrir» manda: es lo que contabilidad viene a ver.
+   ========================================================================= */
+body.crm-sch .anticipos__cifras {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .6rem;
+  margin: 0;
+  padding: .9rem 1.1rem;
+  border-bottom: 1px solid var(--linea);
+}
+body.crm-sch .anticipos__cifras div { min-width: 0; border-radius: var(--r-interior); background: var(--nube); padding: .55rem .7rem; }
+body.crm-sch .anticipos__cifras dt { color: var(--tinta-2); font-size: .74rem; font-weight: 600; }
+body.crm-sch .anticipos__cifras dd { margin: .1rem 0 0; color: var(--tinta); font-size: .98rem; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+body.crm-sch .anticipos__cifras div:last-child { background: var(--bronce-suave); }
+body.crm-sch .anticipos__cifras div:last-child dd { color: var(--bronce-tinta); }
+body.crm-sch .anticipos__cifras div.is-ok { background: var(--verde-suave); }
+body.crm-sch .anticipos__cifras div.is-ok dd { color: var(--verde-tinta); }
+body.crm-sch .anticipos__vacio { padding: 1rem 1.1rem 1.2rem; color: var(--tinta-2); font-size: .86rem; }
+body.crm-sch .anticipos__nota { display: block; margin-top: .15rem; color: var(--tinta-2); font-size: .76rem; }
+body.crm-sch .anticipos__aplicado { display: block; color: var(--verde-tinta); font-size: .8rem; font-weight: 600; white-space: nowrap; }
+body.crm-sch .anticipos__aplicado:hover { text-decoration: underline; }
+body.crm-sch .anticipos__ayuda { margin-top: .7rem; color: var(--tinta-2); font-size: .78rem; line-height: 1.45; }
+body.crm-sch .anticipos tr.is-anulado td { color: var(--tinta-3); }
+body.crm-sch .anticipos tr.is-anulado td strong { color: var(--tinta-2); text-decoration: line-through; text-decoration-color: var(--tinta-3); }
+body.crm-sch .anticipos-disp .crm-secondary-btn { white-space: nowrap; }
+
+@media (max-width: 720px) {
+  body.crm-sch .anticipos__cifras { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* El botón de la cabecera no se parte en dos renglones junto al texto largo. */
+body.crm-sch .anticipos .crm-card__head > .crm-primary-btn { flex: none; white-space: nowrap; }

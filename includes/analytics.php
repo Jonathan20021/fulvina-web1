@@ -336,6 +336,19 @@ function analytics_billing(array $period): array
                     WHERE invoices.status <> 'Anulada' AND p.paid_at BETWEEN ? AND ?";
         $cCur  = fetch_one($paySql, [$f, $t])   ?? $cCur;
         $cPrev = fetch_one($paySql, [$pf, $pt]) ?? $cPrev;
+
+        // Anticipos cobrados sobre cotizaciones y aún sin factura: el dinero ya
+        // entró. Al aplicarse pasan a invoice_payments con la misma fecha.
+        $antSql = function_exists('anticipos_unapplied_sql') ? anticipos_unapplied_sql() : '';
+        if ($antSql !== '') {
+            $antQ = "SELECT COUNT(*) c, COALESCE(SUM(v),0) v FROM ({$antSql}) a WHERE a.v > 0.009 AND a.paid_at BETWEEN ? AND ?";
+            $sumar = static function (array $base, string $desde, string $hasta) use ($antQ): array {
+                $extra = fetch_one($antQ, [$desde, $hasta]) ?? ['c' => 0, 'v' => 0];
+                return ['c' => (int) $base['c'] + (int) $extra['c'], 'v' => (float) $base['v'] + (float) $extra['v']];
+            };
+            $cCur = $sumar($cCur, $f, $t);
+            $cPrev = $sumar($cPrev, $pf, $pt);
+        }
     }
 
     // Por cobrar reutiliza literalmente la condición de la cartera de
@@ -792,6 +805,12 @@ function analytics_monthly_trend(int $months = 6): array
                      WHERE invoices.status <> 'Anulada' AND p.paid_at IS NOT NULL GROUP BY m";
             foreach (fetch_all($sql) as $r) {
                 if (isset($cob[$r['m']])) $cob[$r['m']] = (float) $r['v'];
+            }
+            $antSql = function_exists('anticipos_unapplied_sql') ? anticipos_unapplied_sql() : '';
+            if ($antSql !== '') {
+                foreach (fetch_all("SELECT DATE_FORMAT(a.paid_at,'%Y-%m') m, COALESCE(SUM(a.v),0) v FROM ({$antSql}) a WHERE a.v > 0.009 GROUP BY m") as $r) {
+                    if (isset($cob[$r['m']])) $cob[$r['m']] += (float) $r['v'];
+                }
             }
         }
     }

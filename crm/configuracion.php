@@ -158,7 +158,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && db(false) && ($_POST['form'] ?? '')
        cuotas, el historial de recibos o las fotos de otra. Toda tabla que cuelgue
        de facturas, cotizaciones o clientes tiene que estar en esta lista. */
     $wipeTables = [
-        'client_statements', 'invoice_installments', 'invoice_payment_log',
+        'quote_payments', 'client_statements', 'invoice_installments', 'invoice_payment_log',
         'invoice_payments', 'invoice_items', 'invoices',
         'quote_attachments', 'quote_items', 'quotes',
         'ticket_comments', 'tickets',

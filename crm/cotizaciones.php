@@ -13,6 +13,7 @@ verify_csrf();
 
 $hasDb = db(false) && table_exists('quotes');
 if ($hasDb) { ensure_quote_schema(); ensure_products_schema(); }
+if ($hasDb && function_exists('ensure_anticipos_schema')) { ensure_anticipos_schema(); }
 $hasQuoteCurrency = $hasDb && column_exists('quotes', 'currency');
 $hasCategory = $hasDb && column_exists('quotes', 'category');
 $hasApproved = $hasDb && column_exists('quotes', 'approved_at');
@@ -140,6 +141,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasDb) {
             flash('success', 'Cotización eliminada.');
         }
         redirect('crm/cotizaciones.php');
+    }
+
+    /* ---- Anticipos: recibos de ingreso sobre la cotización -------------- */
+    if ($form === 'anticipo_save' || $form === 'anticipo_void') {
+        $qid = (int) ($_POST['quote_id'] ?? 0);
+        $volver = 'crm/cotizaciones.php?action=view&id=' . $qid . '#anticipos';
+        $aid = (int) ($_POST['anticipo_id'] ?? 0);
+        $permiso = $form === 'anticipo_void' ? 'facturas.delete' : 'facturas.edit';
+        if (!current_can($permiso)) { flash('warning', 'Acción no permitida por tu rol.'); redirect($volver); }
+        if ($aid > 0) {
+            $actual = anticipo_find($aid);
+            if (!$actual || (int) $actual['quote_id'] !== $qid) { flash('warning', 'Ese anticipo no es de esta cotización.'); redirect($volver); }
+        }
+        if ($form === 'anticipo_void') {
+            [$ok, $msg] = anticipo_void($aid, (string) ($_POST['reason'] ?? ''));
+        } elseif ($aid > 0) {
+            [$ok, $msg] = anticipo_update($aid, $_POST);
+        } else {
+            [$ok, $msg] = anticipo_register($qid, $_POST);
+        }
+        flash($ok ? 'success' : 'warning', $msg);
+        redirect($volver);
     }
 
     /* ---- Change status from the list ----------------------------------- */
@@ -460,6 +483,11 @@ if ($action === 'view') {
         ? fetch_all('SELECT * FROM quote_attachments WHERE quote_id=? ORDER BY sort_order ASC, id ASC', [(int) $quote['id']])
         : [];
 
+    // Anticipos: los ve quien ve facturación; registrarlos pide editarla.
+    $anticipos = ($hasDb && (int) ($quote['id'] ?? 0) > 0 && current_can('facturas.view') && function_exists('anticipos_available') && anticipos_available())
+        ? anticipos_for_quote((int) $quote['id'])
+        : null;
+
     $crmTitle = 'Cotización ' . $number;
     require_once __DIR__ . '/../includes/crm_header.php';
     ?>
@@ -631,6 +659,145 @@ if ($action === 'view') {
                             <input type="hidden" name="id" value="<?= (int) $photo['id'] ?>">
                         </form>
                     <?php endforeach; ?>
+                <?php endif; ?>
+            </article>
+        <?php endif; ?>
+
+        <?php if ($anticipos !== null):
+            $canAnt = current_can('facturas.edit');
+            $canAntVoid = current_can('facturas.delete');
+            $qTotal = round((float) ($quote['total'] ?? 0), 2);
+            $porCubrir = max(0.0, round($qTotal - $anticipos['total'], 2));
+            $metodosAnt = anticipo_methods(); ?>
+            <article class="crm-card anticipos print:hidden" id="anticipos" style="margin-top:1.1rem"
+                     x-data="anticipoEditor(<?= e(json_encode(['hoy' => date('Y-m-d')])) ?>)">
+                <div class="crm-card__head">
+                    <div>
+                        <h2><i data-lucide="hand-coins" class="cfg-ic"></i> Anticipos y recibos</h2>
+                        <p>Lo que el cliente paga antes de la factura. Cada anticipo lleva su recibo de ingreso, y al emitir la factura generada desde esta cotización se le aplica solo.</p>
+                    </div>
+                    <?php if ($canAnt && $porCubrir > 0.009): ?>
+                        <button type="button" class="crm-primary-btn" @click="nuevo()"><i data-lucide="plus" class="h-4 w-4"></i>Registrar anticipo</button>
+                    <?php endif; ?>
+                </div>
+
+                <dl class="anticipos__cifras">
+                    <div><dt>Total cotizado</dt><dd><?= money_cur($qTotal, $qCur) ?></dd></div>
+                    <div><dt>Anticipos recibidos</dt><dd><?= money_cur($anticipos['total'], $qCur) ?></dd></div>
+                    <div><dt>Aplicado a facturas</dt><dd><?= money_cur($anticipos['applied'], $qCur) ?></dd></div>
+                    <div class="<?= $porCubrir <= 0.009 ? 'is-ok' : '' ?>"><dt>Por cubrir</dt><dd><?= $porCubrir <= 0.009 ? 'Cubierta' : money_cur($porCubrir, $qCur) ?></dd></div>
+                </dl>
+
+                <?php if (!$anticipos['rows']): ?>
+                    <p class="anticipos__vacio">Todavía no hay anticipos. Si el cliente pagó una parte al aprobar, regístrala aquí para entregarle su recibo.</p>
+                <?php else: ?>
+                    <div class="crm-table-wrap">
+                        <table class="crm-table">
+                            <thead><tr><th>Recibo</th><th>Fecha</th><th>Forma de pago</th><th class="text-right">Monto</th><th>Estado</th><th class="text-right">Acción</th></tr></thead>
+                            <tbody>
+                            <?php foreach ($anticipos['rows'] as $ant):
+                                $antNo = (string) $ant['receipt_number'];
+                                $anulado = $ant['status'] !== 'vigente';
+                                $datosAnt = [
+                                    'id' => (int) $ant['id'], 'receipt' => $antNo,
+                                    'amount' => number_format((float) $ant['amount'], 2, '.', ','), 'paid_at' => (string) $ant['paid_at'],
+                                    'method' => (string) ($ant['method'] ?? ''), 'reference' => (string) ($ant['reference'] ?? ''), 'note' => (string) ($ant['note'] ?? ''),
+                                ]; ?>
+                                <tr class="<?= $anulado ? 'is-anulado' : '' ?>">
+                                    <td><strong><?= e($antNo) ?></strong><?php if (!empty($ant['note'])): ?><br><span class="anticipos__nota"><?= e((string) $ant['note']) ?></span><?php endif; ?></td>
+                                    <td class="ops-nowrap"><?= e(date_es((string) $ant['paid_at'])) ?></td>
+                                    <td><?= e((string) ($ant['method'] ?: '—')) ?><?php if (!empty($ant['reference'])): ?><br><span class="anticipos__nota">Ref. <?= e((string) $ant['reference']) ?></span><?php endif; ?></td>
+                                    <td class="text-right"><strong><?= money_cur($ant['amount'], (string) $ant['currency']) ?></strong></td>
+                                    <td>
+                                        <?php if ($anulado): ?>
+                                            <span class="status-chip gas-estado--alarma" title="<?= e((string) ($ant['void_reason'] ?? '')) ?>">Anulado</span>
+                                        <?php elseif ($ant['applied'] > 0.009): ?>
+                                            <?php foreach ($ant['applications'] as $apl): ?>
+                                                <a class="anticipos__aplicado" href="<?= url('crm/facturas.php?action=view&id=' . (int) $apl['invoice_id']) ?>"><?= e(money_cur($apl['amount'], (string) $ant['currency'])) ?> → <?= e((string) ($apl['ncf'] ?: $apl['invoice_number'])) ?></a>
+                                            <?php endforeach; ?>
+                                            <?php if ($ant['pending'] > 0.009): ?><span class="anticipos__nota">Quedan <?= e(money_cur($ant['pending'], (string) $ant['currency'])) ?> sin aplicar</span><?php endif; ?>
+                                        <?php else: ?>
+                                            <span class="status-chip gas-estado--espera">Pendiente de aplicar</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="text-right">
+                                        <div class="crm-row-actions">
+                                            <button type="button" class="crm-icon-action" title="Ver recibo" aria-label="Ver recibo <?= e($antNo) ?>" onclick="crmPdfPreviewOpen(<?= e(implode(', ', array_map(static fn ($v) => json_encode($v, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), [url('crm/recibo_pdf.php?receipt=' . rawurlencode($antNo)), url('crm/recibo_pdf.php?receipt=' . rawurlencode($antNo) . '&download=1'), $antNo, 'Recibo de anticipo']))) ?>)"><i data-lucide="receipt-text"></i></button>
+                                            <?php if (!$anulado && $ant['applied'] <= 0.009 && $canAnt): ?>
+                                                <button type="button" class="crm-icon-action" title="Corregir anticipo" aria-label="Corregir anticipo <?= e($antNo) ?>" @click='editar(<?= e(json_encode($datosAnt, JSON_HEX_APOS | JSON_UNESCAPED_UNICODE)) ?>)'><i data-lucide="pencil"></i></button>
+                                            <?php endif; ?>
+                                            <?php if (!$anulado && $ant['applied'] <= 0.009 && $canAntVoid): ?>
+                                                <button type="button" class="crm-icon-action crm-icon-action--peligro" title="Anular anticipo" aria-label="Anular anticipo <?= e($antNo) ?>" @click='pedirAnular(<?= e(json_encode($datosAnt, JSON_HEX_APOS | JSON_UNESCAPED_UNICODE)) ?>)'><i data-lucide="ban"></i></button>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+
+                <?php if ($canAnt): ?>
+                <dialog id="ant-edit" class="crm-modal" onclick="if(event.target===this)this.close()">
+                    <form method="post" class="crm-modal__form" @submit="enviando = true">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="form" value="anticipo_save">
+                        <input type="hidden" name="quote_id" value="<?= (int) $quote['id'] ?>">
+                        <input type="hidden" name="anticipo_id" :value="a.id">
+                        <header class="crm-modal__head">
+                            <span class="crm-modal__icon"><i data-lucide="hand-coins"></i></span>
+                            <div class="crm-modal__titles">
+                                <h2 x-text="a.id ? 'Corregir anticipo ' + a.receipt : 'Registrar anticipo'">Registrar anticipo</h2>
+                                <p>Cotización <?= e($number) ?> · por cubrir <?= money_cur($porCubrir, $qCur) ?></p>
+                            </div>
+                            <button type="button" class="crm-modal__close" onclick="document.getElementById('ant-edit').close()" aria-label="Cerrar"><i data-lucide="x"></i></button>
+                        </header>
+                        <div class="crm-modal__body">
+                            <div class="crm-form-grid">
+                                <label class="crm-field"><span class="required">Monto recibido (<?= e($qCur) ?>)</span><input type="text" inputmode="decimal" name="amount" x-model="a.amount" required class="crm-input text-right" autocomplete="off" placeholder="0.00"></label>
+                                <label class="crm-field"><span class="required">Fecha en que se recibió</span><input type="date" name="paid_at" x-model="a.paid_at" :max="hoy" required class="crm-input"></label>
+                                <label class="crm-field"><span>Forma de pago</span>
+                                    <select name="method" x-model="a.method" class="crm-select">
+                                        <?php foreach ($metodosAnt as $m): ?><option value="<?= e($m) ?>"><?= e($m) ?></option><?php endforeach; ?>
+                                    </select>
+                                </label>
+                                <label class="crm-field"><span>Referencia</span><input name="reference" x-model="a.reference" maxlength="120" class="crm-input" placeholder="No. de transferencia o cheque"></label>
+                            </div>
+                            <label class="crm-field" style="margin-top:.6rem"><span>Nota</span><input name="note" x-model="a.note" maxlength="255" class="crm-input" placeholder="Opcional, sale en el recibo"></label>
+                            <label class="crm-field" style="margin-top:.6rem" x-show="a.id" x-cloak><span class="required">Motivo de la corrección</span><input name="reason" x-model="motivo" maxlength="200" class="crm-input" placeholder="Ej. Se tecleó 5,000 y la transferencia fue de 50,000"></label>
+                            <p class="anticipos__ayuda">Tope: lo que falta por cubrir de la cotización. El número de recibo se asigna al guardar.</p>
+                        </div>
+                        <footer class="crm-modal__foot">
+                            <button type="button" class="crm-secondary-btn" onclick="document.getElementById('ant-edit').close()">Cancelar</button>
+                            <button type="submit" class="crm-primary-btn" :disabled="enviando || !valido()"><i data-lucide="check" class="h-4 w-4"></i><span x-text="enviando ? 'Guardando…' : (a.id ? 'Guardar corrección' : 'Registrar y generar recibo')">Registrar y generar recibo</span></button>
+                        </footer>
+                    </form>
+                </dialog>
+                <?php endif; ?>
+
+                <?php if ($canAntVoid): ?>
+                <dialog id="ant-void" class="crm-modal" onclick="if(event.target===this)this.close()">
+                    <form method="post" class="crm-modal__form" @submit="enviando = true">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="form" value="anticipo_void">
+                        <input type="hidden" name="quote_id" value="<?= (int) $quote['id'] ?>">
+                        <input type="hidden" name="anticipo_id" :value="anular.id">
+                        <header class="crm-modal__head">
+                            <span class="crm-modal__icon crm-modal__icon--peligro"><i data-lucide="ban"></i></span>
+                            <div class="crm-modal__titles"><h2>Anular anticipo <span x-text="anular.receipt"></span></h2><p>El número de recibo no se vuelve a usar.</p></div>
+                            <button type="button" class="crm-modal__close" onclick="document.getElementById('ant-void').close()" aria-label="Cerrar"><i data-lucide="x"></i></button>
+                        </header>
+                        <div class="crm-modal__body">
+                            <p class="anticipos__ayuda" style="margin-top:0">Se anula el anticipo de <b x-text="anular.amount"></b> recibido el <b x-text="anular.paid_at"></b>. Hazlo solo si el dinero no entró o se devolvió.</p>
+                            <label class="crm-field"><span class="required">Motivo</span><input name="reason" x-model="motivo" maxlength="255" required class="crm-input" placeholder="Ej. El cheque fue devuelto"></label>
+                        </div>
+                        <footer class="crm-modal__foot">
+                            <button type="button" class="crm-secondary-btn" onclick="document.getElementById('ant-void').close()">Cancelar</button>
+                            <button type="submit" class="crm-primary-btn crm-primary-btn--peligro" :disabled="enviando || !motivo.trim()"><i data-lucide="ban" class="h-4 w-4"></i>Anular anticipo</button>
+                        </footer>
+                    </form>
+                </dialog>
                 <?php endif; ?>
             </article>
         <?php endif; ?>

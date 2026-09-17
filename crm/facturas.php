@@ -319,6 +319,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
     }
 
     /* ---- Corregir un recibo de ingreso -------------------------------- */
+    if ($form === 'anticipo_apply') {
+        $iid = (int) ($_POST['id'] ?? 0);
+        if (!current_can('facturas.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/facturas.php?action=view&id=' . $iid); }
+        [$ok, $msg] = anticipo_apply((int) ($_POST['anticipo_id'] ?? 0), $iid);
+        flash($ok ? 'success' : 'warning', $msg);
+        redirect('crm/facturas.php?action=view&id=' . $iid . '#pagos');
+    }
+
     if ($form === 'receipt_edit') {
         $iid = (int) ($_POST['id'] ?? 0);
         if (!current_can('facturas.edit')) { flash('warning', 'Acción no permitida por tu rol.'); redirect('crm/facturas.php?action=view&id=' . $iid); }
@@ -628,6 +636,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasInvoices) {
                     }
                 }
                 $invoiceId = (int) $pdo->lastInsertId();
+                /* De qué cotización sale. Antes el formulario no lo mandaba y el
+                   enlace se perdía: sin él, los anticipos cobrados sobre la
+                   cotización no tenían cómo llegar a su factura. Solo se acepta
+                   una cotización del mismo cliente. */
+                $fromQuoteId = (int) ($_POST['quote_id'] ?? 0);
+                if ($fromQuoteId > 0 && column_exists('invoices', 'quote_id')
+                    && fetch_one('SELECT id FROM quotes WHERE id = ? AND client_id = ?', [$fromQuoteId, $clientId])) {
+                    $pdo->prepare('UPDATE invoices SET quote_id = ? WHERE id = ?')->execute([$fromQuoteId, $invoiceId]);
+                }
                 $flashMsg = $isProforma
                     ? 'Factura proforma creada. No consume NCF ni tiene valor fiscal; si el cliente la aprueba, edítala, cambia la serie a B o E y emítela.'
                     : 'Factura creada como borrador. Revísala y púlsala «Emitir» para asignar el NCF.';
@@ -839,6 +856,22 @@ if ($action === 'view') {
         }
     }
     $receiptHistory = $realInvoice ? receipt_history_for_invoice((int) $inv['id']) : [];
+
+    /* Anticipos del cliente que todavía no se aplicaron, en la moneda de esta
+       factura: se ofrecen para aplicarlos aquí con un botón. */
+    $anticiposDisponibles = ($realInvoice && function_exists('anticipos_pending_for_client') && current_can('facturas.edit')
+        && (string) ($inv['status'] ?? '') === 'Emitida' && !invoice_is_credit_note($inv) && $balance > 0.009)
+        ? anticipos_pending_for_client((int) $inv['client_id'], strtoupper((string) ($inv['currency'] ?? 'DOP')) === 'USD' ? 'USD' : 'DOP')
+        : [];
+    $recibosAnticipo = [];
+    if ($payments && function_exists('anticipos_available') && anticipos_available()) {
+        $numeros = array_values(array_filter(array_map(static fn ($p) => trim((string) ($p['receipt_number'] ?? '')), $payments)));
+        if ($numeros) {
+            foreach (fetch_all('SELECT qp.receipt_number, q.quote_number, q.id AS quote_id FROM quote_payments qp LEFT JOIN quotes q ON q.id = qp.quote_id WHERE qp.receipt_number IN (' . implode(',', array_fill(0, count($numeros), '?')) . ')', $numeros) as $r) {
+                $recibosAnticipo[(string) $r['receipt_number']] = $r;
+            }
+        }
+    }
 
     /* ---- Plan de cuotas ------------------------------------------------- */
     $plan = $realInvoice ? installments_for((int) $inv['id']) : [];
@@ -1111,6 +1144,30 @@ if ($action === 'view') {
         </article>
         <?php endif; ?>
 
+        <?php if ($anticiposDisponibles): ?>
+        <article class="crm-card anticipos-disp" style="margin-top:1rem">
+            <div class="crm-card__head"><div><h2><i data-lucide="piggy-bank" class="cfg-ic"></i> Anticipos del cliente sin aplicar</h2><p>Dinero que el cliente ya pagó sobre una cotización. Al aplicarlo, entra como cobro de esta factura con la fecha en que se recibió y el mismo número de recibo.</p></div></div>
+            <div class="crm-table-wrap">
+                <table class="crm-table"><thead><tr><th>Recibo</th><th>Cotización</th><th>Fecha</th><th class="text-right">Disponible</th><th class="text-right">Acción</th></tr></thead><tbody>
+                    <?php foreach ($anticiposDisponibles as $ad): $aplicaria = min((float) $ad['pending'], $balance); ?>
+                        <tr>
+                            <td><strong><?= e((string) $ad['receipt_number']) ?></strong></td>
+                            <td><a href="<?= url('crm/cotizaciones.php?action=view&id=' . (int) $ad['quote_id']) ?>"><?= e((string) ($ad['quote_number'] ?? '')) ?></a><?php if (!empty($ad['quote_title'])): ?><br><span style="color:var(--muted);font-size:.78rem"><?= e(mb_strimwidth((string) $ad['quote_title'], 0, 48, '…')) ?></span><?php endif; ?><?php if ((int) ($inv['quote_id'] ?? 0) === (int) $ad['quote_id']): ?> <span class="recibo-multi">de esta factura</span><?php endif; ?></td>
+                            <td><?= e(date_es((string) $ad['paid_at'])) ?></td>
+                            <td class="text-right"><strong><?= money_cur($ad['pending'], $cur) ?></strong></td>
+                            <td class="text-right">
+                                <form method="post" style="display:inline" onsubmit="return confirm('¿Aplicar <?= e(money_cur($aplicaria, $cur)) ?> del anticipo <?= e((string) $ad['receipt_number']) ?> a esta factura?');">
+                                    <?= csrf_field() ?><input type="hidden" name="form" value="anticipo_apply"><input type="hidden" name="id" value="<?= (int) $inv['id'] ?>"><input type="hidden" name="anticipo_id" value="<?= (int) $ad['id'] ?>">
+                                    <button type="submit" class="crm-secondary-btn"><i data-lucide="check" class="h-4 w-4"></i>Aplicar <?= money_cur($aplicaria, $cur) ?></button>
+                                </form>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody></table>
+            </div>
+        </article>
+        <?php endif; ?>
+
         <?php if ($payments): ?>
         <article class="crm-card" id="pagos" style="margin-top:1rem">
             <div class="crm-card__head"><div><h2><i data-lucide="hand-coins" class="cfg-ic"></i> Pagos registrados</h2><p>Cada cobro tiene su recibo de ingreso para entregarle al cliente.<?= $canEditReceipts ? ' Si un recibo salió con un error, corrígelo: queda el motivo y cómo era antes.' : '' ?></p></div></div>
@@ -1121,6 +1178,7 @@ if ($action === 'view') {
                             <td>
                                 <?= $rec !== '' ? '<strong>' . e($rec) . '</strong>' : '<span style="color:var(--muted)" title="Cobro registrado antes de que existiera la numeración de recibos">sin número</span>' ?>
                                 <?php if (count($lineas) > 1): ?><span class="recibo-multi" title="Este recibo reparte un mismo cobro entre varias facturas">cubre <?= count($lineas) ?> facturas</span><?php endif; ?>
+                                <?php if (isset($recibosAnticipo[$rec])): ?><a class="recibo-multi" href="<?= url('crm/cotizaciones.php?action=view&id=' . (int) $recibosAnticipo[$rec]['quote_id']) ?>" title="Anticipo cobrado sobre la cotización y aplicado a esta factura">anticipo · <?= e((string) $recibosAnticipo[$rec]['quote_number']) ?></a><?php endif; ?>
                             </td>
                             <td><?= e(date_es($p['paid_at'])) ?></td>
                             <td><?= e($p['method'] ?: '—') ?></td>
@@ -1558,6 +1616,7 @@ if ($hasInvoices && !$editPayload && ($fromQuote = (int) ($_GET['from_quote'] ??
             'exchange_rate' => (float) ($q['exchange_rate'] ?? 1), 'notes' => 'Generada desde la cotización ' . (string) $q['quote_number'] . '.',
             'discount_value' => $qDiscPct > 0 ? $qDiscPct : round((float) ($q['discount_amount'] ?? 0), 2),
             'discount_mode' => $qDiscPct > 0 ? 'pct' : 'amount',
+            'quote_id' => (int) $q['id'],
             'items' => array_map(fn ($it) => ['d' => $it['description'], 'q' => (float) $it['quantity'], 'p' => (float) $it['unit_price'], 'c' => isset($it['unit_cost']) && $it['unit_cost'] !== null ? (float) $it['unit_cost'] : null, 'pid' => (int) ($it['product_id'] ?? 0) ?: null, 'exempt' => false], $qItems),
         ];
     }
@@ -2017,6 +2076,7 @@ require_once __DIR__ . '/../includes/crm_header.php';
             </div>
             <footer class="crm-modal__foot">
                 <input type="hidden" name="emit_now" value="0">
+                <input type="hidden" name="quote_id" :value="form.quote_id || ''">
                 <button type="button" class="crm-secondary-btn" @click="close()">Cancelar</button>
                 <button type="submit" :class="isProforma() ? 'crm-primary-btn' : 'crm-secondary-btn'" onclick="this.form.emit_now.value='0'"><i data-lucide="save" class="h-4 w-4"></i><span x-text="isProforma() ? (form.id ? 'Guardar proforma' : 'Crear proforma') : (form.id ? 'Guardar cambios' : 'Crear borrador')">Crear borrador</span></button>
                 <button type="submit" class="crm-primary-btn" x-show="!isProforma()" onclick="if(!confirm('Se guardará la factura y se le asignará el NCF de tu secuencia autorizada. Una vez emitida no se puede editar. ¿Continuar?')){return false;} this.form.emit_now.value='1';"><i data-lucide="badge-check" class="h-4 w-4"></i>Guardar y emitir NCF</button>

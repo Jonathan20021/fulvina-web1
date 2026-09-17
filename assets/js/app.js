@@ -851,6 +851,9 @@ window.crmInvoiceModal = function crmInvoiceModal(opts) {
       this.form.client_id = d.client_id || '';
       this.form.title = d.title || '';
       this.form.notes = d.notes || '';
+      // De qué cotización sale: el servidor lo guarda y así los anticipos
+      // cobrados sobre ella se aplican solos al emitir.
+      this.form.quote_id = d.quote_id || '';
       this.currency = d.currency === 'USD' ? 'USD' : 'DOP';
       this.loadLines(d);
       if (d.tax_rate !== undefined && Number(d.tax_rate) >= 0) { this.tax = this.fixQty(d.tax_rate); }
@@ -919,6 +922,35 @@ function schDinero(v, moneda) {
 function schImporte(raw) {
   return window.crmParseAmount(raw);
 }
+
+/* Anticipos de una cotización: el mismo diálogo registra uno nuevo o corrige
+   uno que todavía no se aplicó. El servidor revalida todo. */
+window.anticipoEditor = function anticipoEditor(cfg) {
+  cfg = cfg || {};
+  var vacio = function () { return { id: 0, receipt: '', amount: '', paid_at: cfg.hoy || '', method: 'Transferencia', reference: '', note: '' }; };
+  return {
+    hoy: cfg.hoy || '',
+    a: vacio(),
+    anular: { id: 0, receipt: '', amount: '', paid_at: '' },
+    motivo: '',
+    enviando: false,
+    abrir(id) {
+      this.motivo = '';
+      this.enviando = false;
+      var dlg = document.getElementById(id);
+      if (dlg && !dlg.open) { dlg.showModal(); }
+      this.$nextTick(function () { if (window.schInitIcons) { schInitIcons(); } });
+    },
+    nuevo() { this.a = vacio(); this.abrir('ant-edit'); },
+    editar(d) { this.a = Object.assign(vacio(), d || {}); this.abrir('ant-edit'); },
+    pedirAnular(d) { this.anular = Object.assign({ id: 0, receipt: '', amount: '', paid_at: '' }, d || {}); this.abrir('ant-void'); },
+    valido() {
+      if (schImporte(this.a.amount) <= 0 || !this.a.paid_at) { return false; }
+      if (this.hoy && this.a.paid_at > this.hoy) { return false; }
+      return !this.a.id || this.motivo.trim() !== '';
+    }
+  };
+};
 
 window.reciboEditor = function reciboEditor(moneda) {
   return {

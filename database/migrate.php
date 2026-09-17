@@ -67,7 +67,7 @@ $out('invoices/invoice_items/ncf_sequences + discount_pct: OK');
 ensure_products_schema();
 $out('products + product_id/unit_cost en partidas: OK');
 ensure_cobros_schema();
-$out('historial de recibos + plan de cuotas + ajuste de cartera: OK');
+$out('historial de recibos + plan de cuotas + ajuste de cartera + anticipos: OK');
 ensure_statement_schema();
 $out('estados de cuenta editables: OK');
 
@@ -145,6 +145,7 @@ $checks = [
     ['invoice_installments', 'cumulative'],
     ['invoice_payment_log', 'before_json'],
     ['client_statements', 'excluded_ids'],
+    ['quote_payments', 'receipt_number'],
 ];
 $allOk = true;
 foreach ($checks as [$table, $col]) {

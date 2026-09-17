@@ -2155,7 +2155,23 @@ function invoice_emit(int $invoiceId): array
             invoice_recalc_credited((int) $inv['modifies_invoice_id']);
         }
 
-        return ['ok' => true, 'message' => 'Factura emitida con NCF ' . $ncf . '.', 'ncf' => $ncf];
+        /* Si la factura salió de una cotización con anticipos, se le aplican al
+           emitirla: el cliente ya pagó esa parte y la factura no puede nacer
+           reclamándola. Fuera de la transacción del NCF, como la nota de crédito:
+           el comprobante ya es válido aunque esto fallara, y el anticipo se
+           puede aplicar a mano desde la factura. */
+        $mensaje = 'Factura emitida con NCF ' . $ncf . '.';
+        if ($ownTransaction && function_exists('anticipos_apply_for_invoice')) {
+            $aplicados = anticipos_apply_for_invoice($invoiceId);
+            if ($aplicados) {
+                $mensaje .= ' Se le aplicaron los anticipos de la cotización: ' . implode(', ', array_map(
+                    static fn ($x) => $x[0] . ' (' . money_cur($x[1], (string) ($inv['currency'] ?? 'DOP')) . ')',
+                    $aplicados
+                )) . '.';
+            }
+        }
+
+        return ['ok' => true, 'message' => $mensaje, 'ncf' => $ncf];
     } catch (Throwable $e) {
         if ($ownTransaction && $pdo->inTransaction()) { $pdo->rollBack(); }
         error_log('invoice_emit: ' . $e->getMessage());

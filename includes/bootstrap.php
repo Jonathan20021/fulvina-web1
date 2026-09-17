@@ -28,6 +28,7 @@ require_once __DIR__ . '/dgii.php';
 require_once __DIR__ . '/products.php';
 require_once __DIR__ . '/cobros.php';
 require_once __DIR__ . '/estado_cuenta.php';
+require_once __DIR__ . '/anticipos.php';
 
 // Define APP_* company constants from the editable profile (DB settings → defaults).
 app_define_company();
